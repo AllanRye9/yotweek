@@ -215,30 +215,13 @@ def get_ssl_env() -> dict:
 def _get_yt_extractor_args() -> dict:
     """Build YouTube extractor args with player clients that avoid bot detection.
 
-    Uses the ``android`` and ``tv_embedded`` player clients, which are far less
-    likely to trigger YouTube's "Sign in to confirm you're not a bot" error than
-    the ``ios``/``web`` clients.
-
-    Optionally includes a Proof-of-Origin (PO) token when the
-    ``YOUTUBE_PO_TOKEN`` environment variable is set.  PO tokens are tied to the
-    client they were generated for; this function always pairs the token with the
-    ``android`` client (i.e. ``android+<token>``), which must match how the token
-    was obtained (e.g. via the yt-dlp ``--po-token`` helper or a browser
-    extension such as YouTube-po-token-plugin).
-
-    ``YOUTUBE_VISITOR_DATA`` may optionally be set alongside the PO token to
-    pass the visitor-data string returned by YouTube during token generation.
+    Uses the ``android_vr``, ``web``, and ``web_safari`` player clients, which
+    are the default clients supported by yt-dlp 2026.x and reliably bypass
+    YouTube's bot-detection checks without requiring cookies.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
-    args: dict = {"player_client": ["android", "tv_embedded"]}
-    po_token = os.environ.get("YOUTUBE_PO_TOKEN", "").strip()
-    visitor_data = os.environ.get("YOUTUBE_VISITOR_DATA", "").strip()
-    if po_token:
-        # Token format: "<client>+<token_value>" – must match the client above.
-        args["po_token"] = [f"android+{po_token}"]
-    if visitor_data:
-        args["visitor_data"] = [visitor_data]
+    args: dict = {"player_client": ["android_vr", "web", "web_safari"]}
     return {"youtube": args}
 
 def format_speed(bytes_per_sec) -> str:
@@ -309,8 +292,6 @@ def get_video_info(url: str) -> dict:
         }
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
-        if "Sign in to confirm you're not a bot" in error_msg:
-            error_msg = "YouTube requires authentication. Please provide cookies from a logged-in session."
         return {"error": error_msg}
     except Exception as e:
         return {"error": str(e)}
@@ -319,10 +300,8 @@ def get_video_info(url: str) -> dict:
 # DOWNLOAD WORKER
 # =========================================================
 
-def download_worker(download_id, url, output_template, format_spec, cookies_file=None):
+def download_worker(download_id, url, output_template, format_spec):
     """Background thread for downloading using the yt-dlp Python API"""
-
-    temp_cookies_path = None
 
     def progress_hook(d):
         if d["status"] != "downloading":
@@ -377,19 +356,6 @@ def download_worker(download_id, url, output_template, format_spec, cookies_file
         "no_warnings": True,
     }
 
-    # Handle cookies
-    if cookies_file and cookies_file.strip():
-        if os.path.exists(cookies_file):
-            ydl_opts["cookiefile"] = cookies_file
-        else:
-            temp_cookies_path = os.path.join('/tmp', f'cookies_{download_id}.txt')
-            try:
-                with open(temp_cookies_path, 'w') as f:
-                    f.write(cookies_file)
-                ydl_opts["cookiefile"] = temp_cookies_path
-            except Exception as e:
-                logger.error(f"Failed to write cookies: {e}")
-
     # Add ffmpeg if available
     ffmpeg_path = shutil.which('ffmpeg')
     if ffmpeg_path:
@@ -431,8 +397,6 @@ def download_worker(download_id, url, output_template, format_spec, cookies_file
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
-        if "Sign in to confirm you're not a bot" in error_msg:
-            error_msg = "YouTube requires authentication. Please provide cookies from a logged-in session."
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
@@ -460,12 +424,6 @@ def download_worker(download_id, url, output_template, format_spec, cookies_file
         with downloads_lock:
             if download_id in active_threads:
                 del active_threads[download_id]
-
-        if temp_cookies_path and os.path.exists(temp_cookies_path):
-            try:
-                os.remove(temp_cookies_path)
-            except:
-                pass
 
 # =========================================================
 # ROUTES
@@ -495,7 +453,6 @@ def start_download():
     """Start a download with better error feedback"""
     url = request.form.get("url")
     format_spec = request.form.get("format", "best")
-    cookies = request.form.get("cookies", "")
     
     if not url:
         return jsonify({"error": "URL is required"}), 400
@@ -543,7 +500,7 @@ def start_download():
     # Start download thread
     thread = threading.Thread(
         target=download_worker,
-        args=(download_id, url, output_template, format_spec, cookies),
+        args=(download_id, url, output_template, format_spec),
         daemon=True,
     )
     thread.start()
