@@ -321,6 +321,71 @@
             from { opacity: 0; transform: translateX(-8px); }
             to   { opacity: 1; transform: translateX(0); }
         }
+
+        /* ── Retention pop-up ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 3000;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal-box {
+            background: white;
+            border-radius: 14px;
+            padding: 36px 30px 28px;
+            max-width: 440px;
+            width: 92%;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+            text-align: center;
+            animation: slideUp 0.3s ease-out;
+        }
+        .modal-icon { font-size: 2.8rem; color: #f59e0b; margin-bottom: 14px; }
+        .modal-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            color: #1e293b;
+            margin-bottom: 8px;
+        }
+        .modal-message { color: #64748b; font-size: 0.95rem; margin-bottom: 6px; }
+        .modal-filename {
+            font-weight: 600;
+            color: #2c3e50;
+            word-break: break-all;
+            font-size: 0.95rem;
+            margin-bottom: 24px;
+            padding: 8px 14px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            display: block;
+        }
+        .modal-actions { display: flex; gap: 12px; justify-content: center; }
+        .btn-modal-keep {
+            padding: 10px 26px;
+            background: #ecf0f1;
+            color: #2c3e50;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-modal-keep:hover { background: #dde1e7; }
+        .btn-modal-delete {
+            padding: 10px 26px;
+            background: #dc2626;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-modal-delete:hover { background: #b91c1c; }
     </style>
 </head>
 <body>
@@ -332,6 +397,24 @@
 
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
+
+    <!-- 3-minute retention pop-up -->
+    <div class="modal-overlay" id="retention-modal" role="dialog" aria-modal="true" aria-labelledby="retention-modal-title">
+        <div class="modal-box">
+            <div class="modal-icon"><i class="fas fa-clock"></i></div>
+            <div class="modal-title" id="retention-modal-title">Still keeping this video?</div>
+            <p class="modal-message">This file has been waiting for 3 minutes:</p>
+            <span class="modal-filename" id="retention-filename"></span>
+            <div class="modal-actions">
+                <button class="btn-modal-keep" id="retention-keep-btn">
+                    <i class="fas fa-check"></i> Keep
+                </button>
+                <button class="btn-modal-delete" id="retention-delete-btn">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+            </div>
+        </div>
+    </div>
 
     <div class="container">
         <header style="text-align:center; margin-bottom:24px; padding-top:10px;">
@@ -585,6 +668,98 @@
                 .replace(/"/g,'&quot;');
         }
 
+        // ─── 3-minute retention popup ─────────────────────────────
+        const POPUP_DELAY_MS = 3 * 60 * 1000; // 3 minutes
+        const fileFirstSeen  = new Map();      // filename -> timestamp (ms)
+        const popupDismissed = new Set();      // files the user chose to keep
+        const popupQueue     = [];             // filenames waiting for popup (ordered)
+        const popupQueued    = new Set();      // O(1) existence check for popupQueue
+        let   popupActive    = false;
+
+        function trackNewFiles(files) {
+            const now      = Date.now();
+            const existing = new Set(files.map(f => f.name));
+
+            // Prune files that were deleted externally
+            for (const name of fileFirstSeen.keys()) {
+                if (!existing.has(name)) {
+                    fileFirstSeen.delete(name);
+                    // Allow the popup to fire again if the same filename reappears
+                    popupDismissed.delete(name);
+                }
+            }
+
+            // Record first-seen time for genuinely new files
+            files.forEach(f => {
+                if (!fileFirstSeen.has(f.name) && !popupDismissed.has(f.name)) {
+                    fileFirstSeen.set(f.name, now);
+                }
+            });
+        }
+
+        function checkFileAges() {
+            const now = Date.now();
+            for (const [name, seen] of fileFirstSeen) {
+                if (now - seen >= POPUP_DELAY_MS && !popupDismissed.has(name)) {
+                    if (!popupQueued.has(name)) {
+                        popupQueue.push(name);
+                        popupQueued.add(name);
+                    }
+                }
+            }
+            if (!popupActive && popupQueue.length > 0) {
+                const next = popupQueue.shift();
+                popupQueued.delete(next);
+                showRetentionPopup(next);
+            }
+        }
+
+        function showRetentionPopup(filename) {
+            popupActive = true;
+            const modal      = document.getElementById('retention-modal');
+            const nameEl     = document.getElementById('retention-filename');
+            const deleteBtn  = document.getElementById('retention-delete-btn');
+            nameEl.textContent = filename;
+            modal.style.display = 'flex';
+
+            document.getElementById('retention-keep-btn').onclick = () => {
+                popupDismissed.add(filename);
+                closeRetentionPopup();
+            };
+
+            deleteBtn.onclick = async () => {
+                deleteBtn.disabled = true;
+                await deleteFile(filename, null, true);
+                deleteBtn.disabled = false;
+                closeRetentionPopup();
+            };
+        }
+
+        function closeRetentionPopup() {
+            popupActive = false;
+            document.getElementById('retention-modal').style.display = 'none';
+            // Show next queued popup after a short pause
+            if (popupQueue.length > 0) {
+                const next = popupQueue.shift();
+                popupQueued.delete(next);
+                setTimeout(() => showRetentionPopup(next), 400);
+            }
+        }
+
+        // Close popup via Escape key (treat as "Keep")
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && popupActive) {
+                document.getElementById('retention-keep-btn').click();
+            }
+        });
+
+        // Close popup when clicking the overlay backdrop (treat as "Keep")
+        document.getElementById('retention-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('retention-modal')) {
+                document.getElementById('retention-keep-btn').click();
+            }
+        });
+
         // ─── Download form ────────────────────────────────────────
         document.getElementById('download-form').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -666,6 +841,10 @@
                     return;
                 }
 
+                // Track file ages and trigger 3-min popup if due
+                trackNewFiles(files);
+                checkFileAges();
+
                 list.innerHTML = '';
                 files.forEach((file, idx) => {
                     const li   = document.createElement('li');
@@ -715,14 +894,21 @@
             await deleteFile(filename, btn);
         });
 
-        async function deleteFile(filename, btn) {
-            if (!confirm(`Delete "${filename}"?`)) return;
-            btn.disabled = true;
+        async function deleteFile(filename, btn, skipConfirm = false) {
+            if (!skipConfirm && !confirm(`Delete "${filename}"?`)) return;
+            if (btn) btn.disabled = true;
             try {
                 const res = await fetch('/delete/' + encodeURIComponent(filename), { method: 'DELETE' });
                 const data = await res.json();
                 if (res.ok && data.success) {
                     showToast('File deleted', 'success');
+                    // Remove all tracking for this filename so it is treated as fresh
+                    // if a file with the same name is downloaded again.
+                    fileFirstSeen.delete(filename);
+                    popupDismissed.delete(filename);
+                    // Remove from queue if it was already scheduled to prompt
+                    const qIdx = popupQueue.indexOf(filename);
+                    if (qIdx !== -1) { popupQueue.splice(qIdx, 1); popupQueued.delete(filename); }
                     loadFiles(true);
                     updateStatsBadge();
                 } else {
@@ -731,7 +917,7 @@
             } catch (err) {
                 showToast('Delete failed: ' + err.message, 'error');
             } finally {
-                btn.disabled = false;
+                if (btn) btn.disabled = false;
             }
         }
 
@@ -740,6 +926,7 @@
         loadFiles(true);
 
         // Auto-refresh the file list every 30 seconds so deletions appear automatically
+        // and so the 3-minute retention check is re-evaluated regularly.
         setInterval(() => {
             loadFiles(false);
             updateStatsBadge();
