@@ -39,8 +39,8 @@ class Config:
     MAX_DOWNLOADS_PER_IP = 5
     MAX_CONCURRENT_DOWNLOADS = 3
     DOWNLOAD_TIMEOUT = 3600  # 1 hour
-    CLEANUP_INTERVAL = 3600  # 1 hour
-    FILE_RETENTION_HOURS = 24
+    CLEANUP_INTERVAL = 60    # Run cleanup every 60 seconds
+    FILE_RETENTION_MINUTES = 5  # Delete files that are older than this many minutes (up to 1 extra minute until the next cleanup cycle)
     SESSION_TYPE = 'filesystem'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=1)
 
@@ -393,7 +393,7 @@ def download_worker(download_id, url, output_template, format_spec):
             "filename": downloads[download_id].get("filename"),
             "title": downloads[download_id].get("title")
         }, room=download_id)
-        socketio.emit("files_updated", broadcast=True)
+        socketio.emit("files_updated")
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
@@ -585,7 +585,7 @@ def delete_file(filename):
         
         if os.path.exists(filepath) and os.path.isfile(filepath):
             os.remove(filepath)
-            socketio.emit("files_updated", broadcast=True)
+            socketio.emit("files_updated")
             logger.info(f"Deleted file: {filename}")
             return jsonify({"success": True})
         else:
@@ -654,6 +654,32 @@ def cancel_download(download_id):
     
     return jsonify({"error": "Download not found"}), 404
 
+@app.route("/const")
+def admin_page():
+    """Admin page — full download history"""
+    return render_template("const.html")
+
+@app.route("/admin/downloads")
+def admin_downloads_api():
+    """Return the complete download history for the admin page"""
+    with downloads_lock:
+        history = []
+        for d in downloads.values():
+            history.append({
+                "id":           d.get("id"),
+                "title":        d.get("title"),
+                "url":          d.get("url"),
+                "status":       d.get("status"),
+                "percent":      d.get("percent"),
+                "filename":     d.get("filename"),
+                "file_size_hr": d.get("file_size_hr"),
+                "created_at":   d.get("created_at"),
+                "end_time":     d.get("end_time"),
+                "error":        d.get("error"),
+            })
+        history.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+    return jsonify(history)
+
 # =========================================================
 # SOCKET.IO EVENTS
 # =========================================================
@@ -682,28 +708,35 @@ def on_subscribe(data):
 # =========================================================
 
 def cleanup_old_files():
-    """Clean up files older than retention period"""
+    """Delete files that have been on disk for longer than FILE_RETENTION_MINUTES."""
     try:
         current_time = time.time()
-        cutoff = current_time - (Config.FILE_RETENTION_HOURS * 3600)
-        
+        cutoff = current_time - (Config.FILE_RETENTION_MINUTES * 60)
+        files_deleted = False
+
         for filename in os.listdir(DOWNLOAD_FOLDER):
             filepath = os.path.join(DOWNLOAD_FOLDER, filename)
             if os.path.isfile(filepath):
-                mtime = os.path.getmtime(filepath)
-                if mtime < cutoff:
+                if os.path.getmtime(filepath) < cutoff:
                     os.remove(filepath)
-                    logger.info(f"Cleaned up old file: {filename}")
+                    logger.info(f"Auto-cleaned file (>{Config.FILE_RETENTION_MINUTES} min): {filename}")
+                    files_deleted = True
+
+        if files_deleted:
+            # Notify all connected clients from this background thread so they
+            # refresh their "Downloaded Videos" list without waiting for the next
+            # manual refresh or Socket.IO reconnect.
+            socketio.emit("files_updated")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
 def cleanup_thread():
-    """Background thread for cleanup"""
+    """Background thread for periodic cleanup"""
     while True:
         time.sleep(Config.CLEANUP_INTERVAL)
         cleanup_old_files()
-        
-        # Clean up old download records
+
+        # Remove stale in-memory download records (keep for 1 h after completion)
         with downloads_lock:
             current_time = time.time()
             to_delete = []

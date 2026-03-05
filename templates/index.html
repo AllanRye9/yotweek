@@ -738,6 +738,12 @@
         // ─── Init ─────────────────────────────────────────────────
         updateStatsBadge();
         loadFiles(true);
+
+        // Auto-refresh the file list every 30 seconds so deletions appear automatically
+        setInterval(() => {
+            loadFiles(false);
+            updateStatsBadge();
+        }, 30000);
     </script>
 </body>
 </html>

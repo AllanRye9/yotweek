@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Download History | YOT Downloader</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            color: #333;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
+
+        header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        header h1 {
+            font-size: 1.9rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        header p { color: #64748b; margin-top: 4px; font-size: 0.95rem; }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+        }
+        .back-link:hover { text-decoration: underline; }
+
+        /* ── Card ── */
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 20px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .card-header span { display: flex; align-items: center; gap: 8px; }
+        .card-body { padding: 20px; }
+
+        /* ── Refresh button ── */
+        .btn-refresh {
+            padding: 7px 14px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 5px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        .btn-refresh:hover { background: rgba(255,255,255,0.3); }
+
+        /* ── Summary counters ── */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .summary-tile {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            padding: 18px 20px;
+            text-align: center;
+        }
+        .summary-tile .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #667eea;
+        }
+        .summary-tile .label {
+            font-size: 0.82rem;
+            color: #6b7280;
+            margin-top: 2px;
+        }
+
+        /* ── Status badge ── */
+        .badge {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .badge-completed  { background: #d1fae5; color: #065f46; }
+        .badge-failed     { background: #fee2e2; color: #991b1b; }
+        .badge-cancelled  { background: #f3f4f6; color: #374151; }
+        .badge-queued     { background: #dbeafe; color: #1e40af; }
+        .badge-downloading{ background: #ede9fe; color: #5b21b6; }
+
+        /* ── Table ── */
+        .dl-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+        }
+        .dl-table th {
+            background: #f8fafc;
+            color: #4b5563;
+            font-weight: 600;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 2px solid #e8ecf0;
+        }
+        .dl-table td {
+            padding: 11px 12px;
+            border-bottom: 1px solid #f1f3f6;
+            vertical-align: middle;
+        }
+        .dl-table tr:last-child td { border-bottom: none; }
+        .dl-table tr:hover td { background: #f8f9ff; }
+        .dl-table .title-cell {
+            max-width: 280px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .dl-table .url-cell {
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dl-table .url-cell a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 0.82rem;
+        }
+        .dl-table .url-cell a:hover { text-decoration: underline; }
+        .dl-table .time-cell { color: #6b7280; font-size: 0.82rem; white-space: nowrap; }
+        .progress-mini {
+            background: #e8ecf0;
+            border-radius: 999px;
+            height: 6px;
+            overflow: hidden;
+            width: 80px;
+        }
+        .progress-mini-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            border-radius: 999px;
+        }
+
+        /* ── Empty state ── */
+        .empty-state {
+            text-align: center;
+            color: #95a5a6;
+            padding: 40px 20px;
+        }
+        .empty-state i { font-size: 2.4rem; margin-bottom: 12px; display: block; opacity: 0.4; }
+
+        /* ── Auto-refresh indicator ── */
+        #refresh-info {
+            font-size: 0.8rem;
+            color: #9ca3af;
+            text-align: right;
+            margin-top: 10px;
+        }
+
+        @media (max-width: 700px) {
+            .dl-table .url-cell,
+            .dl-table .time-cell { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back to Downloader</a>
+
+        <header>
+            <h1><i class="fas fa-shield-alt" style="color:#667eea;"></i> Admin — Download History</h1>
+            <p>Full record of all download activity on this server</p>
+        </header>
+
+        <!-- Summary tiles -->
+        <div class="summary-grid" id="summary-grid">
+            <div class="summary-tile">
+                <div class="value" id="s-total">—</div>
+                <div class="label">Total Jobs</div>
+            </div>
+            <div class="summary-tile">
+                <div class="value" id="s-completed" style="color:#10b981;">—</div>
+                <div class="label">Completed</div>
+            </div>
+            <div class="summary-tile">
+                <div class="value" id="s-active" style="color:#7c3aed;">—</div>
+                <div class="label">In Progress</div>
+            </div>
+            <div class="summary-tile">
+                <div class="value" id="s-failed" style="color:#ef4444;">—</div>
+                <div class="label">Failed / Cancelled</div>
+            </div>
+        </div>
+
+        <!-- Download history table -->
+        <div class="card">
+            <div class="card-header">
+                <span><i class="fas fa-list-alt"></i> Download Records</span>
+                <button class="btn-refresh" onclick="loadHistory(true)">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+            <div class="card-body">
+                <div id="table-wrap">
+                    <div class="empty-state">
+                        <i class="fas fa-hourglass-half"></i>
+                        <p>Loading history…</p>
+                    </div>
+                </div>
+                <div id="refresh-info"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function escHtml(str) {
+            return String(str || '')
+                .replace(/&/g,'&amp;')
+                .replace(/</g,'&lt;')
+                .replace(/>/g,'&gt;')
+                .replace(/"/g,'&quot;');
+        }
+
+        function fmtTime(ts) {
+            if (!ts) return '—';
+            return new Date(ts * 1000).toLocaleString();
+        }
+
+        function badgeHtml(status) {
+            const cls = {
+                completed:   'badge-completed',
+                failed:      'badge-failed',
+                cancelled:   'badge-cancelled',
+                queued:      'badge-queued',
+                downloading: 'badge-downloading',
+            }[status] || 'badge-queued';
+            const icon = {
+                completed:   'fa-check-circle',
+                failed:      'fa-times-circle',
+                cancelled:   'fa-ban',
+                queued:      'fa-clock',
+                downloading: 'fa-spinner fa-spin',
+            }[status] || 'fa-circle';
+            return `<span class="badge ${cls}"><i class="fas ${icon}"></i> ${escHtml(status)}</span>`;
+        }
+
+        async function loadHistory(manual = false) {
+            const wrap = document.getElementById('table-wrap');
+            try {
+                const res  = await fetch(`/admin/downloads?t=${Date.now()}`);
+                const data = await res.json();
+
+                // Update summary tiles
+                const total     = data.length;
+                const completed = data.filter(d => d.status === 'completed').length;
+                const active    = data.filter(d => ['queued','downloading'].includes(d.status)).length;
+                const failed    = data.filter(d => ['failed','cancelled'].includes(d.status)).length;
+
+                document.getElementById('s-total').textContent     = total;
+                document.getElementById('s-completed').textContent = completed;
+                document.getElementById('s-active').textContent    = active;
+                document.getElementById('s-failed').textContent    = failed;
+
+                if (data.length === 0) {
+                    wrap.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-inbox"></i>
+                            <p>No download records yet</p>
+                        </div>`;
+                    return;
+                }
+
+                let rows = '';
+                data.forEach(d => {
+                    const pct      = Math.min(100, d.percent || 0);
+                    const progBar  = d.status === 'downloading'
+                        ? `<div class="progress-mini"><div class="progress-mini-fill" style="width:${pct}%"></div></div>`
+                        : '';
+                    const fileInfo = d.filename
+                        ? `<span style="color:#6b7280;font-size:0.8rem;">${escHtml(d.filename)}${d.file_size_hr ? ' &bull; ' + escHtml(d.file_size_hr) : ''}</span>`
+                        : (d.error ? `<span style="color:#ef4444;font-size:0.8rem;" title="${escHtml(d.error)}">Error — see logs</span>` : '');
+
+                    rows += `
+                    <tr>
+                        <td class="title-cell" title="${escHtml(d.title)}">${escHtml(d.title || '—')}</td>
+                        <td class="url-cell"><a href="${escHtml(d.url || '#')}" target="_blank" rel="noopener">${escHtml(d.url || '—')}</a></td>
+                        <td>${badgeHtml(d.status)} ${progBar}</td>
+                        <td>${fileInfo}</td>
+                        <td class="time-cell">${fmtTime(d.created_at)}</td>
+                        <td class="time-cell">${fmtTime(d.end_time)}</td>
+                    </tr>`;
+                });
+
+                wrap.innerHTML = `
+                    <table class="dl-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Source URL</th>
+                                <th>Status</th>
+                                <th>File</th>
+                                <th>Started</th>
+                                <th>Finished</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>`;
+
+                document.getElementById('refresh-info').textContent =
+                    `Last refreshed: ${new Date().toLocaleTimeString()} — auto-refreshes every 30 seconds`;
+            } catch (err) {
+                wrap.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Could not load history: ${escHtml(err.message)}</p>
+                    </div>`;
+            }
+        }
+
+        // Initial load and auto-refresh every 30 s
+        loadHistory();
+        setInterval(() => loadHistory(), 30000);
+    </script>
+</body>
+</html>
