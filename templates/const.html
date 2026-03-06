@@ -575,14 +575,40 @@
                     </div>
                     <div class="inner-card-body" id="chart-browsers"></div>
                 </div>
+
+                <!-- Downloads per day -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128462; Downloads per Day (last 14 days)</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-dl-daily"></div>
+                </div>
+
+                <!-- Downloads by country -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#127760; Downloads by Country</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-dl-countries"></div>
+                </div>
             </div>
 
             <!-- Country detail list -->
             <div class="inner-card">
                 <div class="inner-card-header">
-                    <span><i class="fas fa-flag"></i> Top Countries Detail</span>
+                    <span><i class="fas fa-flag"></i> Top Countries Detail (Visitors)</span>
                 </div>
                 <div class="inner-card-body" id="country-list-wrap">
+                    <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
+                </div>
+            </div>
+
+            <!-- Downloads country detail list -->
+            <div class="inner-card">
+                <div class="inner-card-header">
+                    <span><i class="fas fa-globe"></i> Top Countries Detail (Downloads)</span>
+                </div>
+                <div class="inner-card-body" id="dl-country-list-wrap">
                     <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
                 </div>
             </div>
@@ -658,6 +684,9 @@
             renderStatusChart();
             renderBrowserChart();
             renderCountryList();
+            renderDlDailyChart();
+            renderDlCountryChart();
+            renderDlCountryList();
         }
 
         // Helper: build a CSS horizontal bar chart inside `el`
@@ -801,6 +830,61 @@
             }).join('');
         }
 
+        function renderDlDailyChart() {
+            const counts = {};
+            dlData.forEach(d => {
+                if (!d.created_at) return;
+                const dt = new Date(d.created_at * 1000).toLocaleDateString('en-US', {month:'short', day:'numeric'});
+                counts[dt] = (counts[dt] || 0) + 1;
+            });
+            const items = [];
+            for (let i = 13; i >= 0; i--) {
+                const dt = new Date();
+                dt.setDate(dt.getDate() - i);
+                const lbl = dt.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+                items.push({ label: lbl, value: counts[lbl] || 0 });
+            }
+            cssBarChart(document.getElementById('chart-dl-daily'), items, '#10b981');
+        }
+
+        function renderDlCountryChart() {
+            const counts = {};
+            dlData.forEach(d => {
+                const c = d.country || 'Unknown';
+                counts[c] = (counts[c] || 0) + 1;
+            });
+            const items = Object.entries(counts)
+                .sort((a,b)=>b[1]-a[1]).slice(0,8)
+                .map(([label, value]) => ({ label, value }));
+            svgDonut(document.getElementById('chart-dl-countries'), items,
+                ['#10b981','#667eea','#f59e0b','#ef4444','#7c3aed','#3b82f6','#f97316','#a855f7']);
+        }
+
+        function renderDlCountryList() {
+            const wrap = document.getElementById('dl-country-list-wrap');
+            const counts = {};
+            dlData.forEach(d => {
+                const key = (d.country || 'Unknown') + '||' + (d.country_code || '');
+                counts[key] = (counts[key] || 0) + 1;
+            });
+            const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            if (!sorted.length) {
+                wrap.innerHTML = '<div class="empty-state">&#127760;<p>No download data yet</p></div>';
+                return;
+            }
+            const max = sorted[0][1];
+            wrap.innerHTML = sorted.map(([key, cnt]) => {
+                const [country, code] = key.split('||');
+                const flag = countryFlag(code);
+                const pct = Math.round(cnt / max * 100);
+                return `<div class="country-bar">
+                    <div class="country-name">${flag ? flag + ' ' : ''}${esc(country)}</div>
+                    <div class="country-track"><div class="country-fill" style="width:${pct}%;background:linear-gradient(90deg,#10b981,#059669);"></div></div>
+                    <div class="country-count">${cnt}</div>
+                </div>`;
+            }).join('');
+        }
+
         // ── Download table ─────────────────────────────────────────
         function renderDownloads() {
             const wrap = document.getElementById('dl-table-wrap');
@@ -829,12 +913,17 @@
                 const file = d.filename
                     ? `<span style="color:#6b7280;font-size:0.8rem;">${esc(d.filename)}${d.file_size_hr ? ' &bull; ' + esc(d.file_size_hr) : ''}</span>`
                     : (d.error ? `<span style="color:#ef4444;font-size:0.8rem;" title="${esc(d.error)}">Error</span>` : '');
+                const flag = countryFlag(d.country_code);
+                const countryDisplay = d.country
+                    ? `${flag ? flag + '\u00A0' : ''}${esc(d.country)}`
+                    : `<span style="color:#9ca3af;">—</span>`;
                 return `<tr>
                     <td class="col-title" title="${esc(d.title)}">${esc(d.title || '—')}</td>
                     <td class="col-url hide-xs"><a href="${esc(d.url || '#')}" target="_blank" rel="noopener">${esc(d.url || '—')}</a></td>
                     <td>${badgeHtml(d.status)}${prog}</td>
                     <td class="hide-xs">${file}</td>
                     <td class="col-ip hide-xs">${esc(d.ip || '—')}</td>
+                    <td class="hide-xs">${countryDisplay}</td>
                     <td class="col-time hide-xs">${fmtTime(d.created_at)}</td>
                     <td class="col-time hide-xs">${fmtTime(d.end_time)}</td>
                 </tr>`;
@@ -847,6 +936,7 @@
                     <th>Status</th>
                     <th class="hide-xs">File</th>
                     <th class="hide-xs">IP</th>
+                    <th class="hide-xs">Country</th>
                     <th class="hide-xs">Started</th>
                     <th class="hide-xs">Finished</th>
                 </tr></thead>

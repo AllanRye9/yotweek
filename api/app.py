@@ -248,6 +248,12 @@ def _lookup_country_async(ip: str):
             if v.get("ip") == ip and not v.get("country"):
                 v["country"] = country
                 v["country_code"] = code
+    # Back-fill any download records that are waiting for this IP's country
+    with downloads_lock:
+        for d in downloads.values():
+            if d.get("ip") == ip and not d.get("country"):
+                d["country"] = country
+                d["country_code"] = code
     _schedule_visitor_save()
 
 
@@ -336,13 +342,20 @@ def get_ssl_env() -> dict:
 def _get_yt_extractor_args() -> dict:
     """Build YouTube extractor args with player clients that avoid bot detection.
 
-    Uses the ``android_vr``, ``web``, and ``web_safari`` player clients, which
-    are the default clients supported by yt-dlp 2026.x and reliably bypass
-    YouTube's bot-detection checks without requiring cookies.
+    Uses the ``ios``, ``mweb``, and ``tv_embedded`` player clients in preference
+    order. These clients use separate API endpoints that are not subject to the
+    same bot-detection checks as the regular web player, avoiding HTTP 403
+    errors without requiring cookies or a PO token.
+
+    ``player_skip: webpage`` tells yt-dlp not to fetch the YouTube watch page at
+    all, which further reduces the chance of triggering bot-detection guards.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
-    args: dict = {"player_client": ["android_vr", "web", "web_safari"]}
+    args: dict = {
+        "player_client": ["ios", "mweb", "tv_embedded", "web"],
+        "player_skip": ["webpage"],
+    }
     return {"youtube": args}
 
 def format_speed(bytes_per_sec) -> str:
@@ -362,6 +375,13 @@ def format_eta(seconds) -> str:
     m, s = divmod(int(seconds), 60)
     return f"{m}:{s:02d}"
 
+_CHROME_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
+
 def get_video_info(url: str) -> dict:
     """Get video information without downloading, using the yt-dlp Python API"""
     try:
@@ -370,14 +390,13 @@ def get_video_info(url: str) -> dict:
             "no_warnings": True,
             "noplaylist": True,
             "extractor_args": _get_yt_extractor_args(),
-            "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            },
+            "http_headers": {"User-Agent": _CHROME_UA},
             "extractor_retries": 5,
             "retries": 5,
             "sleep_requests": 1,
             "sleep_interval": 5,
             "max_sleep_interval": 10,
+            "geo_bypass": True,
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -464,14 +483,13 @@ def download_worker(download_id, url, output_template, format_spec):
         "outtmpl": output_template,
         "noplaylist": True,
         "extractor_args": _get_yt_extractor_args(),
-        "http_headers": {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        },
+        "http_headers": {"User-Agent": _CHROME_UA},
         "extractor_retries": 5,
         "retries": 5,
         "sleep_requests": 1,
         "sleep_interval": 5,
         "max_sleep_interval": 10,
+        "geo_bypass": True,
         "progress_hooks": [progress_hook],
         "quiet": True,
         "no_warnings": True,
@@ -607,6 +625,8 @@ def start_download():
     output_template = os.path.join(DOWNLOAD_FOLDER, f"{safe_title}.%(ext)s")
     
     # Store download info
+    ip = request.remote_addr
+    cached_geo = ip_country_cache.get(ip, {})
     with downloads_lock:
         downloads[download_id] = {
             "id": download_id,
@@ -619,9 +639,16 @@ def start_download():
             "format": format_spec,
             "created_at": time.time(),
             "filename": None,
-            "ip": request.remote_addr,
+            "ip": ip,
+            "country": cached_geo.get("country", ""),
+            "country_code": cached_geo.get("code", ""),
             "info_error": info.get("error") if info and "error" in info else None
         }
+    # Resolve the requester's country in background if not already cached
+    if ip not in ip_country_cache:
+        threading.Thread(
+            target=_lookup_country_async, args=(ip,), daemon=True
+        ).start()
     
     # Start download thread
     thread = threading.Thread(
@@ -833,6 +860,8 @@ def admin_downloads_api():
                 "end_time":     d.get("end_time"),
                 "error":        d.get("error"),
                 "ip":           d.get("ip"),
+                "country":      d.get("country", ""),
+                "country_code": d.get("country_code", ""),
             })
         history.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
     return jsonify(history)
