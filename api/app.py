@@ -8,6 +8,7 @@ import uuid
 import shutil
 import json
 import logging
+import sqlite3
 import certifi
 import yt_dlp
 from pathlib import Path
@@ -27,6 +28,7 @@ from flask import (
 from flask_socketio import SocketIO, emit, join_room
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.security import generate_password_hash, check_password_hash
 
 # =========================================================
 # PRODUCTION CONFIGURATION
@@ -135,12 +137,34 @@ ip_country_cache = {}     # ip -> {"country": str, "code": str}
 
 # Paths for persistent storage
 DATA_DIR = os.path.join(ROOT_DIR, "data")
-DOWNLOADS_PERSISTENCE_FILE = os.path.join(DATA_DIR, "downloads.json")
-VISITORS_FILE = os.path.join(DATA_DIR, "visitors.json")
+DB_PATH = os.path.join(DATA_DIR, "admin.db")
 os.makedirs(DATA_DIR, exist_ok=True)
 
 # Route name for the admin page (used in before_request tracking)
 ADMIN_PAGE_PATH = "/const"
+
+# =========================================================
+# ISO 3166-1 ALPHA-2 → COUNTRY NAME LOOKUP
+# =========================================================
+
+_ISO2_TO_NAME: dict[str, str] = {
+    "US": "United States", "GB": "United Kingdom", "DE": "Germany",
+    "FR": "France", "IN": "India", "CN": "China", "RU": "Russia",
+    "CA": "Canada", "AU": "Australia", "BR": "Brazil", "JP": "Japan",
+    "KR": "South Korea", "NL": "Netherlands", "SE": "Sweden",
+    "NO": "Norway", "PL": "Poland", "IT": "Italy", "ES": "Spain",
+    "MX": "Mexico", "ZA": "South Africa", "NG": "Nigeria",
+    "KE": "Kenya", "GH": "Ghana", "EG": "Egypt", "PK": "Pakistan",
+    "ID": "Indonesia", "TH": "Thailand", "VN": "Vietnam",
+    "PH": "Philippines", "TR": "Turkey", "AR": "Argentina",
+    "CO": "Colombia", "CL": "Chile", "PE": "Peru",
+    "UA": "Ukraine", "BE": "Belgium", "CH": "Switzerland",
+    "AT": "Austria", "PT": "Portugal", "FI": "Finland",
+    "DK": "Denmark", "CZ": "Czech Republic", "RO": "Romania",
+    "HU": "Hungary", "SG": "Singapore", "MY": "Malaysia",
+    "NZ": "New Zealand", "IR": "Iran", "SA": "Saudi Arabia",
+    "AE": "United Arab Emirates", "IL": "Israel",
+}
 
 # =========================================================
 # SSL CERTIFICATE FIX
@@ -150,52 +174,200 @@ os.environ['SSL_CERT_FILE'] = certifi.where()
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 
 # =========================================================
-# PERSISTENCE HELPERS
+# SQLITE PERSISTENCE
 # =========================================================
 
+_db_lock = threading.Lock()
+
+
+def _get_db():
+    """Open a short-lived SQLite connection for the calling thread.
+
+    Callers hold _db_lock and immediately close the connection after use,
+    so each connection is used by exactly one thread — check_same_thread is
+    not needed.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+def init_db():
+    """Create tables if they don't exist."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS downloads (
+                    id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS visitors (
+                    rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+                    data TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS admin_users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL
+                );
+            """)
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def admin_user_exists() -> bool:
+    """Return True if at least one admin account is registered."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            row = conn.execute("SELECT COUNT(*) FROM admin_users").fetchone()
+            return row[0] > 0
+        finally:
+            conn.close()
+
+
+def register_admin_user(username: str, password: str) -> tuple[bool, str]:
+    """Register admin. Returns (success, error_message).
+
+    Passwords are stored using werkzeug's PBKDF2-HMAC-SHA256 implementation
+    which includes a per-user salt and iteration count.
+    """
+    if admin_user_exists():
+        return False, "User already exists"
+    ph = generate_password_hash(password)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            conn.execute(
+                "INSERT INTO admin_users (username, password_hash) VALUES (?, ?)",
+                (username, ph),
+            )
+            conn.commit()
+            return True, ""
+        except sqlite3.IntegrityError:
+            return False, "User already exists"
+        finally:
+            conn.close()
+
+
+def verify_admin_user(username: str, password: str) -> bool:
+    """Check username+password against the stored hash."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            row = conn.execute(
+                "SELECT password_hash FROM admin_users WHERE username=?",
+                (username,),
+            ).fetchone()
+        finally:
+            conn.close()
+    if row is None:
+        return False
+    return check_password_hash(row["password_hash"], password)
+
+
 def load_persistence():
-    """Load downloads and visitors from disk on startup."""
+    """Load downloads and visitors from SQLite on startup."""
     global downloads, visitors
-    # Downloads
-    if os.path.exists(DOWNLOADS_PERSISTENCE_FILE):
+    # Migrate legacy JSON files into SQLite (one-time migration)
+    _migrate_json_to_sqlite()
+
+    with _db_lock:
+        conn = _get_db()
         try:
-            with open(DOWNLOADS_PERSISTENCE_FILE, "r") as fh:
-                saved = json.load(fh)
-            with downloads_lock:
-                downloads.update(saved)
-            logger.info(f"Loaded {len(saved)} download records from disk")
-        except Exception as exc:
-            logger.error(f"Could not load persisted downloads: {exc}")
-    # Visitors
-    if os.path.exists(VISITORS_FILE):
-        try:
-            with open(VISITORS_FILE, "r") as fh:
-                saved = json.load(fh)
-            with visitors_lock:
-                visitors.extend(saved)
-            logger.info(f"Loaded {len(saved)} visitor records from disk")
-        except Exception as exc:
-            logger.error(f"Could not load persisted visitors: {exc}")
+            rows = conn.execute("SELECT id, data FROM downloads").fetchall()
+            saved_dl = {r["id"]: json.loads(r["data"]) for r in rows}
+            rows_v = conn.execute("SELECT data FROM visitors ORDER BY rowid").fetchall()
+            saved_v = [json.loads(r["data"]) for r in rows_v]
+        finally:
+            conn.close()
+
+    with downloads_lock:
+        downloads.update(saved_dl)
+    with visitors_lock:
+        visitors.extend(saved_v)
+    logger.info(f"Loaded {len(saved_dl)} download records and {len(saved_v)} visitor records from SQLite")
+
+
+def _migrate_json_to_sqlite():
+    """One-time migration: import legacy JSON persistence files into SQLite."""
+    legacy_dl = os.path.join(DATA_DIR, "downloads.json")
+    legacy_v = os.path.join(DATA_DIR, "visitors.json")
+    conn = _get_db()
+    try:
+        if os.path.exists(legacy_dl):
+            try:
+                with open(legacy_dl) as fh:
+                    data = json.load(fh)
+                for did, d in data.items():
+                    conn.execute(
+                        "INSERT OR IGNORE INTO downloads (id, data) VALUES (?, ?)",
+                        (did, json.dumps(d, default=str)),
+                    )
+                conn.commit()
+                os.rename(legacy_dl, legacy_dl + ".migrated")
+                logger.info(f"Migrated {len(data)} download records from JSON to SQLite")
+            except Exception as exc:
+                logger.error(f"JSON→SQLite migration failed for downloads: {exc}")
+        if os.path.exists(legacy_v):
+            try:
+                with open(legacy_v) as fh:
+                    data = json.load(fh)
+                for v in data:
+                    conn.execute(
+                        "INSERT INTO visitors (data) VALUES (?)",
+                        (json.dumps(v, default=str),),
+                    )
+                conn.commit()
+                os.rename(legacy_v, legacy_v + ".migrated")
+                logger.info(f"Migrated {len(data)} visitor records from JSON to SQLite")
+            except Exception as exc:
+                logger.error(f"JSON→SQLite migration failed for visitors: {exc}")
+    finally:
+        conn.close()
 
 
 def save_downloads_to_disk():
-    """Persist current downloads dict to JSON (fire-and-forget friendly)."""
+    """Persist current downloads dict to SQLite (upsert all records)."""
     try:
         with downloads_lock:
             data = dict(downloads)
-        with open(DOWNLOADS_PERSISTENCE_FILE, "w") as fh:
-            json.dump(data, fh, default=str)
+        with _db_lock:
+            conn = _get_db()
+            try:
+                for did, d in data.items():
+                    conn.execute(
+                        "INSERT OR REPLACE INTO downloads (id, data) VALUES (?, ?)",
+                        (did, json.dumps(d, default=str)),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
     except Exception as exc:
         logger.error(f"Could not persist downloads: {exc}")
 
 
 def save_visitors_to_disk():
-    """Persist visitor list to JSON."""
+    """Persist visitor list to SQLite (replace all rows)."""
     try:
         with visitors_lock:
             data = list(visitors)
-        with open(VISITORS_FILE, "w") as fh:
-            json.dump(data, fh, default=str)
+        with _db_lock:
+            conn = _get_db()
+            try:
+                conn.execute("DELETE FROM visitors")
+                for v in data:
+                    conn.execute(
+                        "INSERT INTO visitors (data) VALUES (?)",
+                        (json.dumps(v, default=str),),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
     except Exception as exc:
         logger.error(f"Could not persist visitors: {exc}")
 
@@ -233,21 +405,51 @@ def _parse_browser(ua: str) -> str:
 
 
 def _lookup_country_async(ip: str):
-    """Resolve an IP to its country using ip-api.com (background thread)."""
+    """Resolve an IP to its country using multiple geo-IP services (fallback chain)."""
     if ip in ip_country_cache:
         return
+    country, code = "Unknown", ""
+
+    # --- Service 1: ip-api.com (free, no key) ---
     try:
         with urllib.request.urlopen(
             f"https://ip-api.com/json/{ip}?fields=country,countryCode", timeout=4
         ) as resp:
             data = json.loads(resp.read())
-        country = data.get("country") or "Unknown"
-        code = data.get("countryCode") or ""
+        if data.get("country"):
+            country = data["country"]
+            code = data.get("countryCode", "")
     except Exception:
-        country, code = "Unknown", ""
+        pass
+
+    # --- Service 2: ipinfo.io (fallback) ---
+    if country == "Unknown":
+        try:
+            with urllib.request.urlopen(
+                f"https://ipinfo.io/{ip}/json", timeout=4
+            ) as resp:
+                data = json.loads(resp.read())
+            if data.get("country"):
+                code = data["country"].upper()  # ipinfo returns 2-letter code in "country"
+                country = _ISO2_TO_NAME.get(code, code)
+        except Exception:
+            pass
+
+    # --- Service 3: ipwhois.app (second fallback) ---
+    if country == "Unknown":
+        try:
+            with urllib.request.urlopen(
+                f"https://ipwhois.app/json/{ip}?objects=country,country_code", timeout=4
+            ) as resp:
+                data = json.loads(resp.read())
+            if data.get("country"):
+                country = data["country"]
+                code = data.get("country_code", "")
+        except Exception:
+            pass
+
     ip_country_cache[ip] = {"country": country, "code": code}
     # Back-fill any visitor records that are waiting for this IP's country
-    # (limit scan to the most recent 200 entries to avoid O(n) growth)
     with visitors_lock:
         for v in visitors[-200:]:
             if v.get("ip") == ip and not v.get("country"):
@@ -262,6 +464,23 @@ def _lookup_country_async(ip: str):
     _schedule_visitor_save()
     # Persist updated download records so country is not lost on restart
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
+
+def _get_country_from_headers(req) -> tuple[str, str]:
+    """Extract country from CDN/proxy headers before hitting external APIs.
+
+    Supported headers (in priority order):
+    - CF-IPCountry (Cloudflare)
+    - X-Country-Code
+    - X-GeoIP-Country
+    - X-Forwarded-Country
+    Returns (country_name, iso2_code) or ("", "") when not found.
+    """
+    for header in ("CF-IPCountry", "X-Country-Code", "X-GeoIP-Country", "X-Forwarded-Country"):
+        code = req.headers.get(header, "").strip().upper()
+        if len(code) == 2 and code.isalpha() and code not in ("XX", "T1"):
+            return _ISO2_TO_NAME.get(code, code), code
+    return "", ""
 
 
 # =========================================================
@@ -303,7 +522,7 @@ def admin_required(f):
         if not session.get("admin_logged_in"):
             # API endpoints (paths under /admin/ that aren't the login page) return 401 JSON.
             # The /const page and other browser-facing routes get a redirect to login.
-            if request.path.startswith("/admin/") and request.path not in ("/admin/login", "/admin/logout"):
+            if request.path.startswith("/admin/") and request.path not in ("/admin/login", "/admin/logout", "/admin/register"):
                 return jsonify({"error": "Authentication required"}), 401
             return redirect(url_for("admin_login", next=request.url))
         return f(*args, **kwargs)
@@ -654,6 +873,10 @@ def start_download():
     
     # Store download info
     ip = request.remote_addr
+    # Try CDN/proxy headers first for country
+    hdr_country, hdr_code = _get_country_from_headers(request)
+    if hdr_country and ip not in ip_country_cache:
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
     cached_geo = ip_country_cache.get(ip, {})
     with downloads_lock:
         downloads[download_id] = {
@@ -847,23 +1070,62 @@ def admin_page():
 
 @app.route("/admin/login", methods=["GET", "POST"])
 def admin_login():
-    """Admin login page."""
+    """Admin login page (username + password)."""
     error = None
     if request.method == "POST":
+        username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        if secrets.compare_digest(password, app.config["ADMIN_PASSWORD"]):
-            session.permanent = True
-            session["admin_logged_in"] = True
-            next_url = request.args.get("next") or url_for("admin_page")
-            return redirect(next_url)
-        error = "Incorrect password. Please try again."
-    return render_template("admin_login.html", error=error)
+        # If no DB user exists, fall back to legacy env-var password (username is ignored)
+        if not admin_user_exists():
+            if secrets.compare_digest(password, app.config["ADMIN_PASSWORD"]):
+                session.permanent = True
+                session["admin_logged_in"] = True
+                session["admin_username"] = username or "admin"
+                next_url = request.args.get("next") or url_for("admin_page")
+                return redirect(next_url)
+            error = "Incorrect password. Please try again."
+        else:
+            if verify_admin_user(username, password):
+                session.permanent = True
+                session["admin_logged_in"] = True
+                session["admin_username"] = username
+                next_url = request.args.get("next") or url_for("admin_page")
+                return redirect(next_url)
+            error = "Incorrect username or password. Please try again."
+    return render_template("admin_login.html", error=error, has_admin=admin_user_exists())
+
+
+@app.route("/admin/register", methods=["GET", "POST"])
+def admin_register():
+    """Admin registration page — only one admin account is allowed."""
+    # If already logged in, redirect to dashboard
+    if session.get("admin_logged_in"):
+        return redirect(url_for("admin_page"))
+    error = None
+    success = None
+    if request.method == "POST":
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        confirm  = request.form.get("confirm_password", "")
+        if not username or not password:
+            error = "Username and password are required."
+        elif password != confirm:
+            error = "Passwords do not match."
+        else:
+            ok, msg = register_admin_user(username, password)
+            if ok:
+                success = "Admin account created! You can now log in."
+            else:
+                error = msg
+    return render_template("admin_login.html", error=error, success=success,
+                           register_mode=True, has_admin=admin_user_exists())
 
 
 @app.route("/admin/logout", methods=["POST"])
 def admin_logout():
     """Log out of the admin panel."""
     session.pop("admin_logged_in", None)
+    session.pop("admin_username", None)
     return redirect(url_for("admin_login"))
 
 
@@ -874,6 +1136,12 @@ def track_admin_visitor():
         return
     ip = request.remote_addr or "unknown"
     ua = request.headers.get("User-Agent", "")
+
+    # Try to get country from CDN/proxy headers first
+    hdr_country, hdr_code = _get_country_from_headers(request)
+    if hdr_country and ip not in ip_country_cache:
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+
     cached = ip_country_cache.get(ip, {})
     visitor_entry = {
         "ip": ip,
@@ -1092,6 +1360,9 @@ logger.info(f"📁 Root directory: {ROOT_DIR}")
 logger.info(f"📁 Templates directory: {TEMPLATES_DIR}")
 logger.info(f"📁 Downloads directory: {DOWNLOAD_FOLDER}")
 logger.info(f"📁 Template exists: {os.path.exists(os.path.join(TEMPLATES_DIR, 'index.html'))}")
+
+# Initialise SQLite schema
+init_db()
 
 # Load persisted data
 load_persistence()

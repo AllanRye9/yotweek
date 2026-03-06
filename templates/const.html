@@ -37,23 +37,23 @@
         .topbar {
             background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
             color: #fff;
-            padding: 0 20px;
+            padding: 0 16px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            min-height: 60px;
-            gap: 12px;
+            min-height: 50px;
+            gap: 10px;
             flex-wrap: wrap;
         }
         .topbar-brand {
             display: flex;
             align-items: center;
-            gap: 10px;
-            font-size: 1.1rem;
+            gap: 8px;
+            font-size: 1rem;
             font-weight: 700;
         }
-        .topbar-brand i { font-size: 1.2rem; opacity: 0.9; }
-        .topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .topbar-brand i { font-size: 1rem; opacity: 0.9; }
+        .topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
         .back-link {
             color: rgba(255,255,255,0.85);
             text-decoration: none;
@@ -92,23 +92,67 @@
             50% { opacity: 0.4; }
         }
 
+        /* ── Toast notifications ── */
+        #toast-container {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            pointer-events: none;
+        }
+        .toast {
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 16px;
+            border-radius: 10px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            min-width: 240px;
+            max-width: 360px;
+            animation: toast-in 0.25s ease;
+            color: #fff;
+        }
+        @keyframes toast-in {
+            from { opacity: 0; transform: translateX(40px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
+        .toast.toast-success { background: #10b981; }
+        .toast.toast-error   { background: #ef4444; }
+        .toast.toast-info    { background: #3b82f6; }
+        .toast-close {
+            margin-left: auto;
+            background: none;
+            border: none;
+            color: rgba(255,255,255,0.8);
+            cursor: pointer;
+            font-size: 0.9rem;
+            line-height: 1;
+            padding: 0 2px;
+        }
+
         /* ── Main container ── */
-        .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 14px 12px; }
 
         /* ── Stat tiles ── */
         .stat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 14px;
-            margin-bottom: 24px;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 8px;
+            margin-bottom: 14px;
         }
         .stat-tile {
             background: var(--card-bg);
-            border-radius: 12px;
+            border-radius: 10px;
             box-shadow: var(--shadow);
-            padding: 20px 16px;
+            padding: 12px 10px;
             text-align: center;
-            border-top: 4px solid var(--primary);
+            border-top: 3px solid var(--primary);
             transition: transform 0.2s;
         }
         .stat-tile:hover { transform: translateY(-2px); }
@@ -118,7 +162,7 @@
         .stat-tile.amber  { border-top-color: var(--warning); }
         .stat-tile.blue   { border-top-color: var(--info); }
         .stat-value {
-            font-size: 2rem;
+            font-size: 1.5rem;
             font-weight: 800;
             color: var(--primary);
             line-height: 1;
@@ -129,16 +173,16 @@
         .stat-tile.amber  .stat-value { color: var(--warning); }
         .stat-tile.blue   .stat-value { color: var(--info); }
         .stat-label {
-            font-size: 0.78rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
-            margin-top: 4px;
+            margin-top: 3px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
         }
         .stat-icon {
-            font-size: 1.4rem;
-            margin-bottom: 8px;
+            font-size: 1rem;
+            margin-bottom: 5px;
             opacity: 0.7;
         }
         .stat-tile.green  .stat-icon { color: var(--success); }
@@ -150,27 +194,27 @@
         /* ── Tabs ── */
         .tabs {
             display: flex;
-            gap: 4px;
+            gap: 3px;
             background: var(--card-bg);
             border-radius: 10px 10px 0 0;
-            padding: 8px 8px 0;
+            padding: 6px 6px 0;
             border-bottom: 2px solid var(--border);
             overflow-x: auto;
             scrollbar-width: none;
         }
         .tabs::-webkit-scrollbar { display: none; }
         .tab-btn {
-            padding: 10px 18px;
+            padding: 8px 14px;
             border: none;
             background: transparent;
             color: var(--text-muted);
             font-weight: 600;
-            font-size: 0.88rem;
+            font-size: 0.83rem;
             cursor: pointer;
             border-radius: 8px 8px 0 0;
             display: inline-flex;
             align-items: center;
-            gap: 7px;
+            gap: 6px;
             white-space: nowrap;
             border-bottom: 3px solid transparent;
             margin-bottom: -2px;
@@ -186,8 +230,8 @@
             background: var(--primary);
             color: #fff;
             border-radius: 20px;
-            padding: 1px 7px;
-            font-size: 0.72rem;
+            padding: 1px 6px;
+            font-size: 0.7rem;
             font-weight: 700;
         }
         .tab-panel {
@@ -195,7 +239,7 @@
             background: var(--card-bg);
             border-radius: 0 0 12px 12px;
             box-shadow: var(--shadow);
-            padding: 24px 20px;
+            padding: 16px 14px;
         }
         .tab-panel.active { display: block; }
 
@@ -204,12 +248,12 @@
             border: 1px solid var(--border);
             border-radius: 10px;
             overflow: hidden;
-            margin-bottom: 20px;
+            margin-bottom: 12px;
         }
         .inner-card-header {
             background: #f8fafc;
-            padding: 12px 16px;
-            font-size: 0.9rem;
+            padding: 9px 14px;
+            font-size: 0.85rem;
             font-weight: 700;
             color: var(--text);
             display: flex;
@@ -219,7 +263,7 @@
             border-bottom: 1px solid var(--border);
         }
         .inner-card-header span { display: flex; align-items: center; gap: 8px; }
-        .inner-card-body { padding: 16px; overflow-x: auto; }
+        .inner-card-body { padding: 12px; overflow-x: auto; }
 
         /* ── Refresh button ── */
         .btn-refresh {
@@ -242,19 +286,19 @@
         .data-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
         .data-table th {
             background: #f1f5f9;
             color: #475569;
             font-weight: 700;
-            padding: 10px 12px;
+            padding: 8px 10px;
             text-align: left;
             border-bottom: 2px solid var(--border);
             white-space: nowrap;
         }
         .data-table td {
-            padding: 10px 12px;
+            padding: 7px 10px;
             border-bottom: 1px solid #f1f5f9;
             vertical-align: middle;
         }
@@ -444,11 +488,13 @@
         /* ── Responsive hide ── */
         @media (max-width: 640px) {
             .hide-xs { display: none !important; }
-            .topbar { padding: 10px 16px; }
-            .container { padding: 16px 10px; }
-            .stat-grid { grid-template-columns: repeat(2, 1fr); }
-            .tab-btn { padding: 8px 12px; font-size: 0.82rem; }
-            .tab-panel { padding: 16px 12px; }
+            .topbar { padding: 8px 12px; }
+            .container { padding: 10px 8px; }
+            .stat-grid { grid-template-columns: repeat(3, 1fr); }
+            .tab-btn { padding: 7px 10px; font-size: 0.78rem; }
+            .tab-panel { padding: 12px 10px; }
+            #toast-container { top: 10px; right: 8px; }
+            .toast { min-width: 200px; max-width: calc(100vw - 16px); }
         }
         @media (max-width: 400px) {
             .stat-grid { grid-template-columns: 1fr 1fr; }
@@ -456,6 +502,8 @@
     </style>
 </head>
 <body>
+    <!-- Toast notification container (fixed top-right) -->
+    <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
     <!-- Top navigation bar -->
     <nav class="topbar">
@@ -645,6 +693,19 @@
     </div><!-- /.container -->
 
     <script>
+        // ── Toast notifications ──────────────────────────────────────
+        function showToast(message, type = 'info', duration = 4000) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            const iconMap = { success: 'fa-check-circle', error: 'fa-times-circle', info: 'fa-info-circle' };
+            toast.innerHTML = `<i class="fas ${iconMap[type] || 'fa-info-circle'}"></i>
+                <span>${esc(message)}</span>
+                <button class="toast-close" onclick="this.closest('.toast').remove()" aria-label="Close">&times;</button>`;
+            container.prepend(toast);
+            setTimeout(() => toast.remove(), duration);
+        }
+
         // ── Helpers ────────────────────────────────────────────────
         function esc(s) {
             return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -974,12 +1035,13 @@
                 if (res.status === 401) { window.location.href = '/admin/login'; return; }
                 if (!res.ok) {
                     const data = await res.json();
-                    alert('Error: ' + (data.error || 'Unknown error'));
+                    showToast('Error: ' + (data.error || 'Unknown error'), 'error');
                     return;
                 }
+                showToast('Record deleted successfully.', 'success');
                 await loadAll(true);
             } catch (e) {
-                alert('Request failed: ' + e.message);
+                showToast('Request failed: ' + e.message, 'error');
             }
         }
 
@@ -991,12 +1053,13 @@
                 if (res.status === 401) { window.location.href = '/admin/login'; return; }
                 if (!res.ok) {
                     const data = await res.json();
-                    alert('Error: ' + (data.error || 'Unknown error'));
+                    showToast('Error: ' + (data.error || 'Unknown error'), 'error');
                     return;
                 }
+                showToast('All visitor records cleared.', 'success');
                 await loadAll(true);
             } catch (e) {
-                alert('Request failed: ' + e.message);
+                showToast('Request failed: ' + e.message, 'error');
             }
         }
 
@@ -1055,6 +1118,7 @@
                 visitorData   = await vRes.json();
                 analyticsData = await analyticsRes.json();
             } catch (err) {
+                showToast('Load error: ' + err.message, 'error');
                 document.getElementById('dl-table-wrap').innerHTML =
                     `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Load error: ${esc(err.message)}</p></div>`;
                 return;
