@@ -132,7 +132,7 @@ active_threads = {}       # download_id -> thread
 ip_download_count = {}    # ip -> count
 
 visitors_lock = Lock()
-visitors = []             # List of visitor dicts tracked on admin page visits
+visitors = []             # List of visitor dicts tracked on page visits
 ip_country_cache = {}     # ip -> {"country": str, "code": str}
 
 # Paths for persistent storage
@@ -140,8 +140,8 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "admin.db")
 os.makedirs(DATA_DIR, exist_ok=True)
 
-# Route name for the admin page (used in before_request tracking)
-ADMIN_PAGE_PATH = "/const"
+# Paths whose visits are tracked for analytics (main site + admin page)
+TRACKED_VISITOR_PATHS = {"/const", "/"}
 
 # =========================================================
 # ISO 3166-1 ALPHA-2 → COUNTRY NAME LOOKUP
@@ -1131,8 +1131,8 @@ def admin_logout():
 
 @app.before_request
 def track_admin_visitor():
-    """Record a visit to the admin page for analytics."""
-    if request.path != ADMIN_PAGE_PATH:
+    """Record a visit to tracked pages (main site + admin page) for analytics."""
+    if request.path not in TRACKED_VISITOR_PATHS:
         return
     ip = request.remote_addr or "unknown"
     ua = request.headers.get("User-Agent", "")
@@ -1150,6 +1150,7 @@ def track_admin_visitor():
         "browser": _parse_browser(ua),
         "country": cached.get("country", ""),
         "country_code": cached.get("code", ""),
+        "page": request.path,
     }
     with visitors_lock:
         visitors.append(visitor_entry)
@@ -1198,10 +1199,76 @@ def admin_visitors_api():
     return jsonify(data)
 
 
+def _get_persistent_stats() -> dict:
+    """Query SQLite for all-time aggregate stats (accurate even after in-memory cleanup).
+
+    Returns a dict with keys:
+        total_downloads, daily_downloads, download_rate_per_day,
+        total_site_visitors, daily_site_visitors
+    """
+    now = datetime.now()
+    today_start = datetime.combine(now.date(), datetime.min.time()).timestamp()
+    week_start = (now - timedelta(days=7)).timestamp()
+
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                # Downloads: parse created_at from the JSON blob
+                dl_rows = conn.execute("SELECT data FROM downloads").fetchall()
+                total_downloads = len(dl_rows)
+                daily_downloads = 0
+                week_downloads = 0
+                for row in dl_rows:
+                    try:
+                        d = json.loads(row["data"])
+                        created = d.get("created_at") or 0
+                        if created >= today_start:
+                            daily_downloads += 1
+                        if created >= week_start:
+                            week_downloads += 1
+                    except Exception:
+                        pass
+
+                # Visitors: only count main-site visits (page == "/")
+                # Legacy records without a "page" key were admin-page visits, so skip them.
+                v_rows = conn.execute("SELECT data FROM visitors").fetchall()
+                total_site_visitors = 0
+                daily_site_visitors = 0
+                for row in v_rows:
+                    try:
+                        v = json.loads(row["data"])
+                        if v.get("page") == "/":
+                            total_site_visitors += 1
+                            if v.get("timestamp", 0) >= today_start:
+                                daily_site_visitors += 1
+                    except Exception:
+                        pass
+            finally:
+                conn.close()
+    except Exception as exc:
+        logger.error(f"_get_persistent_stats error: {exc}")
+        total_downloads = 0
+        daily_downloads = 0
+        week_downloads = 0
+        total_site_visitors = 0
+        daily_site_visitors = 0
+
+    download_rate_per_day = round(week_downloads / 7.0, 2)
+
+    return {
+        "total_downloads": total_downloads,
+        "daily_downloads": daily_downloads,
+        "download_rate_per_day": download_rate_per_day,
+        "total_site_visitors": total_site_visitors,
+        "daily_site_visitors": daily_site_visitors,
+    }
+
+
 @app.route("/admin/analytics")
 @admin_required
 def admin_analytics_api():
-    """Return aggregated analytics including country totals."""
+    """Return aggregated analytics including country totals and persistent stats."""
     with downloads_lock:
         dl_list = list(downloads.values())
     with visitors_lock:
@@ -1215,7 +1282,7 @@ def admin_analytics_api():
         key = f"{country}||{code}"
         dl_countries[key] = dl_countries.get(key, 0) + 1
 
-    # Country totals for visitors
+    # Country totals for visitors (main-site and admin page combined)
     v_countries: dict = {}
     for v in v_list:
         country = v.get("country") or "Unknown"
@@ -1230,6 +1297,9 @@ def admin_analytics_api():
         if name and name != "Unknown":
             all_country_names.add(name)
 
+    # Persistent aggregate stats (queried from SQLite for accuracy)
+    persistent = _get_persistent_stats()
+
     return jsonify({
         "download_countries": [
             {"country": k.split("||")[0], "code": k.split("||")[1], "count": v}
@@ -1240,6 +1310,11 @@ def admin_analytics_api():
             for k, v in sorted(v_countries.items(), key=lambda x: x[1], reverse=True)
         ],
         "unique_countries_total": len(all_country_names),
+        "total_downloads": persistent["total_downloads"],
+        "daily_downloads": persistent["daily_downloads"],
+        "download_rate_per_day": persistent["download_rate_per_day"],
+        "total_site_visitors": persistent["total_site_visitors"],
+        "daily_site_visitors": persistent["daily_site_visitors"],
     })
 
 
