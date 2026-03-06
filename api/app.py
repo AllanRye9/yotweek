@@ -1344,6 +1344,90 @@ def admin_clear_visitors():
     logger.info("Admin cleared all visitor records")
     return jsonify({"success": True})
 
+
+@app.route("/admin/db/download")
+@admin_required
+def admin_db_download():
+    """Download the SQLite database file for backup (admin only)."""
+    if not os.path.exists(DB_PATH):
+        return jsonify({"error": "Database file not found"}), 404
+    # Flush in-memory state to disk before serving the file
+    save_downloads_to_disk()
+    save_visitors_to_disk()
+    logger.info("Admin downloaded database backup")
+    return send_from_directory(
+        DATA_DIR,
+        os.path.basename(DB_PATH),
+        as_attachment=True,
+        download_name="admin.db",
+        mimetype="application/x-sqlite3",
+    )
+
+
+@app.route("/admin/db/upload", methods=["POST"])
+@admin_required
+def admin_db_upload():
+    """Replace the SQLite database with an uploaded backup (admin only).
+
+    The uploaded file is validated as a SQLite database before replacing the
+    live file.  After a successful replace the in-memory state (downloads,
+    visitors) is reloaded from the new database.
+    """
+    if "db_file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+    f = request.files["db_file"]
+    if not f or not f.filename:
+        return jsonify({"error": "No file selected"}), 400
+
+    # Read uploaded content and validate SQLite magic header
+    content = f.read()
+    if len(content) < 16 or content[:16] != b"SQLite format 3\x00":
+        return jsonify({"error": "Uploaded file is not a valid SQLite database"}), 400
+
+    # Write to a temp file, run an integrity check, then atomically replace
+    tmp_path = DB_PATH + ".upload_tmp"
+    try:
+        with open(tmp_path, "wb") as fh:
+            fh.write(content)
+
+        # Integrity check runs on the temp file — no lock needed
+        check_conn = sqlite3.connect(tmp_path)
+        try:
+            result = check_conn.execute("PRAGMA integrity_check").fetchone()
+            if result[0] != "ok":
+                os.remove(tmp_path)
+                return jsonify({"error": "Uploaded database failed integrity check"}), 400
+        finally:
+            check_conn.close()
+
+        # Atomically replace the live database, then reload in-memory state.
+        # The replace is POSIX-atomic so readers always see either the old or
+        # the new file; there is no partial-write window.
+        with _db_lock:
+            os.replace(tmp_path, DB_PATH)
+
+        # Reload in-memory state from the new database.
+        # We must NOT hold _db_lock here because load_persistence() acquires it
+        # internally.  A brief window exists between the replace and the reload,
+        # but this is acceptable for an infrequent admin-only restore operation.
+        global downloads, visitors
+        with downloads_lock:
+            downloads.clear()
+        with visitors_lock:
+            visitors.clear()
+        load_persistence()
+
+        logger.info("Admin uploaded and restored database backup")
+        return jsonify({"success": True, "message": "Database restored successfully"})
+    except Exception as exc:
+        logger.error(f"DB upload error: {exc}")
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        return jsonify({"error": f"Upload failed: {exc}"}), 500
+
 # =========================================================
 # SOCKET.IO EVENTS
 # =========================================================

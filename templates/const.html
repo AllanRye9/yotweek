@@ -515,6 +515,13 @@
             <div class="live-badge">
                 <span class="live-dot"></span> Live
             </div>
+            <a href="/admin/db/download" class="back-link" title="Download database backup">
+                <i class="fas fa-database"></i> <span class="hide-xs">Backup DB</span>
+            </a>
+            <label class="back-link" title="Restore database from backup" style="cursor:pointer;">
+                <i class="fas fa-upload"></i> <span class="hide-xs">Restore DB</span>
+                <input type="file" id="db-upload-input" accept=".db,application/x-sqlite3" style="display:none;" onchange="uploadDb(this)">
+            </label>
             <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back</a>
             <form action="/admin/logout" method="post" style="display:inline;">
                 <button type="submit" class="back-link" style="background:none;border:none;cursor:pointer;">
@@ -1165,6 +1172,32 @@
         // Initial load + auto-refresh
         loadAll();
         setInterval(() => loadAll(), 30000);
+
+        async function uploadDb(input) {
+            const file = input.files[0];
+            if (!file) return;
+            if (!confirm('Replace the live database with the uploaded backup? All current data will be overwritten.')) {
+                input.value = '';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('db_file', file);
+            try {
+                const res = await fetch('/admin/db/upload', { method: 'POST', body: formData });
+                if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast('Restore failed: ' + esc(data.error || 'Unknown error'), 'error');
+                } else {
+                    showToast(esc(data.message || 'Database restored successfully.'), 'success');
+                    await loadAll(true);
+                }
+            } catch (e) {
+                showToast('Upload failed: ' + esc(e.message), 'error');
+            } finally {
+                input.value = '';
+            }
+        }
     </script>
 </body>
 </html>
