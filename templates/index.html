@@ -494,8 +494,8 @@
                             <div class="form-row">
                                 <div class="form-group">
                                     <label for="format"><i class="fas fa-sliders-h"></i> Format</label>
-                                    <input type="text" id="format" value="best"
-                                           placeholder="best, bestvideo+bestaudio, mp3…">
+                                    <input type="text" id="format" value="bestvideo*+bestaudio*/best"
+                                           placeholder="bestvideo*+bestaudio*/best, bestvideo+bestaudio/best, bestaudio/best…">
                                 </div>
                             </div>
                             <button type="submit" id="download-btn" class="btn-primary">
@@ -545,7 +545,7 @@
                     </p>
 
                     <!-- User-friendly format option cards -->
-                    <div class="format-option" onclick="setFormat('best')">
+                    <div class="format-option" onclick="setFormat('bestvideo*+bestaudio*/best')">
                         <div class="format-option-icon" style="background:#eff6ff;color:#3b82f6;">
                             <i class="fas fa-star"></i>
                         </div>
@@ -555,7 +555,7 @@
                         </div>
                     </div>
 
-                    <div class="format-option" onclick="setFormat('bestvideo+bestaudio')">
+                    <div class="format-option" onclick="setFormat('bestvideo+bestaudio/best')">
                         <div class="format-option-icon" style="background:#f0fdf4;color:#16a34a;">
                             <i class="fas fa-gem"></i>
                         </div>
@@ -565,7 +565,7 @@
                         </div>
                     </div>
 
-                    <div class="format-option" onclick="setFormat('bestvideo[height<=1080]+bestaudio')">
+                    <div class="format-option" onclick="setFormat('bestvideo[height<=1080]+bestaudio/best')">
                         <div class="format-option-icon" style="background:#faf5ff;color:#7c3aed;">
                             <i class="fas fa-tv"></i>
                         </div>
@@ -575,7 +575,7 @@
                         </div>
                     </div>
 
-                    <div class="format-option" onclick="setFormat('bestvideo[height<=720]+bestaudio')">
+                    <div class="format-option" onclick="setFormat('bestvideo[height<=720]+bestaudio/best')">
                         <div class="format-option-icon" style="background:#fff7ed;color:#c2410c;">
                             <i class="fas fa-film"></i>
                         </div>
@@ -585,7 +585,7 @@
                         </div>
                     </div>
 
-                    <div class="format-option" onclick="setFormat('bestvideo[height<=480]+bestaudio')">
+                    <div class="format-option" onclick="setFormat('bestvideo[height<=480]+bestaudio/best')">
                         <div class="format-option-icon" style="background:#f0fdf4;color:#15803d;">
                             <i class="fas fa-mobile-alt"></i>
                         </div>

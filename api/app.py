@@ -382,6 +382,20 @@ _CHROME_UA = (
 )
 
 
+def normalize_format_spec(fmt: str) -> str:
+    """Ensure the format spec has a fallback so that 'format not available'
+    errors are avoided.  Any spec that already contains '/' already has its
+    own fallback chain and is returned unchanged.  Otherwise '/best' is
+    appended so yt-dlp can always find something to download.
+    """
+    fmt = (fmt or "best").strip() or "best"
+    # Already contains a fallback separator — leave untouched
+    if "/" in fmt:
+        return fmt
+    # Append a generic fallback so yt-dlp can always find something to download
+    return f"{fmt}/best"
+
+
 def get_video_info(url: str) -> dict:
     """Get video information without downloading, using the yt-dlp Python API"""
     try:
@@ -479,7 +493,7 @@ def download_worker(download_id, url, output_template, format_spec):
             logger.error(f"Socket emit error: {e}")
 
     ydl_opts = {
-        "format": format_spec,
+        "format": normalize_format_spec(format_spec),
         "outtmpl": output_template,
         "noplaylist": True,
         "extractor_args": _get_yt_extractor_args(),
