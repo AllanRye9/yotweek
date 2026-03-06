@@ -342,20 +342,13 @@ def get_ssl_env() -> dict:
 def _get_yt_extractor_args() -> dict:
     """Build YouTube extractor args with player clients that avoid bot detection.
 
-    Uses the ``ios``, ``mweb``, and ``tv_embedded`` player clients in preference
-    order. These clients use separate API endpoints that are not subject to the
-    same bot-detection checks as the regular web player, avoiding HTTP 403
-    errors without requiring cookies or a PO token.
-
-    ``player_skip: webpage`` tells yt-dlp not to fetch the YouTube watch page at
-    all, which further reduces the chance of triggering bot-detection guards.
+    Uses the ``android_vr``, ``web``, and ``web_safari`` player clients, which
+    are the default clients supported by yt-dlp 2026.x and reliably bypass
+    YouTube's bot-detection checks without requiring cookies.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
-    args: dict = {
-        "player_client": ["ios", "mweb", "tv_embedded", "web"],
-        "player_skip": ["webpage"],
-    }
+    args: dict = {"player_client": ["android_vr", "web", "web_safari"]}
     return {"youtube": args}
 
 def format_speed(bytes_per_sec) -> str:
