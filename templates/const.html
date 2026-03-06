@@ -531,7 +531,7 @@
             <div class="stat-tile">
                 <div class="stat-icon"><i class="fas fa-download"></i></div>
                 <div class="stat-value" id="s-total">—</div>
-                <div class="stat-label">Total Jobs</div>
+                <div class="stat-label">Total Downloads</div>
             </div>
             <div class="stat-tile green">
                 <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
@@ -549,9 +549,24 @@
                 <div class="stat-label">Failed</div>
             </div>
             <div class="stat-tile blue">
+                <div class="stat-icon"><i class="fas fa-calendar-day"></i></div>
+                <div class="stat-value" id="s-daily-downloads">—</div>
+                <div class="stat-label">Downloads Today</div>
+            </div>
+            <div class="stat-tile amber">
+                <div class="stat-icon"><i class="fas fa-tachometer-alt"></i></div>
+                <div class="stat-value" id="s-dl-rate">—</div>
+                <div class="stat-label">Rate (dl/day)</div>
+            </div>
+            <div class="stat-tile blue">
                 <div class="stat-icon"><i class="fas fa-users"></i></div>
                 <div class="stat-value" id="s-visitors">—</div>
-                <div class="stat-label">Admin Visits</div>
+                <div class="stat-label">Total Visitors</div>
+            </div>
+            <div class="stat-tile green">
+                <div class="stat-icon"><i class="fas fa-user-clock"></i></div>
+                <div class="stat-value" id="s-daily-visitors">—</div>
+                <div class="stat-label">Visitors Today</div>
             </div>
             <div class="stat-tile amber">
                 <div class="stat-icon"><i class="fas fa-globe"></i></div>
@@ -962,8 +977,8 @@
             const wrap = document.getElementById('dl-table-wrap');
             document.getElementById('tab-dl-count').textContent = dlData.length;
 
-            // Update stat tiles
-            const total     = dlData.length;
+            // Update stat tiles — use persistent totals from analytics where available
+            const total     = analyticsData.total_downloads ?? dlData.length;
             const completed = dlData.filter(d => d.status === 'completed').length;
             const active    = dlData.filter(d => ['queued','downloading'].includes(d.status)).length;
             const failed    = dlData.filter(d => ['failed','cancelled'].includes(d.status)).length;
@@ -1068,8 +1083,17 @@
             const wrap = document.getElementById('visitor-table-wrap');
             document.getElementById('tab-v-count').textContent = visitorData.length;
 
-            // Update visitor stats
-            document.getElementById('s-visitors').textContent = visitorData.length;
+            // Update persistent stat tiles from analytics endpoint
+            document.getElementById('s-visitors').textContent =
+                analyticsData.total_site_visitors ?? visitorData.length;
+            document.getElementById('s-daily-visitors').textContent =
+                analyticsData.daily_site_visitors ?? '—';
+            document.getElementById('s-daily-downloads').textContent =
+                analyticsData.daily_downloads ?? '—';
+            document.getElementById('s-dl-rate').textContent =
+                analyticsData.download_rate_per_day != null
+                    ? analyticsData.download_rate_per_day
+                    : '—';
             // Show total unique countries across visitors + downloads (from analytics endpoint)
             document.getElementById('s-countries').textContent = analyticsData.unique_countries_total ?? '—';
 
@@ -1080,10 +1104,12 @@
 
             const rows = visitorData.slice(0, 100).map(v => {
                 const flag = countryFlag(v.country_code);
+                const pageLabel = v.page === '/const' ? 'Admin' : v.page === '/' ? 'Site' : esc(v.page || 'Site');
                 return `<tr>
                     <td class="col-ip">${esc(v.ip || '—')}</td>
                     <td>${flag ? flag + ' ' : ''}${esc(v.country || '—')}</td>
                     <td class="hide-xs">${esc(v.browser || '—')}</td>
+                    <td class="hide-xs">${esc(pageLabel)}</td>
                     <td class="col-time">${fmtTime(v.timestamp)}</td>
                     <td class="hide-xs" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.78rem;color:#94a3b8;" title="${esc(v.user_agent)}">${esc(v.user_agent || '—')}</td>
                 </tr>`;
@@ -1094,6 +1120,7 @@
                     <th>IP Address</th>
                     <th>Country</th>
                     <th class="hide-xs">Browser</th>
+                    <th class="hide-xs">Page</th>
                     <th>Visit Time</th>
                     <th class="hide-xs">User Agent</th>
                 </tr></thead>
