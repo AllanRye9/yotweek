@@ -1,5 +1,6 @@
 import os
 import sys
+import secrets
 import subprocess
 import threading
 import time
@@ -20,6 +21,8 @@ from flask import (
     jsonify,
     send_from_directory,
     url_for,
+    session,
+    redirect,
 )
 from flask_socketio import SocketIO, emit, join_room
 from flask_cors import CORS
@@ -43,6 +46,8 @@ class Config:
     FILE_RETENTION_MINUTES = 5  # Delete files that are older than this many minutes (up to 1 extra minute until the next cleanup cycle)
     SESSION_TYPE = 'filesystem'
     PERMANENT_SESSION_LIFETIME = timedelta(hours=1)
+    # Admin authentication — set ADMIN_PASSWORD env var in production
+    ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
 
 # =========================================================
 # PATH SETUP
@@ -255,6 +260,8 @@ def _lookup_country_async(ip: str):
                 d["country"] = country
                 d["country_code"] = code
     _schedule_visitor_save()
+    # Persist updated download records so country is not lost on restart
+    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
 
 # =========================================================
@@ -286,8 +293,22 @@ def rate_limit(max_per_ip=Config.MAX_DOWNLOADS_PER_IP):
     return decorator
 
 # =========================================================
-# DEPENDENCY CHECKS
+# ADMIN AUTHENTICATION DECORATOR
 # =========================================================
+
+def admin_required(f):
+    """Decorator that requires admin login for the wrapped view."""
+    @wraps(f)
+    def wrapped(*args, **kwargs):
+        if not session.get("admin_logged_in"):
+            # API endpoints (paths under /admin/ that aren't the login page) return 401 JSON.
+            # The /const page and other browser-facing routes get a redirect to login.
+            if request.path.startswith("/admin/") and request.path not in ("/admin/login", "/admin/logout"):
+                return jsonify({"error": "Authentication required"}), 401
+            return redirect(url_for("admin_login", next=request.url))
+        return f(*args, **kwargs)
+    return wrapped
+
 
 def check_yt_dlp():
     """Check if yt-dlp is installed and accessible"""
@@ -736,8 +757,9 @@ def download_file(filename):
         return jsonify({"error": "File not found"}), 404
 
 @app.route("/delete/<path:filename>", methods=["DELETE"])
+@admin_required
 def delete_file(filename):
-    """Delete a downloaded file"""
+    """Delete a downloaded file (admin only)"""
     try:
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
         
@@ -817,9 +839,32 @@ def cancel_download(download_id):
     return jsonify({"error": "Download not found"}), 404
 
 @app.route("/const")
+@admin_required
 def admin_page():
-    """Admin page — full download history"""
+    """Admin page — full download history (authentication required)"""
     return render_template("const.html")
+
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    """Admin login page."""
+    error = None
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if secrets.compare_digest(password, app.config["ADMIN_PASSWORD"]):
+            session.permanent = True
+            session["admin_logged_in"] = True
+            next_url = request.args.get("next") or url_for("admin_page")
+            return redirect(next_url)
+        error = "Incorrect password. Please try again."
+    return render_template("admin_login.html", error=error)
+
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    """Log out of the admin panel."""
+    session.pop("admin_logged_in", None)
+    return redirect(url_for("admin_login"))
 
 
 @app.before_request
@@ -836,7 +881,7 @@ def track_admin_visitor():
         "user_agent": ua,
         "browser": _parse_browser(ua),
         "country": cached.get("country", ""),
-        "country_code": cached.get("country_code", ""),
+        "country_code": cached.get("code", ""),
     }
     with visitors_lock:
         visitors.append(visitor_entry)
@@ -850,6 +895,7 @@ def track_admin_visitor():
 
 
 @app.route("/admin/downloads")
+@admin_required
 def admin_downloads_api():
     """Return the complete download history for the admin page"""
     with downloads_lock:
@@ -875,12 +921,85 @@ def admin_downloads_api():
 
 
 @app.route("/admin/visitors")
+@admin_required
 def admin_visitors_api():
     """Return visitor analytics for the admin page."""
     with visitors_lock:
         data = list(visitors)
     data.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
     return jsonify(data)
+
+
+@app.route("/admin/analytics")
+@admin_required
+def admin_analytics_api():
+    """Return aggregated analytics including country totals."""
+    with downloads_lock:
+        dl_list = list(downloads.values())
+    with visitors_lock:
+        v_list = list(visitors)
+
+    # Country totals for downloads
+    dl_countries: dict = {}
+    for d in dl_list:
+        country = d.get("country") or "Unknown"
+        code = d.get("country_code") or ""
+        key = f"{country}||{code}"
+        dl_countries[key] = dl_countries.get(key, 0) + 1
+
+    # Country totals for visitors
+    v_countries: dict = {}
+    for v in v_list:
+        country = v.get("country") or "Unknown"
+        code = v.get("country_code") or ""
+        key = f"{country}||{code}"
+        v_countries[key] = v_countries.get(key, 0) + 1
+
+    # Unique countries represented across both downloads and visitors
+    all_country_names = set()
+    for k in list(dl_countries.keys()) + list(v_countries.keys()):
+        name = k.split("||")[0]
+        if name and name != "Unknown":
+            all_country_names.add(name)
+
+    return jsonify({
+        "download_countries": [
+            {"country": k.split("||")[0], "code": k.split("||")[1], "count": v}
+            for k, v in sorted(dl_countries.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "visitor_countries": [
+            {"country": k.split("||")[0], "code": k.split("||")[1], "count": v}
+            for k, v in sorted(v_countries.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "unique_countries_total": len(all_country_names),
+    })
+
+
+@app.route("/admin/delete_record/<download_id>", methods=["DELETE"])
+@admin_required
+def admin_delete_record(download_id):
+    """Remove a download record from the history (admin only)."""
+    with downloads_lock:
+        if download_id not in downloads:
+            return jsonify({"error": "Record not found"}), 404
+        status = downloads[download_id].get("status")
+        if status in ("queued", "downloading"):
+            return jsonify({"error": "Cannot delete an active download. Cancel it first."}), 409
+        del downloads[download_id]
+    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+    logger.info(f"Admin deleted download record: {download_id}")
+    return jsonify({"success": True})
+
+
+@app.route("/admin/clear_visitors", methods=["DELETE"])
+@admin_required
+def admin_clear_visitors():
+    """Clear all visitor records (admin only)."""
+    with visitors_lock:
+        visitors.clear()
+    threading.Thread(target=save_visitors_to_disk, daemon=True).start()
+    logger.info("Admin cleared all visitor records")
+    return jsonify({"success": True})
 
 # =========================================================
 # SOCKET.IO EVENTS
@@ -956,6 +1075,13 @@ def cleanup_thread():
 logger.info("=" * 50)
 logger.info("🚀 Starting Video Downloader (Production)")
 logger.info("=" * 50)
+
+# Warn if using the default admin password
+if Config.ADMIN_PASSWORD == "admin":
+    logger.warning(
+        "⚠️  ADMIN_PASSWORD is set to the default value 'admin'. "
+        "Set the ADMIN_PASSWORD environment variable to a strong password before deploying."
+    )
 
 # Check dependencies
 check_yt_dlp()

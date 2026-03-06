@@ -468,6 +468,11 @@
                 <span class="live-dot"></span> Live
             </div>
             <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back</a>
+            <form action="/admin/logout" method="post" style="display:inline;">
+                <button type="submit" class="back-link" style="background:none;border:none;cursor:pointer;">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
+            </form>
         </div>
     </nav>
 
@@ -503,7 +508,7 @@
             <div class="stat-tile amber">
                 <div class="stat-icon"><i class="fas fa-globe"></i></div>
                 <div class="stat-value" id="s-countries">—</div>
-                <div class="stat-label">Countries</div>
+                <div class="stat-label">Countries (Total)</div>
             </div>
         </div>
 
@@ -619,9 +624,14 @@
             <div class="inner-card">
                 <div class="inner-card-header">
                     <span><i class="fas fa-user-clock"></i> Recent Admin Page Visits</span>
-                    <button class="btn-refresh" onclick="loadAll(true)">
-                        <i class="fas fa-sync-alt"></i> Refresh
-                    </button>
+                    <div style="display:flex;gap:8px;">
+                        <button class="btn-refresh" onclick="loadAll(true)">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button class="btn-refresh" style="background:#ef4444;" onclick="clearVisitors()" aria-label="Clear all visitor records">
+                            <i class="fas fa-trash" aria-hidden="true"></i> Clear All
+                        </button>
+                    </div>
                 </div>
                 <div class="inner-card-body" id="visitor-table-wrap">
                     <div class="empty-state">
@@ -675,6 +685,7 @@
         // ── Global data cache ──────────────────────────────────────
         let dlData = [];
         let visitorData = [];
+        let analyticsData = { download_countries: [], visitor_countries: [], unique_countries_total: 0 };
 
         // ── Charts (pure CSS/SVG – no external library) ───────────
 
@@ -917,6 +928,15 @@
                 const countryDisplay = d.country
                     ? `${flag ? flag + '\u00A0' : ''}${esc(d.country)}`
                     : `<span style="color:#9ca3af;">—</span>`;
+                const isActive = ['queued','downloading'].includes(d.status);
+                const deleteBtn = isActive
+                    ? `<button class="btn-refresh" style="background:#9ca3af;padding:4px 8px;font-size:0.75rem;" disabled title="Cancel first" aria-label="Cannot delete — download is active">
+                           <i class="fas fa-trash" aria-hidden="true"></i>
+                       </button>`
+                    : `<button class="btn-refresh" style="background:#ef4444;padding:4px 8px;font-size:0.75rem;"
+                           onclick="deleteRecord('${esc(d.id)}')" title="Delete record" aria-label="Delete record for ${esc(d.title || 'this download')}">
+                           <i class="fas fa-trash" aria-hidden="true"></i>
+                       </button>`;
                 return `<tr>
                     <td class="col-title" title="${esc(d.title)}">${esc(d.title || '—')}</td>
                     <td class="col-url hide-xs"><a href="${esc(d.url || '#')}" target="_blank" rel="noopener">${esc(d.url || '—')}</a></td>
@@ -926,6 +946,7 @@
                     <td class="hide-xs">${countryDisplay}</td>
                     <td class="col-time hide-xs">${fmtTime(d.created_at)}</td>
                     <td class="col-time hide-xs">${fmtTime(d.end_time)}</td>
+                    <td>${deleteBtn}</td>
                 </tr>`;
             }).join('');
 
@@ -939,9 +960,44 @@
                     <th class="hide-xs">Country</th>
                     <th class="hide-xs">Started</th>
                     <th class="hide-xs">Finished</th>
+                    <th>Delete</th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
             </table>`;
+        }
+
+        // ── Delete a download record ───────────────────────────────
+        async function deleteRecord(id) {
+            if (!confirm('Delete this download record?')) return;
+            try {
+                const res = await fetch(`/admin/delete_record/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                if (!res.ok) {
+                    const data = await res.json();
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    return;
+                }
+                await loadAll(true);
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+            }
+        }
+
+        // ── Clear all visitors ─────────────────────────────────────
+        async function clearVisitors() {
+            if (!confirm('Clear ALL visitor records? This cannot be undone.')) return;
+            try {
+                const res = await fetch('/admin/clear_visitors', { method: 'DELETE' });
+                if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                if (!res.ok) {
+                    const data = await res.json();
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                    return;
+                }
+                await loadAll(true);
+            } catch (e) {
+                alert('Request failed: ' + e.message);
+            }
         }
 
         // ── Visitor table ──────────────────────────────────────────
@@ -951,8 +1007,8 @@
 
             // Update visitor stats
             document.getElementById('s-visitors').textContent = visitorData.length;
-            const countries = new Set(visitorData.map(v => v.country).filter(Boolean));
-            document.getElementById('s-countries').textContent = countries.size;
+            // Show total unique countries across visitors + downloads (from analytics endpoint)
+            document.getElementById('s-countries').textContent = analyticsData.unique_countries_total ?? '—';
 
             if (!visitorData.length) {
                 wrap.innerHTML = `<div class="empty-state"><i class="fas fa-users"></i><p>No visitor records yet</p></div>`;
@@ -985,12 +1041,19 @@
         // ── Data loading ───────────────────────────────────────────
         async function loadAll(manual = false) {
             try {
-                const [dlRes, vRes] = await Promise.all([
+                const [dlRes, vRes, analyticsRes] = await Promise.all([
                     fetch(`/admin/downloads?t=${Date.now()}`),
-                    fetch(`/admin/visitors?t=${Date.now()}`)
+                    fetch(`/admin/visitors?t=${Date.now()}`),
+                    fetch(`/admin/analytics?t=${Date.now()}`)
                 ]);
-                dlData      = await dlRes.json();
-                visitorData = await vRes.json();
+                // Redirect to login on 401
+                if (dlRes.status === 401 || vRes.status === 401 || analyticsRes.status === 401) {
+                    window.location.href = '/admin/login';
+                    return;
+                }
+                dlData        = await dlRes.json();
+                visitorData   = await vRes.json();
+                analyticsData = await analyticsRes.json();
             } catch (err) {
                 document.getElementById('dl-table-wrap').innerHTML =
                     `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Load error: ${esc(err.message)}</p></div>`;
