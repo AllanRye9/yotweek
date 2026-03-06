@@ -117,11 +117,25 @@ socketio = SocketIO(
 # =========================================================
 
 from threading import Lock, RLock
+import urllib.request
 
 downloads_lock = RLock()  # Reentrant lock for nested access
 downloads = {}            # download_id -> metadata
 active_threads = {}       # download_id -> thread
 ip_download_count = {}    # ip -> count
+
+visitors_lock = Lock()
+visitors = []             # List of visitor dicts tracked on admin page visits
+ip_country_cache = {}     # ip -> {"country": str, "code": str}
+
+# Paths for persistent storage
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+DOWNLOADS_PERSISTENCE_FILE = os.path.join(DATA_DIR, "downloads.json")
+VISITORS_FILE = os.path.join(DATA_DIR, "visitors.json")
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# Route name for the admin page (used in before_request tracking)
+ADMIN_PAGE_PATH = "/const"
 
 # =========================================================
 # SSL CERTIFICATE FIX
@@ -129,6 +143,113 @@ ip_download_count = {}    # ip -> count
 
 os.environ['SSL_CERT_FILE'] = certifi.where()
 os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+# =========================================================
+# PERSISTENCE HELPERS
+# =========================================================
+
+def load_persistence():
+    """Load downloads and visitors from disk on startup."""
+    global downloads, visitors
+    # Downloads
+    if os.path.exists(DOWNLOADS_PERSISTENCE_FILE):
+        try:
+            with open(DOWNLOADS_PERSISTENCE_FILE, "r") as fh:
+                saved = json.load(fh)
+            with downloads_lock:
+                downloads.update(saved)
+            logger.info(f"Loaded {len(saved)} download records from disk")
+        except Exception as exc:
+            logger.error(f"Could not load persisted downloads: {exc}")
+    # Visitors
+    if os.path.exists(VISITORS_FILE):
+        try:
+            with open(VISITORS_FILE, "r") as fh:
+                saved = json.load(fh)
+            with visitors_lock:
+                visitors.extend(saved)
+            logger.info(f"Loaded {len(saved)} visitor records from disk")
+        except Exception as exc:
+            logger.error(f"Could not load persisted visitors: {exc}")
+
+
+def save_downloads_to_disk():
+    """Persist current downloads dict to JSON (fire-and-forget friendly)."""
+    try:
+        with downloads_lock:
+            data = dict(downloads)
+        with open(DOWNLOADS_PERSISTENCE_FILE, "w") as fh:
+            json.dump(data, fh, default=str)
+    except Exception as exc:
+        logger.error(f"Could not persist downloads: {exc}")
+
+
+def save_visitors_to_disk():
+    """Persist visitor list to JSON."""
+    try:
+        with visitors_lock:
+            data = list(visitors)
+        with open(VISITORS_FILE, "w") as fh:
+            json.dump(data, fh, default=str)
+    except Exception as exc:
+        logger.error(f"Could not persist visitors: {exc}")
+
+
+# Shared timer for debounced visitor saves (avoids thread-per-visit churn)
+_visitor_save_timer: threading.Timer | None = None
+_visitor_save_timer_lock = threading.Lock()
+
+
+def _schedule_visitor_save(delay: float = 5.0):
+    """Schedule a visitor save in `delay` seconds, cancelling any pending save."""
+    global _visitor_save_timer
+    with _visitor_save_timer_lock:
+        if _visitor_save_timer is not None:
+            _visitor_save_timer.cancel()
+        _visitor_save_timer = threading.Timer(delay, save_visitors_to_disk)
+        _visitor_save_timer.daemon = True
+        _visitor_save_timer.start()
+
+
+def _parse_browser(ua: str) -> str:
+    """Best-effort browser detection from User-Agent string."""
+    ua_lower = ua.lower()
+    if "edg/" in ua_lower or "edghtml" in ua_lower:
+        return "Edge"
+    if "chrome" in ua_lower:
+        return "Chrome"
+    if "firefox" in ua_lower:
+        return "Firefox"
+    if "safari" in ua_lower:
+        return "Safari"
+    if "msie" in ua_lower or "trident" in ua_lower:
+        return "IE"
+    return "Other"
+
+
+def _lookup_country_async(ip: str):
+    """Resolve an IP to its country using ip-api.com (background thread)."""
+    if ip in ip_country_cache:
+        return
+    try:
+        with urllib.request.urlopen(
+            f"https://ip-api.com/json/{ip}?fields=country,countryCode", timeout=4
+        ) as resp:
+            data = json.loads(resp.read())
+        country = data.get("country") or "Unknown"
+        code = data.get("countryCode") or ""
+    except Exception:
+        country, code = "Unknown", ""
+    ip_country_cache[ip] = {"country": country, "code": code}
+    # Back-fill any visitor records that are waiting for this IP's country
+    # (limit scan to the most recent 200 entries to avoid O(n) growth)
+    with visitors_lock:
+        for v in visitors[-200:]:
+            if v.get("ip") == ip and not v.get("country"):
+                v["country"] = country
+                v["country_code"] = code
+    _schedule_visitor_save()
+
 
 # =========================================================
 # RATE LIMITING DECORATOR
@@ -394,30 +515,35 @@ def download_worker(download_id, url, output_template, format_spec):
             "title": downloads[download_id].get("title")
         }, room=download_id)
         socketio.emit("files_updated")
+        threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
         error_msg = str(e)
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
-                "error": error_msg
+                "error": error_msg,
+                "end_time": time.time(),
             })
         socketio.emit("failed", {
             "id": download_id,
             "error": error_msg
         }, room=download_id)
+        threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except Exception as e:
         logger.error(f"Download worker error: {e}")
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
-                "error": str(e)
+                "error": str(e),
+                "end_time": time.time(),
             })
         socketio.emit("failed", {
             "id": download_id,
             "error": str(e)
         }, room=download_id)
+        threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     finally:
         # Cleanup
@@ -507,7 +633,9 @@ def start_download():
     
     with downloads_lock:
         active_threads[download_id] = thread
-    
+
+    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
     return jsonify({
         "download_id": download_id,
         "title": title,
@@ -659,6 +787,34 @@ def admin_page():
     """Admin page — full download history"""
     return render_template("const.html")
 
+
+@app.before_request
+def track_admin_visitor():
+    """Record a visit to the admin page for analytics."""
+    if request.path != ADMIN_PAGE_PATH:
+        return
+    ip = request.remote_addr or "unknown"
+    ua = request.headers.get("User-Agent", "")
+    cached = ip_country_cache.get(ip, {})
+    visitor_entry = {
+        "ip": ip,
+        "timestamp": time.time(),
+        "user_agent": ua,
+        "browser": _parse_browser(ua),
+        "country": cached.get("country", ""),
+        "country_code": cached.get("country_code", ""),
+    }
+    with visitors_lock:
+        visitors.append(visitor_entry)
+    # Resolve country in the background if not cached yet
+    if ip not in ip_country_cache:
+        threading.Thread(
+            target=_lookup_country_async, args=(ip,), daemon=True
+        ).start()
+    # Debounced save to avoid a thread-per-visit under high traffic
+    _schedule_visitor_save()
+
+
 @app.route("/admin/downloads")
 def admin_downloads_api():
     """Return the complete download history for the admin page"""
@@ -676,9 +832,19 @@ def admin_downloads_api():
                 "created_at":   d.get("created_at"),
                 "end_time":     d.get("end_time"),
                 "error":        d.get("error"),
+                "ip":           d.get("ip"),
             })
         history.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
     return jsonify(history)
+
+
+@app.route("/admin/visitors")
+def admin_visitors_api():
+    """Return visitor analytics for the admin page."""
+    with visitors_lock:
+        data = list(visitors)
+    data.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    return jsonify(data)
 
 # =========================================================
 # SOCKET.IO EVENTS
@@ -764,6 +930,9 @@ logger.info(f"📁 Root directory: {ROOT_DIR}")
 logger.info(f"📁 Templates directory: {TEMPLATES_DIR}")
 logger.info(f"📁 Downloads directory: {DOWNLOAD_FOLDER}")
 logger.info(f"📁 Template exists: {os.path.exists(os.path.join(TEMPLATES_DIR, 'index.html'))}")
+
+# Load persisted data
+load_persistence()
 
 # Start cleanup thread
 cleanup_thread = threading.Thread(target=cleanup_thread, daemon=True)

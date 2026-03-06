@@ -3,115 +3,291 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin — Download History | YOT Downloader</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <title>Admin Dashboard | YOT Downloader</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
+    <!-- Chart.js served locally as fallback when CDN is unavailable -->
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --primary: #667eea;
+            --primary-dark: #764ba2;
+            --success: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --purple: #7c3aed;
+            --bg: #f0f2f8;
+            --card-bg: #fff;
+            --text: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --shadow: 0 2px 12px rgba(0,0,0,0.08);
+        }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            color: #333;
+            background: var(--bg);
+            color: var(--text);
             line-height: 1.6;
             min-height: 100vh;
         }
 
-        .container { max-width: 1100px; margin: 0 auto; padding: 24px 20px; }
-
-        header {
-            text-align: center;
-            margin-bottom: 28px;
-        }
-        header h1 {
-            font-size: 1.9rem;
-            font-weight: 700;
-            color: #1e293b;
-        }
-        header p { color: #64748b; margin-top: 4px; font-size: 0.95rem; }
-
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            color: #667eea;
-            text-decoration: none;
-            font-weight: 600;
-            font-size: 0.9rem;
-            margin-bottom: 20px;
-        }
-        .back-link:hover { text-decoration: underline; }
-
-        /* ── Card ── */
-        .card {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-            overflow: hidden;
-            margin-bottom: 20px;
-        }
-        .card-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 16px 20px;
-            font-size: 1.05rem;
-            font-weight: 600;
+        /* ── Top nav ── */
+        .topbar {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+            color: #fff;
+            padding: 0 20px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 10px;
+            min-height: 60px;
+            gap: 12px;
+            flex-wrap: wrap;
         }
-        .card-header span { display: flex; align-items: center; gap: 8px; }
-        .card-body { padding: 20px; }
+        .topbar-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.1rem;
+            font-weight: 700;
+        }
+        .topbar-brand i { font-size: 1.2rem; opacity: 0.9; }
+        .topbar-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .back-link {
+            color: rgba(255,255,255,0.85);
+            text-decoration: none;
+            font-size: 0.88rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border: 1px solid rgba(255,255,255,0.35);
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .back-link:hover { background: rgba(255,255,255,0.15); }
+        .live-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(16,185,129,0.2);
+            border: 1px solid rgba(16,185,129,0.5);
+            color: #a7f3d0;
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .live-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: #34d399;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* ── Main container ── */
+        .container { max-width: 1200px; margin: 0 auto; padding: 24px 16px; }
+
+        /* ── Stat tiles ── */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+        .stat-tile {
+            background: var(--card-bg);
+            border-radius: 12px;
+            box-shadow: var(--shadow);
+            padding: 20px 16px;
+            text-align: center;
+            border-top: 4px solid var(--primary);
+            transition: transform 0.2s;
+        }
+        .stat-tile:hover { transform: translateY(-2px); }
+        .stat-tile.green  { border-top-color: var(--success); }
+        .stat-tile.red    { border-top-color: var(--danger); }
+        .stat-tile.purple { border-top-color: var(--purple); }
+        .stat-tile.amber  { border-top-color: var(--warning); }
+        .stat-tile.blue   { border-top-color: var(--info); }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--primary);
+            line-height: 1;
+        }
+        .stat-tile.green  .stat-value { color: var(--success); }
+        .stat-tile.red    .stat-value { color: var(--danger); }
+        .stat-tile.purple .stat-value { color: var(--purple); }
+        .stat-tile.amber  .stat-value { color: var(--warning); }
+        .stat-tile.blue   .stat-value { color: var(--info); }
+        .stat-label {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .stat-icon {
+            font-size: 1.4rem;
+            margin-bottom: 8px;
+            opacity: 0.7;
+        }
+        .stat-tile.green  .stat-icon { color: var(--success); }
+        .stat-tile.red    .stat-icon { color: var(--danger); }
+        .stat-tile.purple .stat-icon { color: var(--purple); }
+        .stat-tile.amber  .stat-icon { color: var(--warning); }
+        .stat-tile.blue   .stat-icon { color: var(--info); }
+
+        /* ── Tabs ── */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            background: var(--card-bg);
+            border-radius: 10px 10px 0 0;
+            padding: 8px 8px 0;
+            border-bottom: 2px solid var(--border);
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .tabs::-webkit-scrollbar { display: none; }
+        .tab-btn {
+            padding: 10px 18px;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.88rem;
+            cursor: pointer;
+            border-radius: 8px 8px 0 0;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            white-space: nowrap;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: color 0.2s, border-color 0.2s;
+        }
+        .tab-btn:hover { color: var(--primary); }
+        .tab-btn.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+            background: rgba(102,126,234,0.05);
+        }
+        .tab-btn .badge-count {
+            background: var(--primary);
+            color: #fff;
+            border-radius: 20px;
+            padding: 1px 7px;
+            font-size: 0.72rem;
+            font-weight: 700;
+        }
+        .tab-panel {
+            display: none;
+            background: var(--card-bg);
+            border-radius: 0 0 12px 12px;
+            box-shadow: var(--shadow);
+            padding: 24px 20px;
+        }
+        .tab-panel.active { display: block; }
+
+        /* ── Card within panel ── */
+        .inner-card {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .inner-card-header {
+            background: #f8fafc;
+            padding: 12px 16px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            color: var(--text);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .inner-card-header span { display: flex; align-items: center; gap: 8px; }
+        .inner-card-body { padding: 16px; overflow-x: auto; }
 
         /* ── Refresh button ── */
         .btn-refresh {
-            padding: 7px 14px;
-            background: rgba(255,255,255,0.2);
+            padding: 6px 14px;
+            background: var(--primary);
             color: white;
-            border: 1px solid rgba(255,255,255,0.4);
-            border-radius: 5px;
-            font-size: 0.85rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.82rem;
             font-weight: 600;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            transition: background 0.2s;
+            gap: 5px;
+            transition: opacity 0.2s;
         }
-        .btn-refresh:hover { background: rgba(255,255,255,0.3); }
+        .btn-refresh:hover { opacity: 0.85; }
 
-        /* ── Summary counters ── */
-        .summary-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 14px;
-            margin-bottom: 24px;
+        /* ── Data table ── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
         }
-        .summary-tile {
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-            padding: 18px 20px;
-            text-align: center;
-        }
-        .summary-tile .value {
-            font-size: 2rem;
+        .data-table th {
+            background: #f1f5f9;
+            color: #475569;
             font-weight: 700;
-            color: #667eea;
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 2px solid var(--border);
+            white-space: nowrap;
         }
-        .summary-tile .label {
-            font-size: 0.82rem;
-            color: #6b7280;
-            margin-top: 2px;
+        .data-table td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #f1f5f9;
+            vertical-align: middle;
         }
+        .data-table tr:last-child td { border-bottom: none; }
+        .data-table tbody tr:hover td { background: #f8f9ff; }
+        .col-title {
+            max-width: 240px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .col-url {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .col-url a { color: var(--primary); text-decoration: none; font-size: 0.82rem; }
+        .col-url a:hover { text-decoration: underline; }
+        .col-time { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+        .col-ip   { color: var(--text-muted); font-size: 0.8rem; font-family: monospace; }
 
         /* ── Status badge ── */
         .badge {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             padding: 3px 10px;
             border-radius: 999px;
-            font-size: 0.78rem;
-            font-weight: 600;
+            font-size: 0.76rem;
+            font-weight: 700;
             white-space: nowrap;
         }
         .badge-completed  { background: #d1fae5; color: #065f46; }
@@ -120,240 +296,631 @@
         .badge-queued     { background: #dbeafe; color: #1e40af; }
         .badge-downloading{ background: #ede9fe; color: #5b21b6; }
 
-        /* ── Table ── */
-        .dl-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 0.88rem;
-        }
-        .dl-table th {
-            background: #f8fafc;
-            color: #4b5563;
-            font-weight: 600;
-            padding: 10px 12px;
-            text-align: left;
-            border-bottom: 2px solid #e8ecf0;
-        }
-        .dl-table td {
-            padding: 11px 12px;
-            border-bottom: 1px solid #f1f3f6;
+        /* ── Progress mini ── */
+        .prog-wrap {
+            background: #e2e8f0;
+            border-radius: 999px;
+            height: 5px;
+            width: 70px;
+            overflow: hidden;
+            display: inline-block;
             vertical-align: middle;
+            margin-left: 6px;
         }
-        .dl-table tr:last-child td { border-bottom: none; }
-        .dl-table tr:hover td { background: #f8f9ff; }
-        .dl-table .title-cell {
-            max-width: 280px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            font-weight: 600;
-            color: #1e293b;
-        }
-        .dl-table .url-cell {
-            max-width: 220px;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .dl-table .url-cell a {
-            color: #667eea;
-            text-decoration: none;
-            font-size: 0.82rem;
-        }
-        .dl-table .url-cell a:hover { text-decoration: underline; }
-        .dl-table .time-cell { color: #6b7280; font-size: 0.82rem; white-space: nowrap; }
-        .progress-mini {
-            background: #e8ecf0;
-            border-radius: 999px;
-            height: 6px;
-            overflow: hidden;
-            width: 80px;
-        }
-        .progress-mini-fill {
+        .prog-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
+            background: linear-gradient(90deg, var(--primary), var(--primary-dark));
             border-radius: 999px;
         }
+
+        /* ── Flag + country ── */
+        .flag { font-size: 1.1rem; }
+
+        /* ── Analytics 2-col layout ── */
+        .analytics-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        @media (max-width: 760px) {
+            .analytics-grid { grid-template-columns: 1fr; }
+        }
+
+        /* ── CSS bar chart ── */
+        .css-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 4px 0;
+        }
+        .css-bar-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .css-bar-label {
+            width: 90px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            text-align: right;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex-shrink: 0;
+        }
+        .css-bar-track {
+            flex: 1;
+            background: #e2e8f0;
+            border-radius: 999px;
+            height: 20px;
+            overflow: hidden;
+            position: relative;
+        }
+        .css-bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            padding-left: 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            color: #fff;
+            min-width: 28px;
+            transition: width 0.5s ease;
+        }
+        .css-bar-count {
+            width: 30px;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        /* ── SVG donut chart ── */
+        .donut-wrap {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+        .donut-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .donut-legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+        }
+        .donut-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        /* ── Country table ── */
+        .country-bar {
+            display: flex;
+            align-items: center;
+            padding: 7px 0;
+            gap: 10px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .country-bar:last-child { border-bottom: none; }
+        .country-name { min-width: 130px; font-size: 0.85rem; font-weight: 600; }
+        .country-track {
+            flex: 1;
+            background: #e2e8f0;
+            border-radius: 999px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .country-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--primary-dark));
+            border-radius: 999px;
+        }
+        .country-count { font-size: 0.82rem; color: var(--text-muted); min-width: 30px; text-align: right; }
 
         /* ── Empty state ── */
         .empty-state {
             text-align: center;
-            color: #95a5a6;
-            padding: 40px 20px;
+            color: #9ca3af;
+            padding: 36px 20px;
         }
-        .empty-state i { font-size: 2.4rem; margin-bottom: 12px; display: block; opacity: 0.4; }
+        .empty-state i { font-size: 2.4rem; display: block; margin-bottom: 10px; opacity: 0.4; }
 
-        /* ── Auto-refresh indicator ── */
-        #refresh-info {
-            font-size: 0.8rem;
+        /* ── Refresh info ── */
+        .refresh-info {
+            font-size: 0.78rem;
             color: #9ca3af;
             text-align: right;
             margin-top: 10px;
         }
 
-        @media (max-width: 700px) {
-            .dl-table .url-cell,
-            .dl-table .time-cell { display: none; }
+        /* ── Responsive hide ── */
+        @media (max-width: 640px) {
+            .hide-xs { display: none !important; }
+            .topbar { padding: 10px 16px; }
+            .container { padding: 16px 10px; }
+            .stat-grid { grid-template-columns: repeat(2, 1fr); }
+            .tab-btn { padding: 8px 12px; font-size: 0.82rem; }
+            .tab-panel { padding: 16px 12px; }
+        }
+        @media (max-width: 400px) {
+            .stat-grid { grid-template-columns: 1fr 1fr; }
         }
     </style>
 </head>
 <body>
+
+    <!-- Top navigation bar -->
+    <nav class="topbar">
+        <div class="topbar-brand">
+            <i class="fas fa-shield-alt"></i>
+            Admin Dashboard
+        </div>
+        <div class="topbar-right">
+            <div class="live-badge">
+                <span class="live-dot"></span> Live
+            </div>
+            <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back</a>
+        </div>
+    </nav>
+
     <div class="container">
-        <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back to Downloader</a>
 
-        <header>
-            <h1><i class="fas fa-shield-alt" style="color:#667eea;"></i> Admin — Download History</h1>
-            <p>Full record of all download activity on this server</p>
-        </header>
-
-        <!-- Summary tiles -->
-        <div class="summary-grid" id="summary-grid">
-            <div class="summary-tile">
-                <div class="value" id="s-total">—</div>
-                <div class="label">Total Jobs</div>
+        <!-- Summary stat tiles -->
+        <div class="stat-grid" id="stat-grid">
+            <div class="stat-tile">
+                <div class="stat-icon"><i class="fas fa-download"></i></div>
+                <div class="stat-value" id="s-total">—</div>
+                <div class="stat-label">Total Jobs</div>
             </div>
-            <div class="summary-tile">
-                <div class="value" id="s-completed" style="color:#10b981;">—</div>
-                <div class="label">Completed</div>
+            <div class="stat-tile green">
+                <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+                <div class="stat-value" id="s-completed">—</div>
+                <div class="stat-label">Completed</div>
             </div>
-            <div class="summary-tile">
-                <div class="value" id="s-active" style="color:#7c3aed;">—</div>
-                <div class="label">In Progress</div>
+            <div class="stat-tile purple">
+                <div class="stat-icon"><i class="fas fa-spinner"></i></div>
+                <div class="stat-value" id="s-active">—</div>
+                <div class="stat-label">In Progress</div>
             </div>
-            <div class="summary-tile">
-                <div class="value" id="s-failed" style="color:#ef4444;">—</div>
-                <div class="label">Failed / Cancelled</div>
+            <div class="stat-tile red">
+                <div class="stat-icon"><i class="fas fa-times-circle"></i></div>
+                <div class="stat-value" id="s-failed">—</div>
+                <div class="stat-label">Failed</div>
+            </div>
+            <div class="stat-tile blue">
+                <div class="stat-icon"><i class="fas fa-users"></i></div>
+                <div class="stat-value" id="s-visitors">—</div>
+                <div class="stat-label">Admin Visits</div>
+            </div>
+            <div class="stat-tile amber">
+                <div class="stat-icon"><i class="fas fa-globe"></i></div>
+                <div class="stat-value" id="s-countries">—</div>
+                <div class="stat-label">Countries</div>
             </div>
         </div>
 
-        <!-- Download history table -->
-        <div class="card">
-            <div class="card-header">
-                <span><i class="fas fa-list-alt"></i> Download Records</span>
-                <button class="btn-refresh" onclick="loadHistory(true)">
-                    <i class="fas fa-sync-alt"></i> Refresh
-                </button>
-            </div>
-            <div class="card-body">
-                <div id="table-wrap">
+        <!-- Tabbed interface -->
+        <div class="tabs" role="tablist">
+            <button class="tab-btn active" role="tab" onclick="switchTab('downloads', this)">
+                <i class="fas fa-list-alt"></i> Downloads
+                <span class="badge-count" id="tab-dl-count">0</span>
+            </button>
+            <button class="tab-btn" role="tab" onclick="switchTab('analytics', this)">
+                <i class="fas fa-chart-bar"></i> Analytics
+            </button>
+            <button class="tab-btn" role="tab" onclick="switchTab('visitors', this)">
+                <i class="fas fa-users"></i> Visitors
+                <span class="badge-count" id="tab-v-count">0</span>
+            </button>
+        </div>
+
+        <!-- DOWNLOADS TAB -->
+        <div class="tab-panel active" id="tab-downloads">
+            <div class="inner-card">
+                <div class="inner-card-header">
+                    <span><i class="fas fa-history"></i> Download Records</span>
+                    <button class="btn-refresh" onclick="loadAll(true)">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                <div class="inner-card-body" id="dl-table-wrap">
                     <div class="empty-state">
                         <i class="fas fa-hourglass-half"></i>
-                        <p>Loading history…</p>
+                        <p>Loading records…</p>
                     </div>
                 </div>
-                <div id="refresh-info"></div>
+            </div>
+            <div class="refresh-info" id="refresh-info"></div>
+        </div>
+
+        <!-- ANALYTICS TAB -->
+        <div class="tab-panel" id="tab-analytics">
+            <div class="analytics-grid">
+                <!-- Daily visits chart -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128197; Visits per Day (last 14 days)</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-daily"></div>
+                </div>
+
+                <!-- Visitor countries chart -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#127760; Visitors by Country</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-countries"></div>
+                </div>
+
+                <!-- Download status distribution -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128202; Download Status Mix</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-status"></div>
+                </div>
+
+                <!-- Browser breakdown -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#127760; Visitor Browsers</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-browsers"></div>
+                </div>
+            </div>
+
+            <!-- Country detail list -->
+            <div class="inner-card">
+                <div class="inner-card-header">
+                    <span><i class="fas fa-flag"></i> Top Countries Detail</span>
+                </div>
+                <div class="inner-card-body" id="country-list-wrap">
+                    <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
+                </div>
             </div>
         </div>
-    </div>
+
+        <!-- VISITORS TAB -->
+        <div class="tab-panel" id="tab-visitors">
+            <div class="inner-card">
+                <div class="inner-card-header">
+                    <span><i class="fas fa-user-clock"></i> Recent Admin Page Visits</span>
+                    <button class="btn-refresh" onclick="loadAll(true)">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+                <div class="inner-card-body" id="visitor-table-wrap">
+                    <div class="empty-state">
+                        <i class="fas fa-hourglass-half"></i>
+                        <p>Loading visitors…</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div><!-- /.container -->
 
     <script>
-        function escHtml(str) {
-            return String(str || '')
-                .replace(/&/g,'&amp;')
-                .replace(/</g,'&lt;')
-                .replace(/>/g,'&gt;')
-                .replace(/"/g,'&quot;');
+        // ── Helpers ────────────────────────────────────────────────
+        function esc(s) {
+            return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
-
         function fmtTime(ts) {
             if (!ts) return '—';
             return new Date(ts * 1000).toLocaleString();
         }
-
+        function fmtDate(ts) {
+            if (!ts) return '—';
+            return new Date(ts * 1000).toLocaleDateString();
+        }
         function badgeHtml(status) {
-            const cls = {
-                completed:   'badge-completed',
-                failed:      'badge-failed',
-                cancelled:   'badge-cancelled',
-                queued:      'badge-queued',
-                downloading: 'badge-downloading',
-            }[status] || 'badge-queued';
-            const icon = {
-                completed:   'fa-check-circle',
-                failed:      'fa-times-circle',
-                cancelled:   'fa-ban',
-                queued:      'fa-clock',
-                downloading: 'fa-spinner fa-spin',
-            }[status] || 'fa-circle';
-            return `<span class="badge ${cls}"><i class="fas ${icon}"></i> ${escHtml(status)}</span>`;
+            const cls = { completed:'badge-completed', failed:'badge-failed',
+                          cancelled:'badge-cancelled', queued:'badge-queued',
+                          downloading:'badge-downloading' }[status] || 'badge-queued';
+            const icon = { completed:'fa-check-circle', failed:'fa-times-circle',
+                           cancelled:'fa-ban', queued:'fa-clock',
+                           downloading:'fa-spinner fa-spin' }[status] || 'fa-circle';
+            return `<span class="badge ${cls}"><i class="fas ${icon}"></i> ${esc(status)}</span>`;
+        }
+        function countryFlag(code) {
+            if (!code || code.length !== 2) return '';
+            // Convert ISO 3166-1 alpha-2 code to regional indicator symbols (flag emoji).
+            // Regional indicators start at U+1F1E6 ('A'); offset each letter from ASCII 'A' (65).
+            return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
         }
 
-        async function loadHistory(manual = false) {
-            const wrap = document.getElementById('table-wrap');
-            try {
-                const res  = await fetch(`/admin/downloads?t=${Date.now()}`);
-                const data = await res.json();
+        // ── Tab switching ──────────────────────────────────────────
+        function switchTab(name, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+            if (name === 'analytics') renderAnalytics();
+        }
 
-                // Update summary tiles
-                const total     = data.length;
-                const completed = data.filter(d => d.status === 'completed').length;
-                const active    = data.filter(d => ['queued','downloading'].includes(d.status)).length;
-                const failed    = data.filter(d => ['failed','cancelled'].includes(d.status)).length;
+        // ── Global data cache ──────────────────────────────────────
+        let dlData = [];
+        let visitorData = [];
 
-                document.getElementById('s-total').textContent     = total;
-                document.getElementById('s-completed').textContent = completed;
-                document.getElementById('s-active').textContent    = active;
-                document.getElementById('s-failed').textContent    = failed;
+        // ── Charts (pure CSS/SVG – no external library) ───────────
 
-                if (data.length === 0) {
-                    wrap.innerHTML = `
-                        <div class="empty-state">
-                            <i class="fas fa-inbox"></i>
-                            <p>No download records yet</p>
-                        </div>`;
-                    return;
-                }
+        function renderAnalytics() {
+            renderDailyChart();
+            renderCountryChart();
+            renderStatusChart();
+            renderBrowserChart();
+            renderCountryList();
+        }
 
-                let rows = '';
-                data.forEach(d => {
-                    const pct      = Math.min(100, d.percent || 0);
-                    const progBar  = d.status === 'downloading'
-                        ? `<div class="progress-mini"><div class="progress-mini-fill" style="width:${pct}%"></div></div>`
-                        : '';
-                    const fileInfo = d.filename
-                        ? `<span style="color:#6b7280;font-size:0.8rem;">${escHtml(d.filename)}${d.file_size_hr ? ' &bull; ' + escHtml(d.file_size_hr) : ''}</span>`
-                        : (d.error ? `<span style="color:#ef4444;font-size:0.8rem;" title="${escHtml(d.error)}">Error — see logs</span>` : '');
-
-                    rows += `
-                    <tr>
-                        <td class="title-cell" title="${escHtml(d.title)}">${escHtml(d.title || '—')}</td>
-                        <td class="url-cell"><a href="${escHtml(d.url || '#')}" target="_blank" rel="noopener">${escHtml(d.url || '—')}</a></td>
-                        <td>${badgeHtml(d.status)} ${progBar}</td>
-                        <td>${fileInfo}</td>
-                        <td class="time-cell">${fmtTime(d.created_at)}</td>
-                        <td class="time-cell">${fmtTime(d.end_time)}</td>
-                    </tr>`;
-                });
-
-                wrap.innerHTML = `
-                    <table class="dl-table">
-                        <thead>
-                            <tr>
-                                <th>Title</th>
-                                <th>Source URL</th>
-                                <th>Status</th>
-                                <th>File</th>
-                                <th>Started</th>
-                                <th>Finished</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>`;
-
-                document.getElementById('refresh-info').textContent =
-                    `Last refreshed: ${new Date().toLocaleTimeString()} — auto-refreshes every 30 seconds`;
-            } catch (err) {
-                wrap.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        <p>Could not load history: ${escHtml(err.message)}</p>
-                    </div>`;
+        // Helper: build a CSS horizontal bar chart inside `el`
+        function cssBarChart(el, items, colorFn) {
+            if (!items.length) {
+                el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
+                return;
             }
+            const max = Math.max(...items.map(i => i.value), 1);
+            el.innerHTML = '<div class="css-chart">' +
+                items.map((item, idx) => {
+                    const pct = Math.round(item.value / max * 100);
+                    const color = typeof colorFn === 'function' ? colorFn(idx) : colorFn;
+                    return `<div class="css-bar-row">
+                        <div class="css-bar-label" title="${esc(item.label)}">${esc(item.label)}</div>
+                        <div class="css-bar-track">
+                            <div class="css-bar-fill" style="width:${pct}%;background:${color};">${item.value > 0 ? item.value : ''}</div>
+                        </div>
+                        <div class="css-bar-count">${item.value}</div>
+                    </div>`;
+                }).join('') + '</div>';
         }
 
-        // Initial load and auto-refresh every 30 s
-        loadHistory();
-        setInterval(() => loadHistory(), 30000);
+        // Helper: build an SVG donut chart inside `el`
+        function svgDonut(el, items, colors) {
+            const total = items.reduce((s, i) => s + i.value, 0);
+            if (!total) {
+                el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
+                return;
+            }
+            const r = 60, cx = 70, cy = 70, stroke = 28;
+            const circ = 2 * Math.PI * r;
+            let offset = 0;
+            let arcs = '';
+            items.forEach((item, i) => {
+                const frac = item.value / total;
+                const dash = frac * circ;
+                const gap  = circ - dash;
+                arcs += `<circle cx="${cx}" cy="${cy}" r="${r}"
+                    fill="none" stroke="${colors[i % colors.length]}"
+                    stroke-width="${stroke}"
+                    stroke-dasharray="${dash.toFixed(2)} ${gap.toFixed(2)}"
+                    stroke-dashoffset="${(-offset).toFixed(2)}"
+                    transform="rotate(-90 ${cx} ${cy})"
+                />`;
+                offset += dash;
+            });
+            const legend = items.map((item, i) =>
+                `<div class="donut-legend-item">
+                    <div class="donut-swatch" style="background:${colors[i % colors.length]};"></div>
+                    <span style="color:#475569;">${esc(item.label)}</span>
+                    <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${item.value}</span>
+                </div>`
+            ).join('');
+            el.innerHTML = `<div class="donut-wrap">
+                <svg width="140" height="140" viewBox="0 0 140 140">
+                    ${arcs}
+                    <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+                          font-size="18" font-weight="800" fill="#1e293b">${total}</text>
+                    <text x="${cx}" y="${cy + 18}" text-anchor="middle"
+                          font-size="9" fill="#94a3b8">total</text>
+                </svg>
+                <div class="donut-legend" style="flex:1;">${legend}</div>
+            </div>`;
+        }
+
+        const PALETTE = ['#667eea','#10b981','#f59e0b','#ef4444','#7c3aed','#3b82f6','#f97316','#a855f7'];
+
+        function renderDailyChart() {
+            const counts = {};
+            visitorData.forEach(v => {
+                if (!v.timestamp) return;
+                const d = new Date(v.timestamp * 1000).toLocaleDateString('en-US', {month:'short', day:'numeric'});
+                counts[d] = (counts[d] || 0) + 1;
+            });
+            const items = [];
+            for (let i = 13; i >= 0; i--) {
+                const dt = new Date();
+                dt.setDate(dt.getDate() - i);
+                const lbl = dt.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+                items.push({ label: lbl, value: counts[lbl] || 0 });
+            }
+            cssBarChart(document.getElementById('chart-daily'), items, '#667eea');
+        }
+
+        function renderCountryChart() {
+            const counts = {};
+            visitorData.forEach(v => {
+                const c = v.country || 'Unknown';
+                counts[c] = (counts[c] || 0) + 1;
+            });
+            const items = Object.entries(counts)
+                .sort((a,b)=>b[1]-a[1]).slice(0,8)
+                .map(([label, value]) => ({ label, value }));
+            svgDonut(document.getElementById('chart-countries'), items, PALETTE);
+        }
+
+        function renderStatusChart() {
+            const map = { completed:'#10b981', failed:'#ef4444', cancelled:'#9ca3af', queued:'#3b82f6', downloading:'#7c3aed' };
+            const counts = { completed:0, failed:0, cancelled:0, queued:0, downloading:0 };
+            dlData.forEach(d => { if (d.status in counts) counts[d.status]++; });
+            const items = Object.entries(counts).filter(([,v])=>v>0).map(([label,value])=>({label, value}));
+            svgDonut(document.getElementById('chart-status'), items, Object.values(map));
+        }
+
+        function renderBrowserChart() {
+            const counts = {};
+            visitorData.forEach(v => {
+                const b = v.browser || 'Other';
+                counts[b] = (counts[b] || 0) + 1;
+            });
+            const items = Object.entries(counts)
+                .sort((a,b)=>b[1]-a[1])
+                .map(([label, value]) => ({ label, value }));
+            cssBarChart(document.getElementById('chart-browsers'), items,
+                idx => ['#3b82f6','#f97316','#a855f7','#22c55e','#ef4444','#64748b'][idx % 6]);
+        }
+
+        function renderCountryList() {
+            const wrap = document.getElementById('country-list-wrap');
+            const counts = {};
+            visitorData.forEach(v => {
+                const key = (v.country || 'Unknown') + '||' + (v.country_code || '');
+                counts[key] = (counts[key] || 0) + 1;
+            });
+            const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,10);
+            if (!sorted.length) {
+                wrap.innerHTML = '<div class="empty-state">&#127760;<p>No visitor data yet</p></div>';
+                return;
+            }
+            const max = sorted[0][1];
+            wrap.innerHTML = sorted.map(([key, cnt]) => {
+                const [country, code] = key.split('||');
+                const flag = countryFlag(code);
+                const pct = Math.round(cnt / max * 100);
+                return `<div class="country-bar">
+                    <div class="country-name">${flag ? flag + ' ' : ''}${esc(country)}</div>
+                    <div class="country-track"><div class="country-fill" style="width:${pct}%"></div></div>
+                    <div class="country-count">${cnt}</div>
+                </div>`;
+            }).join('');
+        }
+
+        // ── Download table ─────────────────────────────────────────
+        function renderDownloads() {
+            const wrap = document.getElementById('dl-table-wrap');
+            document.getElementById('tab-dl-count').textContent = dlData.length;
+
+            // Update stat tiles
+            const total     = dlData.length;
+            const completed = dlData.filter(d => d.status === 'completed').length;
+            const active    = dlData.filter(d => ['queued','downloading'].includes(d.status)).length;
+            const failed    = dlData.filter(d => ['failed','cancelled'].includes(d.status)).length;
+            document.getElementById('s-total').textContent     = total;
+            document.getElementById('s-completed').textContent = completed;
+            document.getElementById('s-active').textContent    = active;
+            document.getElementById('s-failed').textContent    = failed;
+
+            if (!dlData.length) {
+                wrap.innerHTML = `<div class="empty-state"><i class="fas fa-inbox"></i><p>No download records yet</p></div>`;
+                return;
+            }
+
+            let rows = dlData.map(d => {
+                const pct = Math.min(100, d.percent || 0);
+                const prog = d.status === 'downloading'
+                    ? `<div class="prog-wrap"><div class="prog-fill" style="width:${pct}%"></div></div>`
+                    : '';
+                const file = d.filename
+                    ? `<span style="color:#6b7280;font-size:0.8rem;">${esc(d.filename)}${d.file_size_hr ? ' &bull; ' + esc(d.file_size_hr) : ''}</span>`
+                    : (d.error ? `<span style="color:#ef4444;font-size:0.8rem;" title="${esc(d.error)}">Error</span>` : '');
+                return `<tr>
+                    <td class="col-title" title="${esc(d.title)}">${esc(d.title || '—')}</td>
+                    <td class="col-url hide-xs"><a href="${esc(d.url || '#')}" target="_blank" rel="noopener">${esc(d.url || '—')}</a></td>
+                    <td>${badgeHtml(d.status)}${prog}</td>
+                    <td class="hide-xs">${file}</td>
+                    <td class="col-ip hide-xs">${esc(d.ip || '—')}</td>
+                    <td class="col-time hide-xs">${fmtTime(d.created_at)}</td>
+                    <td class="col-time hide-xs">${fmtTime(d.end_time)}</td>
+                </tr>`;
+            }).join('');
+
+            wrap.innerHTML = `<table class="data-table">
+                <thead><tr>
+                    <th>Title</th>
+                    <th class="hide-xs">Source URL</th>
+                    <th>Status</th>
+                    <th class="hide-xs">File</th>
+                    <th class="hide-xs">IP</th>
+                    <th class="hide-xs">Started</th>
+                    <th class="hide-xs">Finished</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        }
+
+        // ── Visitor table ──────────────────────────────────────────
+        function renderVisitors() {
+            const wrap = document.getElementById('visitor-table-wrap');
+            document.getElementById('tab-v-count').textContent = visitorData.length;
+
+            // Update visitor stats
+            document.getElementById('s-visitors').textContent = visitorData.length;
+            const countries = new Set(visitorData.map(v => v.country).filter(Boolean));
+            document.getElementById('s-countries').textContent = countries.size;
+
+            if (!visitorData.length) {
+                wrap.innerHTML = `<div class="empty-state"><i class="fas fa-users"></i><p>No visitor records yet</p></div>`;
+                return;
+            }
+
+            const rows = visitorData.slice(0, 100).map(v => {
+                const flag = countryFlag(v.country_code);
+                return `<tr>
+                    <td class="col-ip">${esc(v.ip || '—')}</td>
+                    <td>${flag ? flag + ' ' : ''}${esc(v.country || '—')}</td>
+                    <td class="hide-xs">${esc(v.browser || '—')}</td>
+                    <td class="col-time">${fmtTime(v.timestamp)}</td>
+                    <td class="hide-xs" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.78rem;color:#94a3b8;" title="${esc(v.user_agent)}">${esc(v.user_agent || '—')}</td>
+                </tr>`;
+            }).join('');
+
+            wrap.innerHTML = `<table class="data-table">
+                <thead><tr>
+                    <th>IP Address</th>
+                    <th>Country</th>
+                    <th class="hide-xs">Browser</th>
+                    <th>Visit Time</th>
+                    <th class="hide-xs">User Agent</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+            </table>`;
+        }
+
+        // ── Data loading ───────────────────────────────────────────
+        async function loadAll(manual = false) {
+            try {
+                const [dlRes, vRes] = await Promise.all([
+                    fetch(`/admin/downloads?t=${Date.now()}`),
+                    fetch(`/admin/visitors?t=${Date.now()}`)
+                ]);
+                dlData      = await dlRes.json();
+                visitorData = await vRes.json();
+            } catch (err) {
+                document.getElementById('dl-table-wrap').innerHTML =
+                    `<div class="empty-state"><i class="fas fa-exclamation-triangle"></i><p>Load error: ${esc(err.message)}</p></div>`;
+                return;
+            }
+
+            renderDownloads();
+            renderVisitors();
+
+            // Re-render analytics if that tab is active
+            const analyticsActive = document.getElementById('tab-analytics').classList.contains('active');
+            if (analyticsActive) renderAnalytics();
+
+            document.getElementById('refresh-info').textContent =
+                `Last refreshed: ${new Date().toLocaleTimeString()} — auto-refreshes every 30 s`;
+        }
+
+        // Initial load + auto-refresh
+        loadAll();
+        setInterval(() => loadAll(), 30000);
     </script>
 </body>
 </html>

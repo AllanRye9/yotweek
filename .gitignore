@@ -4,3 +4,5 @@ __pycache__/
 downloads/
 nohup.out
 app.log
+data/
+static/

@@ -281,6 +281,53 @@
             font-size: 0.82rem;
             color: #6d28d9;
         }
+        /* ── Format option cards ── */
+        .format-option {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 10px;
+            border: 1px solid #e8ecf0;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .format-option:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        .format-option-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .format-option-title {
+            font-weight: 700;
+            font-size: 0.88rem;
+            color: #1e293b;
+            margin-bottom: 2px;
+        }
+        .format-option-tag {
+            background: #667eea;
+            color: white;
+            font-size: 0.68rem;
+            padding: 1px 6px;
+            border-radius: 999px;
+            font-weight: 700;
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+        .format-option-desc {
+            font-size: 0.8rem;
+            color: #64748b;
+            line-height: 1.4;
+        }
         .tip-box {
             background: #eff6ff;
             border-left: 4px solid #3b82f6;
@@ -493,25 +540,91 @@
                     <i class="fas fa-lightbulb"></i> Format Guide
                 </div>
                 <div class="card-body">
-                    <table class="format-table">
-                        <thead>
-                            <tr><th>Format string</th><th>Result</th></tr>
-                        </thead>
-                        <tbody>
-                            <tr><td><code>best</code></td><td>Best single-file quality</td></tr>
-                            <tr><td><code>bestvideo+bestaudio</code></td><td>Best quality (needs ffmpeg)</td></tr>
-                            <tr><td><code>bestvideo[height&lt;=720]+bestaudio</code></td><td>Cap at 720 p</td></tr>
-                            <tr><td><code>bestvideo[height&lt;=480]+bestaudio</code></td><td>Cap at 480 p</td></tr>
-                            <tr><td><code>mp3</code></td><td>Audio only (needs ffmpeg)</td></tr>
-                            <tr><td><code>bestaudio</code></td><td>Best audio stream</td></tr>
-                        </tbody>
-                    </table>
+                    <p style="font-size:0.85rem;color:#64748b;margin-bottom:14px;">
+                        Choose how you want your video saved. Just pick one that suits your need — no technical knowledge required!
+                    </p>
+
+                    <!-- User-friendly format option cards -->
+                    <div class="format-option" onclick="setFormat('best')">
+                        <div class="format-option-icon" style="background:#eff6ff;color:#3b82f6;">
+                            <i class="fas fa-star"></i>
+                        </div>
+                        <div class="format-option-text">
+                            <div class="format-option-title">Best Quality <span class="format-option-tag">Recommended</span></div>
+                            <div class="format-option-desc">Downloads the highest quality version available — great for most uses.</div>
+                        </div>
+                    </div>
+
+                    <div class="format-option" onclick="setFormat('bestvideo+bestaudio')">
+                        <div class="format-option-icon" style="background:#f0fdf4;color:#16a34a;">
+                            <i class="fas fa-gem"></i>
+                        </div>
+                        <div class="format-option-text">
+                            <div class="format-option-title">Maximum Quality</div>
+                            <div class="format-option-desc">Best possible video + audio merged together. Requires ffmpeg (installed on this server).</div>
+                        </div>
+                    </div>
+
+                    <div class="format-option" onclick="setFormat('bestvideo[height<=1080]+bestaudio')">
+                        <div class="format-option-icon" style="background:#faf5ff;color:#7c3aed;">
+                            <i class="fas fa-tv"></i>
+                        </div>
+                        <div class="format-option-text">
+                            <div class="format-option-title">Full HD (1080p)</div>
+                            <div class="format-option-desc">Up to 1080p resolution — sharp and clear on most screens.</div>
+                        </div>
+                    </div>
+
+                    <div class="format-option" onclick="setFormat('bestvideo[height<=720]+bestaudio')">
+                        <div class="format-option-icon" style="background:#fff7ed;color:#c2410c;">
+                            <i class="fas fa-film"></i>
+                        </div>
+                        <div class="format-option-text">
+                            <div class="format-option-title">HD (720p)</div>
+                            <div class="format-option-desc">Good quality at 720p — ideal for sharing or limited storage.</div>
+                        </div>
+                    </div>
+
+                    <div class="format-option" onclick="setFormat('bestvideo[height<=480]+bestaudio')">
+                        <div class="format-option-icon" style="background:#f0fdf4;color:#15803d;">
+                            <i class="fas fa-mobile-alt"></i>
+                        </div>
+                        <div class="format-option-text">
+                            <div class="format-option-title">Standard (480p)</div>
+                            <div class="format-option-desc">Smaller file, good for mobile devices or slow connections.</div>
+                        </div>
+                    </div>
+
+                    <div class="format-option" onclick="setFormat('bestaudio/best')">
+                        <div class="format-option-icon" style="background:#fef9c3;color:#a16207;">
+                            <i class="fas fa-music"></i>
+                        </div>
+                        <div class="format-option-text">
+                            <div class="format-option-title">Audio Only</div>
+                            <div class="format-option-desc">Downloads just the sound — perfect for music, podcasts or talks.</div>
+                        </div>
+                    </div>
+
+                    <div class="tip-box" style="margin-top:14px;">
+                        <i class="fas fa-info-circle"></i>
+                        Click any option above to automatically fill the Format field, then press <strong>Start Download</strong>.
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
     <script>
+        // ─── Format helper ────────────────────────────────────────
+        function setFormat(fmt) {
+            document.getElementById('format').value = fmt;
+            const urlField = document.getElementById('url');
+            if (!urlField.value.trim()) {
+                urlField.focus();
+            }
+            showToast(`Format set to: ${fmt}`, 'info', 2500);
+        }
+
         // ─── Audio ────────────────────────────────────────────────
         function beep(frequency, duration, volume = 0.18) {
             try {
