@@ -520,6 +520,10 @@ def admin_required(f):
     @wraps(f)
     def wrapped(*args, **kwargs):
         if not session.get("admin_logged_in"):
+            # Non-GET requests (DELETE, POST, PUT, PATCH) are always API calls —
+            # return JSON 401 so the client can handle the error without receiving HTML.
+            if request.method != "GET":
+                return jsonify({"error": "Authentication required"}), 401
             # API endpoints (paths under /admin/ that aren't the login page) return 401 JSON.
             # The /const page and other browser-facing routes get a redirect to login.
             if request.path.startswith("/admin/") and request.path not in ("/admin/login", "/admin/logout", "/admin/register"):

@@ -926,16 +926,9 @@
         });
 
         // ─── Stats badge ──────────────────────────────────────────
-        async function updateStatsBadge() {
+        // Only updates the download count; badge size is kept current by loadFiles.
+        function updateStatsBadge() {
             document.getElementById('badge-count').textContent = downloadCount;
-            try {
-                const res   = await fetch(`/files?t=${Date.now()}`);
-                const files = await res.json();
-                let total = 0;
-                files.forEach(f => { total += f.size; });
-                const mb = (total / 1024 / 1024).toFixed(1);
-                document.getElementById('badge-size').textContent = mb + ' MB';
-            } catch (_) {}
         }
 
         // ─── File list ────────────────────────────────────────────
@@ -943,9 +936,16 @@
             const list = document.getElementById('file-list');
             try {
                 const res   = await fetch(`/files?t=${Date.now()}`);
-                const files = await res.json();
+                const raw   = await res.json();
+                const files = Array.isArray(raw) ? raw : [];
 
-                if (!Array.isArray(files) || files.length === 0) {
+                // Update badge size with the data we already fetched
+                let total = 0;
+                files.forEach(f => { total += f.size; });
+                document.getElementById('badge-size').textContent =
+                    (total / 1024 / 1024).toFixed(1) + ' MB';
+
+                if (files.length === 0) {
                     list.innerHTML = `
                         <div class="empty-state">
                             <i class="fas fa-inbox"></i>
@@ -1012,7 +1012,14 @@
             if (btn) btn.disabled = true;
             try {
                 const res = await fetch('/delete/' + encodeURIComponent(filename), { method: 'DELETE' });
-                const data = await res.json();
+                let data = {};
+                const ct = res.headers.get('content-type') || '';
+                if (ct.includes('application/json')) {
+                    data = await res.json();
+                } else {
+                    showToast('Delete failed: unexpected server response', 'error');
+                    return;
+                }
                 if (res.ok && data.success) {
                     showToast('File deleted', 'success');
                     // Remove all tracking for this filename so it is treated as fresh
@@ -1024,6 +1031,8 @@
                     if (qIdx !== -1) { popupQueue.splice(qIdx, 1); popupQueued.delete(filename); }
                     loadFiles(true);
                     updateStatsBadge();
+                } else if (res.status === 401) {
+                    showToast('Admin login required to delete files', 'error');
                 } else {
                     showToast(data.error || 'Delete failed', 'error');
                 }
