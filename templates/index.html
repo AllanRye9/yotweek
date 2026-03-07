@@ -135,7 +135,8 @@
             gap: 15px;
         }
         @media (max-width: 900px) {
-            .ad-col { display: none; }
+            .ad-col { display: none !important; }
+            .ad-mobile-top { display: flex !important; }
             .main-grid { grid-template-columns: 1fr !important; }
         }
         @media (max-width: 600px) {
@@ -349,8 +350,8 @@
             padding-top: 4px;
         }
         .ad-placeholder {
-            background: rgba(255,255,255,0.55);
-            border: 2px dashed #c4cdf8;
+            background: rgba(255,255,255,0.65);
+            border: 2px dotted #a5b4fc;
             border-radius: 10px;
             display: flex;
             flex-direction: column;
@@ -362,9 +363,29 @@
             padding: 16px 8px;
             min-height: 220px;
             gap: 8px;
+            backdrop-filter: blur(2px);
         }
         .ad-placeholder i { font-size: 1.6rem; opacity: 0.4; }
         .ad-placeholder--compact { min-height: 140px; }
+
+        /* ── Mobile top ad banner ── */
+        .ad-mobile-top {
+            display: none;
+            background: rgba(255,255,255,0.65);
+            border: 2px dotted #a5b4fc;
+            border-radius: 8px;
+            padding: 6px 16px;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: #a0aec0;
+            font-size: 0.75rem;
+            margin-bottom: 12px;
+            min-height: 54px;
+            text-align: center;
+            backdrop-filter: blur(2px);
+        }
+        .ad-mobile-top i { font-size: 1.2rem; opacity: 0.4; }
 
         /* ── card variant: allow dropdown overflow ── */
         .card-has-dropdown { overflow: visible; }
@@ -490,9 +511,96 @@
             transition: background 0.2s;
         }
         .btn-modal-keep:hover { background: #dde1e7; }
+
+        /* ── Page loader overlay ── */
+        #page-loader {
+            position: fixed;
+            inset: 0;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            transition: opacity 0.5s ease;
+        }
+        #page-loader.hidden { opacity: 0; pointer-events: none; }
+        .loader-title {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #1e293b;
+        }
+        .loader-title i { color: #667eea; margin-right: 8px; }
+        .loading-dots {
+            display: flex;
+            gap: 3px;
+            font-size: 2.4rem;
+            color: #667eea;
+            font-weight: 900;
+            line-height: 1;
+        }
+        .loading-dots span {
+            animation: dotPop 1.4s ease-in-out infinite;
+            display: inline-block;
+        }
+        .loading-dots span:nth-child(1) { animation-delay: 0s; }
+        .loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+        .loading-dots span:nth-child(4) { animation-delay: 0.45s; }
+        .loading-dots span:nth-child(5) { animation-delay: 0.6s; }
+        .loading-dots span:nth-child(6) { animation-delay: 0.75s; }
+        @keyframes dotPop {
+            0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
+            30% { transform: translateY(-10px); opacity: 1; }
+        }
+
+        /* ── Retention (keep-or-delete) modal ── */
+        #retention-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.55);
+            z-index: 5000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+        .retention-box {
+            background: white;
+            border-radius: 14px;
+            padding: 32px 28px 24px;
+            max-width: 400px;
+            width: 92%;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.28);
+            text-align: center;
+            animation: slideUp 0.3s ease-out;
+        }
+        .retention-box .modal-icon { color: #f59e0b; }
+        .retention-filename {
+            font-size: 0.85rem;
+            color: #64748b;
+            margin: 6px 0 16px;
+            word-break: break-all;
+            font-style: italic;
+        }
+        .retention-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
+    <!-- Page loader: shown for ~2.5 s while the page builds -->
+    <div id="page-loader">
+        <div class="loader-title"><i class="fas fa-download"></i> YOT Downloader</div>
+        <div class="loading-dots">
+            <span>.</span><span>.</span><span>.</span><span>.</span><span>.</span><span>.</span>
+        </div>
+    </div>
+
     <!-- Stats badge -->
     <div class="stats-badge" id="stats-badge" title="Files downloaded / Total size">
         <span id="badge-count">0</span>
@@ -520,6 +628,26 @@
         </div>
     </div>
 
+    <!-- Retention: 1-minute keep-or-delete prompt -->
+    <div id="retention-modal" role="dialog" aria-modal="true" aria-labelledby="retention-modal-title">
+        <div class="retention-box">
+            <div class="modal-icon"><i class="fas fa-clock"></i></div>
+            <div class="modal-title" id="retention-modal-title">Keep this download?</div>
+            <div class="retention-filename" id="retention-filename"></div>
+            <p style="font-size:0.88rem; color:#64748b; margin-bottom:20px;">
+                This file has been available for 1&nbsp;minute.<br>Would you like to keep or delete it?
+            </p>
+            <div class="retention-actions">
+                <button class="btn-danger" id="retention-delete-btn">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                <button class="btn-modal-keep" id="retention-keep-btn">
+                    <i class="fas fa-check"></i> Keep
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div class="container">
         <header style="text-align:center; margin-bottom:24px; padding-top:10px;">
             <h1 style="font-size:2rem; font-weight:700; color:#1e293b;">
@@ -530,6 +658,12 @@
                 Powered by yt-dlp &mdash; download videos from YouTube and 1 000+ other sites
             </p>
         </header>
+
+        <!-- Mobile top ad banner (visible on small screens only) -->
+        <div class="ad-mobile-top">
+            <i class="fas fa-rectangle-ad"></i>
+            <span>Advertisement</span>
+        </div>
 
         <!-- 3-column layout: left ad | content | right ad -->
         <div class="main-grid" style="display:grid; grid-template-columns:180px 1fr 180px; gap:20px; align-items:start;">
@@ -669,6 +803,16 @@
     </div>
 
     <script>
+        // ─── Page loader (dismiss early, before any fallible setup) ──
+        (function() {
+            const loader = document.getElementById('page-loader');
+            if (!loader) return;
+            setTimeout(() => {
+                loader.classList.add('hidden');
+                setTimeout(() => loader.remove(), 500);
+            }, 2500);
+        })();
+
         // ─── Format helper ────────────────────────────────────────
         function setFormat(fmt) {
             document.getElementById('format').value = fmt;
@@ -776,24 +920,25 @@
         let downloadCount = parseInt(localStorage.getItem('dlCount')) || 0;
 
         // ─── Socket setup ─────────────────────────────────────────
-        const socket = io({ reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1500 });
-
         const connDot = document.getElementById('conn-dot');
+        let socket;
+        try {
+            socket = io({ reconnection: true, reconnectionAttempts: 10, reconnectionDelay: 1500 });
 
-        socket.on('connect', () => {
-            connDot.className = 'connected';
-            loadFiles(false);
-            updateStatsBadge();
-            // Re-subscribe to any downloads still tracked (e.g. after brief reconnect)
-            activeDownloads.forEach((_, id) => socket.emit('subscribe', { download_id: id }));
-        });
-        socket.on('disconnect', () => { connDot.className = 'error'; });
-        socket.on('connect_error', () => { connDot.className = 'error'; });
+            socket.on('connect', () => {
+                connDot.className = 'connected';
+                loadFiles(false);
+                updateStatsBadge();
+                // Re-subscribe to any downloads still tracked (e.g. after brief reconnect)
+                activeDownloads.forEach((_, id) => socket.emit('subscribe', { download_id: id }));
+            });
+            socket.on('disconnect', () => { connDot.className = 'error'; });
+            socket.on('connect_error', () => { connDot.className = 'error'; });
 
-        socket.on('progress', (data) => {
-            if (!data?.id) return;
-            const dl = activeDownloads.get(data.id);
-            if (!dl) return;
+            socket.on('progress', (data) => {
+                if (!data?.id) return;
+                const dl = activeDownloads.get(data.id);
+                if (!dl) return;
             dl.percent = data.percent || 0;
             dl.speed   = data.speed  || '';
             dl.eta     = data.eta    || '';
@@ -844,9 +989,13 @@
         });
 
         socket.on('files_updated', () => {
-            loadFiles(true);
-            updateStatsBadge();
-        });
+                loadFiles(true);
+                updateStatsBadge();
+            });
+        } catch (_) {
+            // socket.io unavailable (CDN blocked or offline); real-time updates disabled
+            connDot.className = 'error';
+        }
 
         // ─── Active downloads UI ──────────────────────────────────
         function renderActiveDownloads() {
@@ -912,6 +1061,11 @@
         async function autoDeleteFile(filename) {
             if (deletingFiles.has(filename)) return;
             deletingFiles.add(filename);
+            // Cancel any pending keep-or-delete prompt for this file
+            if (typeof promptTimers !== 'undefined' && promptTimers.has(filename)) {
+                clearTimeout(promptTimers.get(filename));
+                promptTimers.delete(filename);
+            }
             try {
                 const res = await fetch('/delete/' + encodeURIComponent(filename), { method: 'DELETE' });
                 const ct  = res.headers.get('content-type') || '';
@@ -1040,7 +1194,7 @@
                         eta:     '',
                         size:    ''
                     });
-                    socket.emit('subscribe', { download_id: id });
+                    socket?.emit('subscribe', { download_id: id });
                     renderActiveDownloads();
                     openProgressModal();
 
@@ -1078,6 +1232,9 @@
 
                 // Track first-seen timestamps for client-side age calculation
                 trackNewFiles(files);
+
+                // Schedule 1-minute keep-or-delete prompts for newly seen files
+                scheduleRetentionPrompts(files);
 
                 // Auto-delete files that have aged past 3 minutes
                 // (covers both page-refresh and in-session cases)
@@ -1169,6 +1326,11 @@
                 if (res.ok && data.success) {
                     showToast('File deleted', 'success');
                     fileFirstSeen.delete(filename);
+                    // Cancel any pending keep-or-delete prompt for this file
+                    if (typeof promptTimers !== 'undefined' && promptTimers.has(filename)) {
+                        clearTimeout(promptTimers.get(filename));
+                        promptTimers.delete(filename);
+                    }
                     loadFiles(true);
                     updateStatsBadge();
                 } else {
@@ -1182,6 +1344,100 @@
         }
 
         // ─── Init ─────────────────────────────────────────────────
+        // Auto-delete all files present on the server when the page loads/refreshes,
+        // so each new session starts with a clean slate.
+        (async function clearOnPageLoad() {
+            try {
+                const res = await fetch('/files?t=' + Date.now());
+                const files = await res.json();
+                if (Array.isArray(files) && files.length > 0) {
+                    await Promise.all(
+                        files.map(f => fetch('/delete/' + encodeURIComponent(f.name), { method: 'DELETE' }))
+                    );
+                }
+            } catch (_) {}
+        })();
+
+        // ─── 1-minute retention prompt ────────────────────────────
+        const RETENTION_PROMPT_MS = 60 * 1000; // 1 minute
+        const promptedFiles  = new Set();  // filenames already prompted (no re-prompt)
+        const promptTimers   = new Map();  // filename -> setTimeout handle
+        let   retentionQueue = [];         // filenames waiting while modal is open
+
+        function scheduleRetentionPrompts(files) {
+            const now = Date.now();
+            // Cancel timers for files no longer in the list
+            for (const [name, timer] of promptTimers.entries()) {
+                if (!files.some(f => f.name === name)) {
+                    clearTimeout(timer);
+                    promptTimers.delete(name);
+                }
+            }
+            // Schedule prompts for new files
+            files.forEach(f => {
+                if (promptedFiles.has(f.name) || promptTimers.has(f.name)) return;
+                const firstSeen = fileFirstSeen.get(f.name) || now;
+                const delay     = Math.max(0, RETENTION_PROMPT_MS - (now - firstSeen));
+                const timer = setTimeout(() => {
+                    promptTimers.delete(f.name);
+                    _enqueueRetentionPrompt(f.name);
+                }, delay);
+                promptTimers.set(f.name, timer);
+            });
+        }
+
+        function _enqueueRetentionPrompt(filename) {
+            if (promptedFiles.has(filename)) return;
+            promptedFiles.add(filename);
+            const modal = document.getElementById('retention-modal');
+            if (modal.style.display === 'flex') {
+                retentionQueue.push(filename);
+            } else {
+                _openRetentionModal(filename);
+            }
+        }
+
+        function _openRetentionModal(filename) {
+            const modal = document.getElementById('retention-modal');
+            document.getElementById('retention-filename').textContent = filename;
+            modal.dataset.currentFile = filename;
+            modal.style.display = 'flex';
+        }
+
+        function _closeRetentionModal() {
+            const modal = document.getElementById('retention-modal');
+            modal.style.display = 'none';
+            delete modal.dataset.currentFile;
+            if (retentionQueue.length > 0) {
+                _openRetentionModal(retentionQueue.shift());
+            }
+        }
+
+        document.getElementById('retention-delete-btn').addEventListener('click', async () => {
+            const modal    = document.getElementById('retention-modal');
+            const filename = modal.dataset.currentFile;
+            _closeRetentionModal();
+            if (!filename) return;
+            try {
+                const res = await fetch('/delete/' + encodeURIComponent(filename), { method: 'DELETE' });
+                if (res.ok) {
+                    showToast('File deleted', 'success');
+                    fileFirstSeen.delete(filename);
+                    loadFiles(true);
+                    updateStatsBadge();
+                } else {
+                    showToast('Could not delete file — please try again', 'error');
+                }
+            } catch (_) {
+                showToast('Delete failed: network error', 'error');
+            }
+        });
+
+        document.getElementById('retention-keep-btn').addEventListener('click', () => {
+            _closeRetentionModal();
+            showToast('File kept', 'info', 2500);
+        });
+
         updateStatsBadge();
         loadFiles(true);
 
