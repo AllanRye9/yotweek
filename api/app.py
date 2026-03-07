@@ -984,9 +984,8 @@ def download_file(filename):
         return jsonify({"error": "File not found"}), 404
 
 @app.route("/delete/<path:filename>", methods=["DELETE"])
-@admin_required
 def delete_file(filename):
-    """Delete a downloaded file (admin only)"""
+    """Delete a downloaded file"""
     try:
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
         

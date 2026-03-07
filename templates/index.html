@@ -369,7 +369,7 @@
             to   { opacity: 1; transform: translateX(0); }
         }
 
-        /* ── Retention pop-up ── */
+        /* ── Download progress pop-up ── */
         .modal-overlay {
             display: none;
             position: fixed;
@@ -389,26 +389,13 @@
             text-align: center;
             animation: slideUp 0.3s ease-out;
         }
-        .modal-icon { font-size: 2.8rem; color: #f59e0b; margin-bottom: 14px; }
+        .modal-icon { font-size: 2.8rem; color: #667eea; margin-bottom: 14px; }
         .modal-title {
             font-size: 1.2rem;
             font-weight: 700;
             color: #1e293b;
             margin-bottom: 8px;
         }
-        .modal-message { color: #64748b; font-size: 0.95rem; margin-bottom: 6px; }
-        .modal-filename {
-            font-weight: 600;
-            color: #2c3e50;
-            word-break: break-all;
-            font-size: 0.95rem;
-            margin-bottom: 24px;
-            padding: 8px 14px;
-            background: #f1f5f9;
-            border-radius: 6px;
-            display: block;
-        }
-        .modal-actions { display: flex; gap: 12px; justify-content: center; }
         .btn-modal-keep {
             padding: 10px 26px;
             background: #ecf0f1;
@@ -421,18 +408,6 @@
             transition: background 0.2s;
         }
         .btn-modal-keep:hover { background: #dde1e7; }
-        .btn-modal-delete {
-            padding: 10px 26px;
-            background: #dc2626;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            font-size: 0.95rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .btn-modal-delete:hover { background: #b91c1c; }
     </style>
 </head>
 <body>
@@ -445,19 +420,19 @@
     <!-- Toast container -->
     <div class="toast-container" id="toast-container"></div>
 
-    <!-- 3-minute retention pop-up -->
-    <div class="modal-overlay" id="retention-modal" role="dialog" aria-modal="true" aria-labelledby="retention-modal-title">
-        <div class="modal-box">
-            <div class="modal-icon"><i class="fas fa-clock"></i></div>
-            <div class="modal-title" id="retention-modal-title">Still keeping this video?</div>
-            <p class="modal-message">This file has been waiting for 3 minutes:</p>
-            <span class="modal-filename" id="retention-filename"></span>
-            <div class="modal-actions">
-                <button class="btn-modal-keep" id="retention-keep-btn">
-                    <i class="fas fa-check"></i> Keep
-                </button>
-                <button class="btn-modal-delete" id="retention-delete-btn">
-                    <i class="fas fa-trash"></i> Delete
+    <!-- Download progress popup (centered) -->
+    <div class="modal-overlay" id="progress-modal" role="dialog" aria-modal="true" aria-labelledby="progress-modal-title">
+        <div class="modal-box" style="max-width:520px; text-align:left;">
+            <div style="text-align:center; margin-bottom:16px;">
+                <div class="modal-icon"><i class="fas fa-download"></i></div>
+                <div class="modal-title" id="progress-modal-title">Download in Progress</div>
+            </div>
+            <div id="progress-modal-body">
+                <!-- populated by JS -->
+            </div>
+            <div style="text-align:center; margin-top:18px;">
+                <button class="btn-modal-keep" id="progress-modal-close-btn">
+                    <i class="fas fa-times"></i> Close
                 </button>
             </div>
         </div>
@@ -694,6 +669,7 @@
             dl.status  = 'downloading';
             activeDownloads.set(data.id, dl);
             renderActiveDownloads();
+            updateProgressModal();
         });
 
         socket.on('completed', (data) => {
@@ -706,6 +682,7 @@
                 beep(880, 300);
                 activeDownloads.delete(data.id);
                 renderActiveDownloads();
+                updateProgressModal();
                 updateStatsBadge();
                 loadFiles(true);
             }
@@ -720,6 +697,7 @@
                 beep(220, 500);
                 activeDownloads.delete(data.id);
                 renderActiveDownloads();
+                updateProgressModal();
             }
         });
 
@@ -729,6 +707,7 @@
                 showToast('Download cancelled', 'info');
                 activeDownloads.delete(data.id);
                 renderActiveDownloads();
+                updateProgressModal();
             }
         });
 
@@ -781,96 +760,123 @@
                 .replace(/"/g,'&quot;');
         }
 
-        // ─── 3-minute retention popup ─────────────────────────────
-        const POPUP_DELAY_MS = 3 * 60 * 1000; // 3 minutes
-        const fileFirstSeen  = new Map();      // filename -> timestamp (ms)
-        const popupDismissed = new Set();      // files the user chose to keep
-        const popupQueue     = [];             // filenames waiting for popup (ordered)
-        const popupQueued    = new Set();      // O(1) existence check for popupQueue
-        let   popupActive    = false;
+        // ─── Auto-delete (3-minute retention) ────────────────────
+        const RETENTION_MS   = 3 * 60 * 1000; // 3 minutes
+        const fileFirstSeen  = new Map();      // filename -> first-seen timestamp (ms)
+        const deletingFiles  = new Set();      // filenames currently being auto-deleted
 
         function trackNewFiles(files) {
             const now      = Date.now();
             const existing = new Set(files.map(f => f.name));
-
-            // Prune files that were deleted externally
             for (const name of fileFirstSeen.keys()) {
-                if (!existing.has(name)) {
-                    fileFirstSeen.delete(name);
-                    // Allow the popup to fire again if the same filename reappears
-                    popupDismissed.delete(name);
-                }
+                if (!existing.has(name)) fileFirstSeen.delete(name);
             }
-
-            // Record first-seen time for genuinely new files
             files.forEach(f => {
-                if (!fileFirstSeen.has(f.name) && !popupDismissed.has(f.name)) {
-                    fileFirstSeen.set(f.name, now);
-                }
+                if (!fileFirstSeen.has(f.name)) fileFirstSeen.set(f.name, now);
             });
         }
 
-        function checkFileAges() {
-            const now = Date.now();
-            for (const [name, seen] of fileFirstSeen) {
-                if (now - seen >= POPUP_DELAY_MS && !popupDismissed.has(name)) {
-                    if (!popupQueued.has(name)) {
-                        popupQueue.push(name);
-                        popupQueued.add(name);
-                    }
+        // Silent delete used for auto-deletion (no confirmation, no reload)
+        async function autoDeleteFile(filename) {
+            if (deletingFiles.has(filename)) return;
+            deletingFiles.add(filename);
+            try {
+                const res = await fetch('/delete/' + encodeURIComponent(filename), { method: 'DELETE' });
+                const ct  = res.headers.get('content-type') || '';
+                if (res.ok && ct.includes('application/json')) {
+                    fileFirstSeen.delete(filename);
                 }
-            }
-            if (!popupActive && popupQueue.length > 0) {
-                const next = popupQueue.shift();
-                popupQueued.delete(next);
-                showRetentionPopup(next);
-            }
+            } catch (_) {}
+            deletingFiles.delete(filename);
         }
 
-        function showRetentionPopup(filename) {
-            popupActive = true;
-            const modal      = document.getElementById('retention-modal');
-            const nameEl     = document.getElementById('retention-filename');
-            const deleteBtn  = document.getElementById('retention-delete-btn');
-            nameEl.textContent = filename;
-            modal.style.display = 'flex';
-
-            document.getElementById('retention-keep-btn').onclick = () => {
-                popupDismissed.add(filename);
-                closeRetentionPopup();
-            };
-
-            deleteBtn.onclick = async () => {
-                deleteBtn.disabled = true;
-                await deleteFile(filename, null, true);
-                deleteBtn.disabled = false;
-                closeRetentionPopup();
-            };
+        // Called each time the file list is loaded; deletes files that have aged out.
+        // Uses both the server's mtime (handles page-refresh case) and the client's
+        // first-seen timestamp (handles files that arrived during this session).
+        async function autoDeleteAgedFiles(files) {
+            const now       = Date.now();
+            const toDelete  = files.filter(f => {
+                // Use server mtime for the page-refresh case.
+                // Fall back to serverAge when the file isn't tracked client-side yet
+                // (this shouldn't happen after trackNewFiles(), but guards edge cases).
+                const serverAge    = now - f.modified * 1000;
+                const clientAge    = fileFirstSeen.has(f.name) ? now - fileFirstSeen.get(f.name) : serverAge;
+                return (serverAge >= RETENTION_MS || clientAge >= RETENTION_MS) && !deletingFiles.has(f.name);
+            });
+            if (toDelete.length === 0) return false;
+            await Promise.all(toDelete.map(f => autoDeleteFile(f.name)));
+            return true;
         }
 
-        function closeRetentionPopup() {
-            popupActive = false;
-            document.getElementById('retention-modal').style.display = 'none';
-            // Show next queued popup after a short pause
-            if (popupQueue.length > 0) {
-                const next = popupQueue.shift();
-                popupQueued.delete(next);
-                setTimeout(() => showRetentionPopup(next), 400);
-            }
+        // ─── Progress modal ───────────────────────────────────────
+        let progressModalVisible = false;
+        let _allDoneTimer        = null;
+
+        function openProgressModal() {
+            document.getElementById('progress-modal').style.display = 'flex';
+            progressModalVisible = true;
+            updateProgressModal();
         }
 
-        // Close popup via Escape key (treat as "Keep")
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && popupActive) {
-                document.getElementById('retention-keep-btn').click();
+        function closeProgressModal() {
+            document.getElementById('progress-modal').style.display = 'none';
+            progressModalVisible = false;
+            if (_allDoneTimer) { clearTimeout(_allDoneTimer); _allDoneTimer = null; }
+        }
+
+        function updateProgressModal() {
+            if (!progressModalVisible) return;
+            const body    = document.getElementById('progress-modal-body');
+            const titleEl = document.getElementById('progress-modal-title');
+            if (activeDownloads.size === 0) {
+                titleEl.textContent = 'Download Complete!';
+                body.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-check-circle" style="color:#10b981; font-size:2.2rem; opacity:1;"></i>
+                        <p style="margin-top:8px; color:#10b981; font-weight:600;">All downloads finished.</p>
+                    </div>`;
+                if (!_allDoneTimer) {
+                    _allDoneTimer = setTimeout(() => {
+                        closeProgressModal();
+                        _allDoneTimer = null;
+                    }, 2500);
+                }
+                return;
             }
+            titleEl.textContent = 'Download in Progress';
+            let html = '';
+            activeDownloads.forEach((dl, id) => {
+                const pct      = Math.min(100, dl.percent || 0);
+                const isQueued = dl.status === 'queued' || pct === 0;
+                const barClass = isQueued ? 'progress-fill indeterminate' : 'progress-fill';
+                const barWidth = isQueued ? '' : `style="width:${pct}%"`;
+                const speedStr = dl.speed ? `<span><i class="fas fa-tachometer-alt"></i> ${dl.speed}</span>` : '';
+                const etaStr   = dl.eta   ? `<span><i class="fas fa-clock"></i> ETA ${dl.eta}</span>`        : '';
+                const sizeStr  = dl.size  ? `<span><i class="fas fa-hdd"></i> ${dl.size}</span>`             : '';
+                const pctLabel = isQueued ? 'Queued…' : `${pct.toFixed(1)}%`;
+                html += `
+                <div class="dl-card">
+                    <div class="dl-card-title"><i class="fas fa-video"></i>${escHtml(dl.title)}</div>
+                    <div class="progress-wrap"><div class="${barClass}" ${barWidth}></div></div>
+                    <div class="dl-meta">
+                        <span><i class="fas fa-percent"></i> ${pctLabel}</span>
+                        ${speedStr}${etaStr}${sizeStr}
+                    </div>
+                </div>`;
+            });
+            body.innerHTML = html;
+        }
+
+        document.getElementById('progress-modal-close-btn').addEventListener('click', closeProgressModal);
+
+        // Close progress modal when clicking the backdrop
+        document.getElementById('progress-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('progress-modal')) closeProgressModal();
         });
 
-        // Close popup when clicking the overlay backdrop (treat as "Keep")
-        document.getElementById('retention-modal').addEventListener('click', (e) => {
-            if (e.target === document.getElementById('retention-modal')) {
-                document.getElementById('retention-keep-btn').click();
-            }
+        // Close progress modal via Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && progressModalVisible) closeProgressModal();
         });
 
         // ─── Download form ────────────────────────────────────────
@@ -904,11 +910,10 @@
                     });
                     socket.emit('subscribe', { download_id: id });
                     renderActiveDownloads();
+                    openProgressModal();
 
                     if (data.warning) {
                         showToast(`⚠️ ${data.warning}`, 'warning');
-                    } else {
-                        showToast('Download queued – progress will appear above', 'info');
                     }
                     beep(440, 200);
 
@@ -935,11 +940,24 @@
         async function loadFiles(animate = false) {
             const list = document.getElementById('file-list');
             try {
-                const res   = await fetch(`/files?t=${Date.now()}`);
-                const raw   = await res.json();
-                const files = Array.isArray(raw) ? raw : [];
+                const res  = await fetch(`/files?t=${Date.now()}`);
+                const raw  = await res.json();
+                let   files = Array.isArray(raw) ? raw : [];
 
-                // Update badge size with the data we already fetched
+                // Track first-seen timestamps for client-side age calculation
+                trackNewFiles(files);
+
+                // Auto-delete files that have aged past 3 minutes
+                // (covers both page-refresh and in-session cases)
+                const deleted = await autoDeleteAgedFiles(files);
+                if (deleted) {
+                    // trackNewFiles() already added all files to fileFirstSeen, and
+                    // autoDeleteFile() removes successfully deleted files from it.
+                    // So filtering by fileFirstSeen membership keeps only non-deleted files.
+                    files = files.filter(f => fileFirstSeen.has(f.name));
+                }
+
+                // Update badge size
                 let total = 0;
                 files.forEach(f => { total += f.size; });
                 document.getElementById('badge-size').textContent =
@@ -953,10 +971,6 @@
                         </div>`;
                     return;
                 }
-
-                // Track file ages and trigger 3-min popup if due
-                trackNewFiles(files);
-                checkFileAges();
 
                 list.innerHTML = '';
                 files.forEach((file, idx) => {
@@ -1022,17 +1036,9 @@
                 }
                 if (res.ok && data.success) {
                     showToast('File deleted', 'success');
-                    // Remove all tracking for this filename so it is treated as fresh
-                    // if a file with the same name is downloaded again.
                     fileFirstSeen.delete(filename);
-                    popupDismissed.delete(filename);
-                    // Remove from queue if it was already scheduled to prompt
-                    const qIdx = popupQueue.indexOf(filename);
-                    if (qIdx !== -1) { popupQueue.splice(qIdx, 1); popupQueued.delete(filename); }
                     loadFiles(true);
                     updateStatsBadge();
-                } else if (res.status === 401) {
-                    showToast('Admin login required to delete files', 'error');
                 } else {
                     showToast(data.error || 'Delete failed', 'error');
                 }
@@ -1048,7 +1054,7 @@
         loadFiles(true);
 
         // Auto-refresh the file list every 30 seconds so deletions appear automatically
-        // and so the 3-minute retention check is re-evaluated regularly.
+        // and so the 3-minute auto-delete check is re-evaluated regularly.
         setInterval(() => {
             loadFiles(false);
             updateStatsBadge();
