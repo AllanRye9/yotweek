@@ -373,19 +373,37 @@
         .format-guide-toggle {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            font-size: 0.82rem;
+            gap: 6px;
+            font-size: 0.88rem;
             font-weight: 600;
             color: #667eea;
-            background: none;
-            border: none;
-            padding: 3px 0;
+            background: #f0f0ff;
+            border: 1.5px solid #667eea;
+            padding: 7px 18px;
+            border-radius: 8px;
             cursor: pointer;
-            text-decoration: underline;
-            text-underline-offset: 2px;
+            transition: background 0.15s, color 0.15s;
         }
-        .format-guide-toggle:hover { color: #4f46e5; }
-        .format-guide-toggle .fg-chevron { font-size: 0.7rem; transition: transform 0.2s; }
+        .format-guide-toggle:hover { background: #e0e0ff; color: #4f46e5; border-color: #4f46e5; }
+        .format-guide-toggle .fg-chevron { font-size: 0.75rem; transition: transform 0.2s; }
+        .format-selected-display {
+            margin-top: 8px;
+            padding: 8px 12px;
+            background: #f8f9ff;
+            border: 1px solid #d1d5db;
+            border-radius: 7px;
+            font-size: 0.88rem;
+            color: #1e293b;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .format-selected-display .fsd-label {
+            color: #64748b;
+            font-weight: 400;
+            font-size: 0.82rem;
+        }
         .format-guide-dropdown {
             display: none;
             position: absolute;
@@ -543,53 +561,55 @@
                                        placeholder="https://www.youtube.com/watch?v=…  or any supported URL">
                             </div>
                                 <div class="form-group" style="position:relative;">
-                                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:6px;">
-                                        <label for="format" style="margin-bottom:0;"><i class="fas fa-sliders-h"></i> Format</label>
+                                    <input type="hidden" id="format" name="format" value="bestvideo*+bestaudio*/best">
+                                    <div style="display:flex; justify-content:center; margin-bottom:6px;">
                                         <button type="button" class="format-guide-toggle" id="format-guide-btn"
                                                 aria-expanded="false" aria-controls="format-guide-dropdown">
-                                            <i class="fas fa-lightbulb"></i> Format Guide <i class="fas fa-chevron-down fg-chevron" id="fg-chevron"></i>
+                                            <i class="fas fa-sliders-h"></i> Format Guide <i class="fas fa-chevron-down fg-chevron" id="fg-chevron"></i>
                                         </button>
                                     </div>
-                                    <input type="text" id="format" value="bestvideo*+bestaudio*/best"
-                                           placeholder="bestvideo*+bestaudio*/best, bestvideo+bestaudio/best, bestaudio/best…">
-                                    <!-- Format guide dropdown — positioned below the input, full width of form-group -->
+                                    <div class="format-selected-display" id="format-display">
+                                        <span class="fsd-label">Selected:</span>
+                                        <span id="format-display-text">Best Quality</span>
+                                    </div>
+                                    <!-- Format guide dropdown — positioned below the display, full width of form-group -->
                                     <div class="format-guide-dropdown" id="format-guide-dropdown" role="listbox" aria-label="Format Guide">
-                                        <div class="format-option" onclick="pickFormat('bestvideo*+bestaudio*/best')" role="option" tabindex="0">
+                                        <div class="format-option" onclick="pickFormat('bestvideo*+bestaudio*/best', 'Best Quality')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#eff6ff;color:#3b82f6;"><i class="fas fa-star"></i></div>
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Best Quality <span class="format-option-tag">Recommended</span></div>
                                                 <div class="format-option-desc">Highest quality available — great for most uses.</div>
                                             </div>
                                         </div>
-                                        <div class="format-option" onclick="pickFormat('bestvideo+bestaudio/best')" role="option" tabindex="0">
+                                        <div class="format-option" onclick="pickFormat('bestvideo+bestaudio/best', 'Maximum Quality')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#f0fdf4;color:#16a34a;"><i class="fas fa-gem"></i></div>
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Maximum Quality</div>
                                                 <div class="format-option-desc">Best video + audio merged (requires ffmpeg).</div>
                                             </div>
                                         </div>
-                                        <div class="format-option" onclick="pickFormat('bestvideo[height<=1080]+bestaudio/best')" role="option" tabindex="0">
+                                        <div class="format-option" onclick="pickFormat('bestvideo[height<=1080]+bestaudio/best', 'Full HD (1080p)')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#faf5ff;color:#7c3aed;"><i class="fas fa-tv"></i></div>
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Full HD (1080p)</div>
                                                 <div class="format-option-desc">Up to 1080p — sharp on most screens.</div>
                                             </div>
                                         </div>
-                                        <div class="format-option" onclick="pickFormat('bestvideo[height<=720]+bestaudio/best')" role="option" tabindex="0">
+                                        <div class="format-option" onclick="pickFormat('bestvideo[height<=720]+bestaudio/best', 'HD (720p)')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#fff7ed;color:#c2410c;"><i class="fas fa-film"></i></div>
                                             <div class="format-option-text">
                                                 <div class="format-option-title">HD (720p)</div>
                                                 <div class="format-option-desc">Good quality, ideal for sharing or limited storage.</div>
                                             </div>
                                         </div>
-                                        <div class="format-option" onclick="pickFormat('bestvideo[height<=480]+bestaudio/best')" role="option" tabindex="0">
+                                        <div class="format-option" onclick="pickFormat('bestvideo[height<=480]+bestaudio/best', 'Standard (480p)')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#f0fdf4;color:#15803d;"><i class="fas fa-mobile-alt"></i></div>
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Standard (480p)</div>
                                                 <div class="format-option-desc">Smaller file — good for mobile or slow connections.</div>
                                             </div>
                                         </div>
-                                        <div class="format-option" onclick="pickFormat('bestaudio/best')" role="option" tabindex="0">
+                                        <div class="format-option" onclick="pickFormat('bestaudio/best', 'Audio Only')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#fef9c3;color:#a16207;"><i class="fas fa-music"></i></div>
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Audio Only</div>
@@ -660,8 +680,9 @@
         }
 
         // ─── Format-guide dropdown ────────────────────────────────
-        function pickFormat(fmt) {
+        function pickFormat(fmt, title) {
             document.getElementById('format').value = fmt;
+            document.getElementById('format-display-text').textContent = title ?? fmt;
             closeFormatDropdown();
             const urlField = document.getElementById('url');
             if (!urlField.value.trim()) urlField.focus();
