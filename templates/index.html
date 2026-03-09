@@ -466,6 +466,79 @@
         /* ── card variant: allow dropdown overflow ── */
         .card-has-dropdown { overflow: visible; }
 
+        /* ── Main section tab navigation (Download / Playlist / Editing) ── */
+        .main-section-header {
+            padding: 0;
+            gap: 0;
+            flex-wrap: wrap;
+        }
+        .main-tab-btn {
+            padding: 15px 20px;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.72);
+            border: none;
+            border-radius: 0;
+            font-size: 0.88rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            border-right: 1px solid rgba(255, 255, 255, 0.18);
+            letter-spacing: -0.01em;
+            font-family: inherit;
+            min-height: 52px;
+            flex: 1;
+            text-align: center;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+        }
+        .main-tab-btn:last-child { border-right: none; }
+        .main-tab-btn:hover { background: rgba(255, 255, 255, 0.12); color: white; }
+        .main-tab-btn.active {
+            background: rgba(255, 255, 255, 0.18);
+            color: white;
+            box-shadow: inset 0 -3px 0 white;
+        }
+        @media (max-width: 600px) {
+            .main-tab-btn { font-size: 0.75rem; padding: 11px 8px; min-height: 44px; }
+        }
+
+        /* ── Footer ── */
+        .site-footer {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 32px 20px 24px;
+            margin-top: 40px;
+            text-align: center;
+        }
+        .footer-content { max-width: 800px; margin: 0 auto; }
+        .footer-brand {
+            font-size: 1.2rem;
+            font-weight: 800;
+            margin-bottom: 6px;
+            letter-spacing: -0.02em;
+        }
+        .footer-brand i { margin-right: 8px; }
+        .footer-subtitle {
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.78);
+            margin-bottom: 14px;
+        }
+        .footer-links {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            font-size: 0.8rem;
+            color: rgba(255, 255, 255, 0.65);
+            margin-bottom: 14px;
+            flex-wrap: wrap;
+        }
+        .footer-copy {
+            font-size: 0.75rem;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
         /* ── Format-guide dropdown ── */
         .format-guide-toggle {
             display: inline-flex;
@@ -794,16 +867,16 @@
 <body>
     <!-- Top navigation bar -->
     <nav class="top-nav" role="navigation" aria-label="Main navigation">
-        <button class="nav-item active" id="nav-download" aria-label="Navigate to Download Video section" onclick="scrollToSection('section-download')">
+        <button class="nav-item active" id="nav-download" aria-label="Navigate to Download Video section" onclick="showSectionPanel('download-panel')">
             <i class="fas fa-download" aria-hidden="true"></i> <span class="nav-label">Download Video</span>
         </button>
         <button class="nav-item" id="nav-files" aria-label="Navigate to Downloaded Videos section" onclick="scrollToSection('section-files')">
             <i class="fas fa-film" aria-hidden="true"></i> <span class="nav-label">Downloaded Videos</span>
         </button>
-        <button class="nav-item" id="nav-playlist" aria-label="Navigate to Playlist and Bulk Download section" onclick="scrollToSection('section-playlist')">
+        <button class="nav-item" id="nav-playlist" aria-label="Navigate to Playlist and Bulk Download section" onclick="showSectionPanel('playlist-panel')">
             <i class="fas fa-list" aria-hidden="true"></i> <span class="nav-label">Playlist &amp; Bulk</span>
         </button>
-        <button class="nav-item" id="nav-editing" aria-label="Navigate to Video Editing and Conversion section" onclick="scrollToSection('section-editing')">
+        <button class="nav-item" id="nav-editing" aria-label="Navigate to Video Editing and Conversion section" onclick="showSectionPanel('editing-panel')">
             <i class="fas fa-tools" aria-hidden="true"></i> <span class="nav-label">Editing &amp; Conversion</span>
         </button>
     </nav>
@@ -898,12 +971,21 @@
 
             <!-- Center content column -->
             <div>
-                <!-- Download form -->
+                <!-- Main sections: Download / Playlist / Editing (tab-based, no scroll) -->
                 <div id="section-download" class="card card-has-dropdown">
-                    <div class="card-header">
-                        <i class="fas fa-link"></i> Download Video
+                    <div class="card-header main-section-header">
+                        <button class="main-tab-btn active" id="main-tab-download" onclick="switchMainSection('download-panel', this)">
+                            <i class="fas fa-link"></i> Download Video
+                        </button>
+                        <button class="main-tab-btn" id="main-tab-playlist" onclick="switchMainSection('playlist-panel', this)">
+                            <i class="fas fa-list"></i> Playlist &amp; Bulk Download
+                        </button>
+                        <button class="main-tab-btn" id="main-tab-editing" onclick="switchMainSection('editing-panel', this)">
+                            <i class="fas fa-tools"></i> Video Editing &amp; Conversion
+                        </button>
                     </div>
-                    <div class="card-body">
+                    <!-- Download Video panel (active by default) -->
+                    <div id="download-panel" class="card-body active-panel">
                         <form id="download-form">
                             <div class="form-group">
                                 <label for="url"><i class="fas fa-globe"></i> Video URL <span style="color:#ef4444;">*</span></label>
@@ -973,42 +1055,8 @@
                             </button>
                         </form>
                     </div>
-                </div>
-
-                <!-- Active downloads (hidden when empty) -->
-                <div class="card" id="active-section">
-                    <div class="card-header">
-                        <i class="fas fa-spinner fa-spin"></i> Active Downloads
-                    </div>
-                    <div class="card-body" id="active-body">
-                        <!-- populated by JS -->
-                    </div>
-                </div>
-
-                <!-- Downloaded files -->
-                <div id="section-files" class="card">
-                    <div class="card-header" style="justify-content:space-between;">
-                        <span><i class="fas fa-film"></i> Downloaded Videos</span>
-                        <button class="btn-secondary btn-small" onclick="loadFiles(true)">
-                            <i class="fas fa-sync-alt"></i> Refresh
-                        </button>
-                    </div>
-                    <div class="card-body">
-                        <ul class="file-list" id="file-list">
-                            <div class="empty-state">
-                                <i class="fas fa-hourglass-half"></i>
-                                <p>Loading files…</p>
-                            </div>
-                        </ul>
-                    </div>
-                </div>
-
-                <!-- Playlist & Bulk Download -->
-                <div id="section-playlist" class="card">
-                    <div class="card-header">
-                        <i class="fas fa-list"></i> Playlist &amp; Bulk Download
-                    </div>
-                    <div class="card-body">
+                    <!-- Playlist & Bulk Download panel (hidden by default) -->
+                    <div id="playlist-panel" class="card-body" style="display:none;">
                         <div class="tab-nav">
                             <button class="tab-btn active" onclick="switchFeatureTab('playlist-tab', this, 'playlist-tabs')"><i class="fas fa-play-circle"></i> Playlist / Channel</button>
                             <button class="tab-btn" onclick="switchFeatureTab('batch-tab', this, 'playlist-tabs')"><i class="fas fa-layer-group"></i> Batch URLs</button>
@@ -1084,14 +1132,8 @@
                             </button>
                         </div>
                     </div>
-                </div>
-
-                <!-- Video Editing & Conversion -->
-                <div id="section-editing" class="card">
-                    <div class="card-header">
-                        <i class="fas fa-tools"></i> Video Editing &amp; Conversion
-                    </div>
-                    <div class="card-body">
+                    <!-- Video Editing & Conversion panel (hidden by default) -->
+                    <div id="editing-panel" class="card-body" style="display:none;">
                         <div class="tab-nav">
                             <button class="tab-btn active" onclick="switchFeatureTab('edit-convert-tab', this, 'edit-tabs')"><i class="fas fa-exchange-alt"></i> Convert</button>
                             <button class="tab-btn" onclick="switchFeatureTab('edit-batch-convert-tab', this, 'edit-tabs')"><i class="fas fa-copy"></i> Batch Convert</button>
@@ -1338,6 +1380,34 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Active downloads (hidden when empty) -->
+                <div class="card" id="active-section">
+                    <div class="card-header">
+                        <i class="fas fa-spinner fa-spin"></i> Active Downloads
+                    </div>
+                    <div class="card-body" id="active-body">
+                        <!-- populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Downloaded files -->
+                <div id="section-files" class="card">
+                    <div class="card-header" style="justify-content:space-between;">
+                        <span><i class="fas fa-film"></i> Downloaded Videos</span>
+                        <button class="btn-secondary btn-small" onclick="loadFiles(true)">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <ul class="file-list" id="file-list">
+                            <div class="empty-state">
+                                <i class="fas fa-hourglass-half"></i>
+                                <p>Loading files…</p>
+                            </div>
+                        </ul>
+                    </div>
+                </div>
             </div>
 
             <!-- Right ad column -->
@@ -1353,6 +1423,26 @@
             </div>
         </div>
     </div>
+
+    <!-- Footer -->
+    <footer class="site-footer">
+        <div class="footer-content">
+            <div class="footer-brand">
+                <i class="fas fa-download"></i> YOT Downloader
+            </div>
+            <p class="footer-subtitle">
+                Powered by yt-dlp &mdash; download videos from YouTube and 1,000+ sites
+            </p>
+            <div class="footer-links">
+                <span>Fast &amp; Free</span>
+                <span>&bull;</span>
+                <span>Supports 1,000+ Sites</span>
+                <span>&bull;</span>
+                <span>Powered by yt-dlp</span>
+            </div>
+            <p class="footer-copy">&copy; <span id="footer-year"></span> YOT Downloader. All rights reserved.</p>
+        </div>
+    </footer>
 
     <script>
         // ─── Page loader (dismiss early, before any fallible setup) ──
@@ -2353,37 +2443,84 @@
         // ─── Navigation bar ──────────────────────────────────────────
         let _navObserver = null;
 
+        // Switch the active main panel (Download / Playlist / Editing) within section-download
+        function switchMainSection(panelId, btn) {
+            document.querySelectorAll('#section-download .card-body').forEach(p => {
+                p.style.display = 'none';
+                p.classList.remove('active-panel');
+            });
+            document.querySelectorAll('.main-tab-btn').forEach(b => b.classList.remove('active'));
+            const panel = document.getElementById(panelId);
+            if (panel) { panel.style.display = ''; panel.classList.add('active-panel'); }
+            if (btn) btn.classList.add('active');
+            // Sync top-nav active state
+            const panelNavMap = {
+                'download-panel': 'nav-download',
+                'playlist-panel': 'nav-playlist',
+                'editing-panel':  'nav-editing',
+            };
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            const navId = panelNavMap[panelId];
+            if (navId) document.getElementById(navId)?.classList.add('active');
+        }
+
+        // Called from the top-nav buttons — switches panel AND scrolls to section-download
+        function showSectionPanel(panelId) {
+            const tabBtnMap = {
+                'download-panel': 'main-tab-download',
+                'playlist-panel': 'main-tab-playlist',
+                'editing-panel':  'main-tab-editing',
+            };
+            const btn = document.getElementById(tabBtnMap[panelId]);
+            switchMainSection(panelId, btn);
+            const section = document.getElementById('section-download');
+            if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
         function scrollToSection(sectionId) {
             const el = document.getElementById(sectionId);
             if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
         }
 
         function initNavBar() {
-            const navMap = {
-                'section-download': 'nav-download',
-                'section-files':    'nav-files',
-                'section-playlist': 'nav-playlist',
-                'section-editing':  'nav-editing',
-            };
             const navItems = document.querySelectorAll('.nav-item');
 
             _navObserver = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         navItems.forEach(item => item.classList.remove('active'));
-                        const navId = navMap[entry.target.id];
-                        if (navId) document.getElementById(navId)?.classList.add('active');
+                        if (entry.target.id === 'section-download') {
+                            // Reflect which panel is currently active
+                            const panelNavMap = {
+                                'download-panel': 'nav-download',
+                                'playlist-panel': 'nav-playlist',
+                                'editing-panel':  'nav-editing',
+                            };
+                            const activePanel = document.querySelector(
+                                '#section-download .card-body.active-panel'
+                            );
+                            const navId = activePanel ? panelNavMap[activePanel.id] : 'nav-download';
+                            if (navId) document.getElementById(navId)?.classList.add('active');
+                        } else if (entry.target.id === 'section-files') {
+                            document.getElementById('nav-files')?.classList.add('active');
+                        }
                     }
                 });
             }, { rootMargin: '-58px 0px -45% 0px', threshold: 0 });
 
-            Object.keys(navMap).forEach(id => {
+            ['section-download', 'section-files'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) _navObserver.observe(el);
             });
         }
 
         document.addEventListener('DOMContentLoaded', initNavBar);
+
+        // Set footer year
+        document.addEventListener('DOMContentLoaded', () => {
+            const footerYear = document.getElementById('footer-year');
+            if (footerYear) footerYear.textContent = new Date().getFullYear();
+        });
     </script>
 </body>
 </html>
