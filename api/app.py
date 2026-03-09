@@ -557,9 +557,13 @@ def admin_required(f):
             # return JSON 401 so the client can handle the error without receiving HTML.
             if request.method != "GET":
                 return jsonify({"error": "Authentication required"}), 401
-            # API endpoints (paths under /admin/ that aren't the login page) return 401 JSON.
-            # The /const page and other browser-facing routes get a redirect to login.
-            if request.path.startswith("/admin/") and request.path not in ("/admin/login", "/admin/logout", "/admin/register"):
+            # Detect API vs browser requests: if the client prefers JSON (e.g. fetch())
+            # or explicitly requests it, return a JSON 401; otherwise redirect to login.
+            best = request.accept_mimetypes.best_match(
+                ["application/json", "text/html"],
+                default="text/html",
+            )
+            if best == "application/json":
                 return jsonify({"error": "Authentication required"}), 401
             return redirect(url_for("admin_login", next=request.url))
         return f(*args, **kwargs)
@@ -963,7 +967,7 @@ def _start_ffmpeg_job(
 def index():
     """Main page"""
     try:
-        return render_template("index.html")
+        return render_template("index.html", is_admin=bool(session.get("admin_logged_in")))
     except Exception as e:
         logger.error(f"Template error: {e}")
         return jsonify({"error": "Template not found"}), 500

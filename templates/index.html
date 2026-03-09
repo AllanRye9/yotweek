@@ -96,48 +96,64 @@
 
         /* ── Hero header ── */
         .hero {
-            text-align: center;
-            margin-bottom: 24px;
-            padding: 28px 24px 22px;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 4px 24px rgba(102, 126, 234, 0.12);
-            animation: slideUp 0.45s ease-out;
+            width: 100%;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 8px;
+            min-height: 50px;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            margin-bottom: 0;
         }
         .hero-icon {
-            width: 68px;
-            height: 68px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 20px;
+            width: 34px;
+            height: 34px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.7rem;
+            font-size: 1rem;
             color: #fff;
-            margin: 0 auto 16px;
-            box-shadow: 0 6px 18px rgba(102, 126, 234, 0.42);
+            flex-shrink: 0;
         }
         .hero-title {
-            font-size: 1.9rem;
-            font-weight: 800;
-            color: #1e293b;
-            letter-spacing: -0.03em;
-            line-height: 1.15;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: -0.01em;
+            line-height: 1.2;
         }
         .hero-subtitle {
-            color: #64748b;
-            margin-top: 8px;
-            font-size: 0.88rem;
+            color: rgba(255, 255, 255, 0.8);
+            margin-top: 1px;
+            font-size: 0.75rem;
             display: flex;
             align-items: center;
-            justify-content: center;
             gap: 6px;
             flex-wrap: wrap;
         }
+        .hero-admin-link {
+            color: rgba(255, 255, 255, 0.9);
+            text-decoration: none;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 10px;
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            border-radius: 6px;
+            transition: background 0.2s;
+        }
+        .hero-admin-link:hover { background: rgba(255, 255, 255, 0.15); }
         @media (max-width: 600px) {
-            .hero { padding: 20px 16px 16px; margin-bottom: 16px; }
-            .hero-title { font-size: 1.5rem; }
-            .hero-icon { width: 54px; height: 54px; border-radius: 15px; font-size: 1.3rem; }
+            .hero { padding: 8px 14px; }
+            .hero-title { font-size: 1rem; }
         }
 
         /* ── Card ── */
@@ -501,7 +517,7 @@
             margin-top: 40px;
             text-align: center;
         }
-        .footer-content { max-width: 800px; margin: 0 auto; }
+        .footer-content { width: 100%; }
         .footer-brand {
             font-size: 1.2rem;
             font-weight: 800;
@@ -1088,24 +1104,32 @@
         </div>
     </div>
 
-    <div class="container">
-        <header class="hero" style="padding: 12px 24px 10px; margin-bottom: 14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-            <div style="display:flex; align-items:center; gap:10px;">
-                <div class="hero-icon" style="width:42px;height:42px;border-radius:12px;font-size:1.1rem;margin:0;flex-shrink:0;" aria-hidden="true">
-                    <i class="fas fa-download"></i>
-                </div>
-                <div>
-                    <h1 class="hero-title" style="font-size:1.3rem; line-height:1.1;">YOT Downloader</h1>
-                    <p class="hero-subtitle" style="margin-top:2px; font-size:0.8rem; justify-content:flex-start;">
-                        <span id="conn-dot"></span>
-                        Powered by yt-dlp &mdash; download videos from YouTube and 1000+ sites
-                    </p>
-                </div>
+    <header class="hero">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <div class="hero-icon" aria-hidden="true">
+                <i class="fas fa-download"></i>
             </div>
-            <div style="font-size:0.75rem; color:#94a3b8; text-align:right; flex-shrink:0;">
+            <div>
+                <h1 class="hero-title">YOT Downloader</h1>
+                <p class="hero-subtitle">
+                    <span id="conn-dot"></span>
+                    Powered by yt-dlp &mdash; download videos from YouTube and 1000+ sites
+                </p>
+            </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
+            <span style="font-size:0.75rem; color:rgba(255,255,255,0.7);">
                 <span id="badge-count-hero">0</span> downloads &bull; <span id="badge-size-hero">0 MB</span>
-            </div>
-        </header>
+            </span>
+            {% if is_admin %}
+            <a href="/const" class="hero-admin-link">
+                <i class="fas fa-shield-alt"></i> Admin
+            </a>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="container">
 
         <!-- 3-column layout: left ad | content | right ad -->
         <div class="main-grid" style="display:grid; grid-template-columns:180px 1fr 180px; gap:20px; align-items:start;">
