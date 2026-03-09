@@ -802,7 +802,7 @@
         .job-badge.failed     { background: #fef2f2; color: #dc2626; }
 
         /* ── Top navigation bar ── */
-        html { scroll-padding-top: 70px; }
+        html { scroll-padding-top: 60px; }
         body { padding-top: 58px; }
         .top-nav {
             position: fixed;
@@ -813,24 +813,45 @@
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 4px;
+            justify-content: space-between;
             z-index: 999;
             box-shadow: 0 2px 16px rgba(102, 126, 234, 0.35);
             padding: 0 16px;
-            overflow-x: auto;
-            -ms-overflow-style: none;
-            scrollbar-width: none;
         }
-        .top-nav::-webkit-scrollbar { display: none; }
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            text-decoration: none;
+            padding: 6px 10px;
+            border-radius: 8px;
+            white-space: nowrap;
+            flex-shrink: 0;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+            font-family: inherit;
+            min-height: unset;
+            transition: background 0.2s;
+        }
+        .nav-brand:hover { background: rgba(255,255,255,0.15); }
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
         .nav-item {
             display: flex;
             align-items: center;
-            gap: 7px;
-            padding: 8px 16px;
-            border-radius: 10px;
-            color: rgba(255,255,255,0.8);
-            font-size: 0.875rem;
+            gap: 6px;
+            padding: 7px 13px;
+            border-radius: 8px;
+            color: rgba(255,255,255,0.85);
+            font-size: 0.85rem;
             font-weight: 600;
             cursor: pointer;
             border: none;
@@ -845,40 +866,182 @@
         .nav-item.active {
             background: rgba(255,255,255,0.22);
             color: white;
-            box-shadow: 0 0 0 1.5px rgba(255,255,255,0.5);
+            box-shadow: 0 0 0 1.5px rgba(255,255,255,0.45);
         }
-        @media (max-width: 600px) {
-            .top-nav { justify-content: space-around; padding: 0; overflow-x: hidden; }
-            .nav-item {
-                padding: 8px 4px;
-                font-size: 0;
-                flex-direction: column;
-                gap: 3px;
-                flex: 1 1 0;
-                min-width: 0;
-                text-align: center;
-                white-space: normal;
-            }
-            .nav-item i { font-size: 1.1rem; display: block; }
-            .nav-label { font-size: 0.62rem; font-weight: 600; display: block; line-height: 1.2; }
+        /* Services dropdown */
+        .nav-dropdown-wrap { position: relative; }
+        .nav-chevron { font-size: 0.62rem; margin-left: 1px; transition: transform 0.2s; }
+        .nav-dropdown-menu {
+            display: none;
+            position: absolute;
+            top: calc(100% + 8px);
+            right: 0;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 8px 28px rgba(0,0,0,0.15);
+            padding: 6px;
+            min-width: 230px;
+            z-index: 1200;
+            animation: slideUp 0.18s ease-out;
+        }
+        .nav-dropdown-menu.open { display: block; }
+        .nav-dd-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            width: 100%;
+            text-align: left;
+            border: none;
+            background: transparent;
+            border-radius: 7px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            cursor: pointer;
+            font-family: inherit;
+            min-height: unset;
+            transition: background 0.15s, color 0.15s;
+        }
+        .nav-dd-item:hover { background: #eef2ff; color: #4f46e5; }
+        .nav-dd-item i { width: 16px; text-align: center; color: #667eea; flex-shrink: 0; }
+        /* Modal overlays (About / Features) */
+        .info-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.52);
+            z-index: 4000;
+            align-items: center;
+            justify-content: center;
+        }
+        .info-modal-overlay.open { display: flex; }
+        .info-modal-box {
+            background: white;
+            border-radius: 18px;
+            padding: 34px 30px 28px;
+            max-width: 500px;
+            width: 93%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.22);
+            animation: slideUp 0.28s ease-out;
+            position: relative;
+            max-height: 85vh;
+            overflow-y: auto;
+        }
+        .info-modal-close {
+            position: absolute;
+            top: 14px;
+            right: 16px;
+            background: #f1f5f9;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 1rem;
+            color: #64748b;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s;
+            min-height: unset;
+            padding: 0;
+        }
+        .info-modal-close:hover { background: #e2e8f0; color: #1e293b; }
+        .info-modal-title {
+            font-size: 1.25rem;
+            font-weight: 800;
+            color: #1e293b;
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .info-modal-title i { color: #667eea; }
+        .info-section-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #667eea;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin: 16px 0 6px;
+        }
+        .info-feature-list { list-style: none; }
+        .info-feature-list li {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #f1f5f9;
+            font-size: 0.9rem;
+            color: #374151;
+        }
+        .info-feature-list li:last-child { border-bottom: none; }
+        .info-feature-list li i { color: #667eea; margin-top: 2px; flex-shrink: 0; }
+        .info-feature-list li strong { display: block; font-weight: 700; color: #1e293b; }
+        .info-feature-list li span { font-size: 0.82rem; color: #64748b; }
+        /* Responsive nav */
+        @media (max-width: 680px) {
+            .nav-brand .nav-brand-text { display: none; }
+            .nav-item .nav-label { display: none; }
+            .nav-item { padding: 7px 9px; gap: 0; }
+            .nav-item i { font-size: 1rem; }
+            .nav-chevron { display: none; }
+        }
+        @media (max-width: 400px) {
+            .top-nav { padding: 0 8px; }
+            .nav-brand { padding: 6px 6px; }
         }
     </style>
 </head>
 <body>
     <!-- Top navigation bar -->
     <nav class="top-nav" role="navigation" aria-label="Main navigation">
-        <button class="nav-item active" id="nav-download" aria-label="Navigate to Download Video section" onclick="showSectionPanel('download-panel')">
-            <i class="fas fa-download" aria-hidden="true"></i> <span class="nav-label">Download Video</span>
+        <!-- Brand -->
+        <button class="nav-brand" onclick="showSectionPanel('download-panel')" aria-label="YOT Downloader home">
+            <i class="fas fa-download" aria-hidden="true"></i>
+            <span class="nav-brand-text">YOT Downloader</span>
         </button>
-        <button class="nav-item" id="nav-files" aria-label="Navigate to Downloaded Videos section" onclick="scrollToSection('section-files')">
-            <i class="fas fa-film" aria-hidden="true"></i> <span class="nav-label">Downloaded Videos</span>
-        </button>
-        <button class="nav-item" id="nav-playlist" aria-label="Navigate to Playlist and Bulk Download section" onclick="showSectionPanel('playlist-panel')">
-            <i class="fas fa-list" aria-hidden="true"></i> <span class="nav-label">Playlist &amp; Bulk</span>
-        </button>
-        <button class="nav-item" id="nav-editing" aria-label="Navigate to Video Editing and Conversion section" onclick="showSectionPanel('editing-panel')">
-            <i class="fas fa-tools" aria-hidden="true"></i> <span class="nav-label">Editing &amp; Conversion</span>
-        </button>
+        <!-- Nav links -->
+        <div class="nav-links">
+            <button class="nav-item active" id="nav-home" onclick="showSectionPanel('download-panel')" aria-label="Home">
+                <i class="fas fa-home" aria-hidden="true"></i>
+                <span class="nav-label">Home</span>
+            </button>
+            <button class="nav-item" id="nav-about" onclick="showAboutModal()" aria-label="About">
+                <i class="fas fa-info-circle" aria-hidden="true"></i>
+                <span class="nav-label">About</span>
+            </button>
+            <!-- Services dropdown -->
+            <div class="nav-dropdown-wrap" id="nav-services-wrap">
+                <button class="nav-item" id="nav-services"
+                        onclick="toggleServicesDropdown(event)"
+                        aria-haspopup="true" aria-expanded="false"
+                        aria-controls="services-dropdown">
+                    <i class="fas fa-cogs" aria-hidden="true"></i>
+                    <span class="nav-label">Services</span>
+                    <i class="fas fa-chevron-down nav-chevron" id="services-chevron" aria-hidden="true"></i>
+                </button>
+                <div class="nav-dropdown-menu" id="services-dropdown" role="menu">
+                    <button class="nav-dd-item" role="menuitem"
+                            onclick="showSectionPanel('download-panel'); closeServicesDropdown();">
+                        <i class="fas fa-download" aria-hidden="true"></i> Download Videos
+                    </button>
+                    <button class="nav-dd-item" role="menuitem"
+                            onclick="showSectionPanel('playlist-panel'); closeServicesDropdown();">
+                        <i class="fas fa-list" aria-hidden="true"></i> Playlist &amp; Bulk Download
+                    </button>
+                    <button class="nav-dd-item" role="menuitem"
+                            onclick="showSectionPanel('editing-panel'); closeServicesDropdown();">
+                        <i class="fas fa-tools" aria-hidden="true"></i> Video Editing &amp; Conversion
+                    </button>
+                </div>
+            </div>
+            <button class="nav-item" id="nav-features" onclick="showFeaturesModal()" aria-label="Recommended Features">
+                <i class="fas fa-star" aria-hidden="true"></i>
+                <span class="nav-label">Recommended</span>
+            </button>
+        </div>
     </nav>
 
     <!-- Page loader: shown for ~2.5 s while the page builds -->
@@ -937,15 +1100,22 @@
     </div>
 
     <div class="container">
-        <header class="hero">
-            <div class="hero-icon" aria-hidden="true">
-                <i class="fas fa-download"></i>
+        <header class="hero" style="padding: 12px 24px 10px; margin-bottom: 14px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+            <div style="display:flex; align-items:center; gap:10px;">
+                <div class="hero-icon" style="width:42px;height:42px;border-radius:12px;font-size:1.1rem;margin:0;flex-shrink:0;" aria-hidden="true">
+                    <i class="fas fa-download"></i>
+                </div>
+                <div>
+                    <h1 class="hero-title" style="font-size:1.3rem; line-height:1.1;">YOT Downloader</h1>
+                    <p class="hero-subtitle" style="margin-top:2px; font-size:0.8rem; justify-content:flex-start;">
+                        <span id="conn-dot"></span>
+                        Powered by yt-dlp &mdash; download videos from YouTube and 1,000+ sites
+                    </p>
+                </div>
             </div>
-            <h1 class="hero-title">YOT Downloader</h1>
-            <p class="hero-subtitle">
-                <span id="conn-dot"></span>
-                Powered by yt-dlp &mdash; download videos from YouTube and 1,000+ sites
-            </p>
+            <div style="font-size:0.75rem; color:#94a3b8; text-align:right; flex-shrink:0;">
+                <span id="badge-count-hero">0</span> downloads &bull; <span id="badge-size-hero">0 MB</span>
+            </div>
         </header>
 
         <!-- Mobile top ad banner (visible on small screens only) -->
@@ -1420,6 +1590,106 @@
                     <i class="fas fa-rectangle-ad"></i>
                     <span>Advertisement</span>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- About modal -->
+    <div class="info-modal-overlay" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
+        <div class="info-modal-box">
+            <button class="info-modal-close" onclick="closeAboutModal()" aria-label="Close">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="info-modal-title">
+                <i class="fas fa-download"></i>
+                <span id="about-modal-title">About YOT Downloader</span>
+            </div>
+            <p style="font-size:0.9rem; color:#475569; line-height:1.65;">
+                <strong>YOT Downloader</strong> is a powerful, browser-based video downloader and editor powered by
+                <strong>yt-dlp</strong>. It lets you download videos from YouTube and 1,000+ other platforms, then
+                convert, trim, or enhance them — all from one page.
+            </p>
+            <div class="info-section-title">Tech Stack</div>
+            <ul class="info-feature-list">
+                <li><i class="fab fa-python"></i><div><strong>yt-dlp</strong><span>High-performance video extraction engine supporting 1,000+ sites</span></div></li>
+                <li><i class="fas fa-server"></i><div><strong>Flask + Socket.IO</strong><span>Real-time progress updates via WebSockets</span></div></li>
+                <li><i class="fas fa-film"></i><div><strong>FFmpeg</strong><span>Professional-grade video and audio processing</span></div></li>
+            </ul>
+            <div class="info-section-title">Privacy</div>
+            <p style="font-size:0.85rem; color:#64748b; line-height:1.6;">
+                Files are stored temporarily and automatically deleted after a few minutes. No account required. No data is retained beyond your session.
+            </p>
+        </div>
+    </div>
+
+    <!-- Recommended Features modal -->
+    <div class="info-modal-overlay" id="features-modal" role="dialog" aria-modal="true" aria-labelledby="features-modal-title">
+        <div class="info-modal-box">
+            <button class="info-modal-close" onclick="closeFeaturesModal()" aria-label="Close">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="info-modal-title">
+                <i class="fas fa-star"></i>
+                <span id="features-modal-title">Recommended Features</span>
+            </div>
+            <ul class="info-feature-list">
+                <li>
+                    <i class="fas fa-star"></i>
+                    <div>
+                        <strong>Best Quality Download</strong>
+                        <span>Automatically picks the highest available video + audio quality. Great for archiving.</span>
+                    </div>
+                </li>
+                <li>
+                    <i class="fas fa-music"></i>
+                    <div>
+                        <strong>Audio Only (MP3 / WAV)</strong>
+                        <span>Extract just the audio track — perfect for music, podcasts, or talks.</span>
+                    </div>
+                </li>
+                <li>
+                    <i class="fas fa-list"></i>
+                    <div>
+                        <strong>Playlist &amp; Channel Downloads</strong>
+                        <span>Paste a YouTube playlist or channel URL and download all videos in one go.</span>
+                    </div>
+                </li>
+                <li>
+                    <i class="fas fa-layer-group"></i>
+                    <div>
+                        <strong>Batch URL Downloads</strong>
+                        <span>Paste up to 20 URLs at once and start parallel downloads.</span>
+                    </div>
+                </li>
+                <li>
+                    <i class="fas fa-exchange-alt"></i>
+                    <div>
+                        <strong>Video Conversion</strong>
+                        <span>Convert any downloaded file to MP4, WebM, AVI, MP3, or WAV with custom bitrates.</span>
+                    </div>
+                </li>
+                <li>
+                    <i class="fas fa-cut"></i>
+                    <div>
+                        <strong>Trim &amp; Clip Extraction</strong>
+                        <span>Keep only the portion you need — cut by start/end time or extract a short clip.</span>
+                    </div>
+                </li>
+                <li>
+                    <i class="fas fa-file-archive"></i>
+                    <div>
+                        <strong>Export as ZIP</strong>
+                        <span>Select multiple files and download them all as a single ZIP archive.</span>
+                    </div>
+                </li>
+            </ul>
+            <div style="margin-top:16px; display:flex; gap:10px; flex-wrap:wrap;">
+                <button class="btn-primary" style="flex:1; min-width:140px;" onclick="closeFeaturesModal(); showSectionPanel('download-panel');">
+                    <i class="fas fa-download"></i> Start Downloading
+                </button>
+                <button class="btn-secondary" style="flex:1; min-width:140px;" onclick="closeFeaturesModal(); showSectionPanel('editing-panel');">
+                    <i class="fas fa-tools"></i> Explore Editing
+                </button>
             </div>
         </div>
     </div>
@@ -1903,6 +2173,7 @@
         // Only updates the download count; badge size is kept current by loadFiles.
         function updateStatsBadge() {
             document.getElementById('badge-count').textContent = downloadCount;
+            document.getElementById('badge-count-hero').textContent = downloadCount;
         }
 
         // ─── File list ────────────────────────────────────────────
@@ -1932,8 +2203,10 @@
                 // Update badge size
                 let total = 0;
                 files.forEach(f => { total += f.size; });
-                document.getElementById('badge-size').textContent =
-                    (total / 1024 / 1024).toFixed(1) + ' MB';
+                const sizeStr = (total / 1024 / 1024).toFixed(1) + ' MB';
+                document.querySelectorAll('#badge-size, #badge-size-hero').forEach(el => {
+                    el.textContent = sizeStr;
+                });
 
                 if (files.length === 0) {
                     list.innerHTML = `
@@ -2443,6 +2716,64 @@
         // ─── Navigation bar ──────────────────────────────────────────
         let _navObserver = null;
 
+        // Services dropdown
+        function toggleServicesDropdown(e) {
+            if (e) e.stopPropagation();
+            const dd  = document.getElementById('services-dropdown');
+            const btn = document.getElementById('nav-services');
+            const chv = document.getElementById('services-chevron');
+            const isOpen = dd.classList.toggle('open');
+            btn.setAttribute('aria-expanded', String(isOpen));
+            if (chv) chv.style.transform = isOpen ? 'rotate(180deg)' : '';
+        }
+
+        function closeServicesDropdown() {
+            const dd  = document.getElementById('services-dropdown');
+            const btn = document.getElementById('nav-services');
+            const chv = document.getElementById('services-chevron');
+            dd.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+            if (chv) chv.style.transform = '';
+        }
+
+        // About modal
+        function showAboutModal() {
+            document.getElementById('about-modal').classList.add('open');
+        }
+        function closeAboutModal() {
+            document.getElementById('about-modal').classList.remove('open');
+        }
+
+        // Recommended Features modal
+        function showFeaturesModal() {
+            document.getElementById('features-modal').classList.add('open');
+        }
+        function closeFeaturesModal() {
+            document.getElementById('features-modal').classList.remove('open');
+        }
+
+        // Close info modals on backdrop click
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.info-modal-overlay').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    if (e.target === el) el.classList.remove('open');
+                });
+            });
+            // Close services dropdown on outside click
+            document.addEventListener('click', (e) => {
+                const wrap = document.getElementById('nav-services-wrap');
+                if (wrap && !wrap.contains(e.target)) closeServicesDropdown();
+            });
+            // Escape key closes dropdowns and modals
+            document.addEventListener('keydown', (ev) => {
+                if (ev.key === 'Escape') {
+                    closeServicesDropdown();
+                    closeAboutModal();
+                    closeFeaturesModal();
+                }
+            });
+        });
+
         // Switch the active main panel (Download / Playlist / Editing) within section-download
         function switchMainSection(panelId, btn) {
             document.querySelectorAll('#section-download .card-body').forEach(p => {
@@ -2453,15 +2784,9 @@
             const panel = document.getElementById(panelId);
             if (panel) { panel.style.display = ''; panel.classList.add('active-panel'); }
             if (btn) btn.classList.add('active');
-            // Sync top-nav active state
-            const panelNavMap = {
-                'download-panel': 'nav-download',
-                'playlist-panel': 'nav-playlist',
-                'editing-panel':  'nav-editing',
-            };
+            // Sync top-nav: mark Home active when any service panel is shown
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            const navId = panelNavMap[panelId];
-            if (navId) document.getElementById(navId)?.classList.add('active');
+            document.getElementById('nav-home')?.classList.add('active');
         }
 
         // Called from the top-nav buttons — switches panel AND scrolls to section-download
@@ -2483,27 +2808,11 @@
         }
 
         function initNavBar() {
-            const navItems = document.querySelectorAll('.nav-item');
-
             _navObserver = new IntersectionObserver((entries) => {
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
-                        navItems.forEach(item => item.classList.remove('active'));
-                        if (entry.target.id === 'section-download') {
-                            // Reflect which panel is currently active
-                            const panelNavMap = {
-                                'download-panel': 'nav-download',
-                                'playlist-panel': 'nav-playlist',
-                                'editing-panel':  'nav-editing',
-                            };
-                            const activePanel = document.querySelector(
-                                '#section-download .card-body.active-panel'
-                            );
-                            const navId = activePanel ? panelNavMap[activePanel.id] : 'nav-download';
-                            if (navId) document.getElementById(navId)?.classList.add('active');
-                        } else if (entry.target.id === 'section-files') {
-                            document.getElementById('nav-files')?.classList.add('active');
-                        }
+                        document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+                        document.getElementById('nav-home')?.classList.add('active');
                     }
                 });
             }, { rootMargin: '-58px 0px -45% 0px', threshold: 0 });
