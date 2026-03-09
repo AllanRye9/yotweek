@@ -29,7 +29,7 @@
         /* ── Stats badge ── */
         .stats-badge {
             position: fixed;
-            top: 20px;
+            top: 78px;
             left: 20px;
             width: 70px;
             height: 70px;
@@ -144,7 +144,7 @@
         }
         @media (max-width: 600px) {
             .form-row { grid-template-columns: 1fr; }
-            .stats-badge { width: 56px; height: 56px; font-size: 1rem; top: 12px; left: 12px; }
+            .stats-badge { width: 56px; height: 56px; font-size: 1rem; top: 70px; left: 12px; }
         }
 
         /* ── Buttons ── */
@@ -650,9 +650,74 @@
         .job-badge.processing { background: #eff6ff; color: #2563eb; }
         .job-badge.completed  { background: #f0fdf4; color: #16a34a; }
         .job-badge.failed     { background: #fef2f2; color: #dc2626; }
+
+        /* ── Top navigation bar ── */
+        html { scroll-padding-top: 70px; }
+        body { padding-top: 58px; }
+        .top-nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 58px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            z-index: 999;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.2);
+            padding: 0 16px;
+            overflow-x: auto;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .top-nav::-webkit-scrollbar { display: none; }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: rgba(255,255,255,0.8);
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            transition: background 0.2s, color 0.2s;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.18); color: white; }
+        .nav-item.active {
+            background: rgba(255,255,255,0.22);
+            color: white;
+            box-shadow: 0 0 0 1.5px rgba(255,255,255,0.5);
+        }
+        @media (max-width: 600px) {
+            .top-nav { justify-content: flex-start; }
+            .nav-item { padding: 8px 12px; font-size: 0.8rem; }
+        }
     </style>
 </head>
 <body>
+    <!-- Top navigation bar -->
+    <nav class="top-nav" role="navigation" aria-label="Main navigation">
+        <button class="nav-item active" id="nav-download" aria-label="Navigate to Download Video section" onclick="scrollToSection('section-download')">
+            <i class="fas fa-download" aria-hidden="true"></i> Download Video
+        </button>
+        <button class="nav-item" id="nav-files" aria-label="Navigate to Downloaded Videos section" onclick="scrollToSection('section-files')">
+            <i class="fas fa-film" aria-hidden="true"></i> Downloaded Videos
+        </button>
+        <button class="nav-item" id="nav-playlist" aria-label="Navigate to Playlist and Bulk Download section" onclick="scrollToSection('section-playlist')">
+            <i class="fas fa-list" aria-hidden="true"></i> Playlist &amp; Bulk
+        </button>
+        <button class="nav-item" id="nav-editing" aria-label="Navigate to Video Editing and Conversion section" onclick="scrollToSection('section-editing')">
+            <i class="fas fa-tools" aria-hidden="true"></i> Editing &amp; Conversion
+        </button>
+    </nav>
+
     <!-- Page loader: shown for ~2.5 s while the page builds -->
     <div id="page-loader">
         <div class="loader-title"><i class="fas fa-download"></i> YOT Downloader</div>
@@ -743,7 +808,7 @@
             <!-- Center content column -->
             <div>
                 <!-- Download form -->
-                <div class="card card-has-dropdown">
+                <div id="section-download" class="card card-has-dropdown">
                     <div class="card-header">
                         <i class="fas fa-link"></i> Download Video
                     </div>
@@ -830,7 +895,7 @@
                 </div>
 
                 <!-- Downloaded files -->
-                <div class="card">
+                <div id="section-files" class="card">
                     <div class="card-header" style="justify-content:space-between;">
                         <span><i class="fas fa-film"></i> Downloaded Videos</span>
                         <button class="btn-secondary btn-small" onclick="loadFiles(true)">
@@ -848,7 +913,7 @@
                 </div>
 
                 <!-- Playlist & Bulk Download -->
-                <div class="card">
+                <div id="section-playlist" class="card">
                     <div class="card-header">
                         <i class="fas fa-list"></i> Playlist &amp; Bulk Download
                     </div>
@@ -931,7 +996,7 @@
                 </div>
 
                 <!-- Video Editing & Conversion -->
-                <div class="card">
+                <div id="section-editing" class="card">
                     <div class="card-header">
                         <i class="fas fa-tools"></i> Video Editing &amp; Conversion
                     </div>
@@ -2193,6 +2258,41 @@
             await _origLoadFiles(animate);
             loadEditFileSelectors();
         };
+
+        // ─── Navigation bar ──────────────────────────────────────────
+        let _navObserver = null;
+
+        function scrollToSection(sectionId) {
+            const el = document.getElementById(sectionId);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        function initNavBar() {
+            const navMap = {
+                'section-download': 'nav-download',
+                'section-files':    'nav-files',
+                'section-playlist': 'nav-playlist',
+                'section-editing':  'nav-editing',
+            };
+            const navItems = document.querySelectorAll('.nav-item');
+
+            _navObserver = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        navItems.forEach(item => item.classList.remove('active'));
+                        const navId = navMap[entry.target.id];
+                        if (navId) document.getElementById(navId)?.classList.add('active');
+                    }
+                });
+            }, { rootMargin: '-58px 0px -45% 0px', threshold: 0 });
+
+            Object.keys(navMap).forEach(id => {
+                const el = document.getElementById(id);
+                if (el) _navObserver.observe(el);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', initNavBar);
     </script>
 </body>
 </html>
