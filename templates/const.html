@@ -499,6 +499,99 @@
         @media (max-width: 400px) {
             .stat-grid { grid-template-columns: 1fr 1fr; }
         }
+
+        /* ── Admin topbar mobile hamburger ── */
+        .topbar-hamburger {
+            display: none;
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.3);
+            color: #fff;
+            cursor: pointer;
+            padding: 5px 10px;
+            border-radius: 6px;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            transition: background 0.2s;
+            line-height: 1;
+        }
+        .topbar-hamburger:hover { background: rgba(255,255,255,0.22); }
+
+        /* Admin mobile action menu */
+        .admin-mobile-menu {
+            display: none;
+            position: fixed;
+            top: 50px;
+            left: 0;
+            right: 0;
+            z-index: 9000;
+            background: linear-gradient(160deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 8px 28px rgba(102,126,234,0.45);
+            border-top: 1px solid rgba(255,255,255,0.14);
+        }
+        .admin-mobile-menu.open { display: block; animation: adminMenuIn 0.2s ease-out; }
+        @keyframes adminMenuIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .admin-mobile-menu-inner {
+            padding: 8px 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        .admin-menu-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-radius: 8px;
+            color: rgba(255,255,255,0.92);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            width: 100%;
+            text-align: left;
+            text-decoration: none;
+            transition: background 0.15s;
+            min-height: 44px;
+        }
+        .admin-menu-item:hover,
+        .admin-menu-item:active { background: rgba(255,255,255,0.16); }
+        .admin-menu-item i { width: 20px; text-align: center; font-size: 0.95rem; flex-shrink: 0; }
+        .admin-menu-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            top: 50px;
+            z-index: 8999;
+            background: rgba(0,0,0,0.25);
+        }
+        .admin-menu-backdrop.open { display: block; }
+
+        /* Hide utility buttons on mobile — they move to hamburger menu */
+        @media (max-width: 640px) {
+            .topbar-util-btn { display: none !important; }
+            .topbar-hamburger { display: inline-flex; }
+        }
+
+        /* ── Horizontal scroll hint for tables on mobile ── */
+        .inner-card-body { -webkit-overflow-scrolling: touch; }
+        @media (max-width: 640px) {
+            .inner-card-body::after {
+                content: '';
+                display: block;
+                height: 0;
+            }
+            .data-table td, .data-table th { padding: 6px 8px; }
+            .col-title { max-width: 140px; }
+            .country-name { min-width: 100px; }
+        }
     </style>
 </head>
 <body>
@@ -515,21 +608,55 @@
             <div class="live-badge">
                 <span class="live-dot"></span> Live
             </div>
-            <a href="/admin/db/download" class="back-link" title="Download database backup">
+            <a href="/admin/db/download" class="back-link topbar-util-btn" title="Download database backup">
                 <i class="fas fa-database"></i> <span class="hide-xs">Backup DB</span>
             </a>
-            <label class="back-link" title="Merge backup database into current data" style="cursor:pointer;">
+            <label class="back-link topbar-util-btn" title="Merge backup database into current data" style="cursor:pointer;">
                 <i class="fas fa-upload"></i> <span class="hide-xs">Restore DB</span>
                 <input type="file" id="db-upload-input" accept=".db,application/x-sqlite3" style="display:none;" onchange="uploadDb(this)">
             </label>
-            <a href="/" class="back-link"><i class="fas fa-arrow-left"></i> Back</a>
+            <a href="/" class="back-link" aria-label="Back to site"><i class="fas fa-arrow-left"></i> <span class="hide-xs">Back</span></a>
             <form action="/admin/logout" method="post" style="display:inline;">
                 <button type="submit" class="back-link" style="background:none;border:none;cursor:pointer;">
+                    <i class="fas fa-sign-out-alt"></i> <span class="hide-xs">Logout</span>
+                </button>
+            </form>
+            <!-- Hamburger for mobile — reveals admin utility actions -->
+            <button class="topbar-hamburger" id="admin-hamburger"
+                    onclick="toggleAdminMenu()"
+                    aria-label="Admin menu"
+                    aria-expanded="false"
+                    aria-controls="admin-mobile-menu">
+                <i class="fas fa-ellipsis-v" id="admin-hamburger-icon"></i>
+                <span class="hide-xs" style="font-size:0.82rem;">More</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Admin mobile menu backdrop -->
+    <div class="admin-menu-backdrop" id="admin-menu-backdrop" onclick="closeAdminMenu()"></div>
+
+    <!-- Admin mobile menu panel -->
+    <div class="admin-mobile-menu" id="admin-mobile-menu" role="menu">
+        <div class="admin-mobile-menu-inner">
+            <a href="/admin/db/download" class="admin-menu-item" role="menuitem">
+                <i class="fas fa-database"></i> Backup Database
+            </a>
+            <label class="admin-menu-item" role="menuitem" style="cursor:pointer;" onclick="closeAdminMenu();">
+                <i class="fas fa-upload"></i> Restore Database
+                <input type="file" accept=".db,application/x-sqlite3" style="display:none;"
+                       onchange="uploadDb(this)">
+            </label>
+            <a href="/" class="admin-menu-item" role="menuitem">
+                <i class="fas fa-arrow-left"></i> Back to Site
+            </a>
+            <form action="/admin/logout" method="post" style="width:100%;">
+                <button type="submit" class="admin-menu-item" role="menuitem">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
             </form>
         </div>
-    </nav>
+    </div>
 
     <div class="container">
 
@@ -1198,6 +1325,33 @@
                 input.value = '';
             }
         }
+
+        // ── Admin mobile menu ──────────────────────────────────────
+        function toggleAdminMenu() {
+            const menu     = document.getElementById('admin-mobile-menu');
+            const backdrop = document.getElementById('admin-menu-backdrop');
+            const btn      = document.getElementById('admin-hamburger');
+            const icon     = document.getElementById('admin-hamburger-icon');
+            const isOpen   = menu.classList.toggle('open');
+            backdrop.classList.toggle('open', isOpen);
+            btn.setAttribute('aria-expanded', String(isOpen));
+            icon.className = isOpen ? 'fas fa-times' : 'fas fa-ellipsis-v';
+        }
+
+        function closeAdminMenu() {
+            const menu     = document.getElementById('admin-mobile-menu');
+            const backdrop = document.getElementById('admin-menu-backdrop');
+            const btn      = document.getElementById('admin-hamburger');
+            const icon     = document.getElementById('admin-hamburger-icon');
+            menu.classList.remove('open');
+            backdrop.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+            icon.className = 'fas fa-ellipsis-v';
+        }
+
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape') closeAdminMenu();
+        });
     </script>
 </body>
 </html>

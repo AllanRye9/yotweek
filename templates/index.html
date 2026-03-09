@@ -997,6 +997,115 @@
             .top-nav { padding: 0 8px; }
             .nav-brand { padding: 6px 6px; }
         }
+
+        /* ── Mobile hamburger button ── */
+        .nav-hamburger {
+            display: none;
+            background: transparent;
+            border: none;
+            color: white;
+            font-size: 1.3rem;
+            cursor: pointer;
+            padding: 6px 9px;
+            border-radius: 6px;
+            min-height: unset;
+            transition: background 0.2s;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+        }
+        .nav-hamburger:hover { background: rgba(255,255,255,0.18); }
+
+        /* ── Mobile nav slide-down panel ── */
+        .mobile-nav {
+            display: none;
+            position: fixed;
+            top: 58px;
+            left: 0;
+            right: 0;
+            z-index: 998;
+            background: linear-gradient(160deg, #667eea 0%, #764ba2 100%);
+            box-shadow: 0 8px 28px rgba(102,126,234,0.45);
+            border-top: 1px solid rgba(255,255,255,0.14);
+        }
+        .mobile-nav.open { display: block; animation: mobileNavIn 0.2s ease-out; }
+        @keyframes mobileNavIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .mobile-nav-inner {
+            padding: 8px 14px 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .mobile-nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-radius: 8px;
+            color: rgba(255,255,255,0.92);
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            width: 100%;
+            text-align: left;
+            transition: background 0.15s;
+            min-height: 44px;
+        }
+        .mobile-nav-item:hover,
+        .mobile-nav-item:active { background: rgba(255,255,255,0.16); }
+        .mobile-nav-item i { width: 20px; text-align: center; font-size: 0.95rem; flex-shrink: 0; }
+        .mobile-nav-section-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: rgba(255,255,255,0.48);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 10px 14px 2px;
+        }
+        .mobile-nav-divider {
+            height: 1px;
+            background: rgba(255,255,255,0.14);
+            margin: 4px 0;
+        }
+        .mobile-nav-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            top: 58px;
+            z-index: 997;
+            background: rgba(0,0,0,0.25);
+        }
+        .mobile-nav-backdrop.open { display: block; }
+
+        @media (max-width: 640px) {
+            .nav-hamburger { display: flex; }
+            .nav-links { display: none; }
+        }
+
+        /* ── Scroll hint for overflowing tab rows ── */
+        .tab-nav-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .tab-nav-scroll::-webkit-scrollbar { display: none; }
+        .tab-nav-scroll .tab-nav { flex-wrap: nowrap; min-width: max-content; }
+
+        /* ── Improved touch target for small buttons ── */
+        @media (max-width: 600px) {
+            .btn-small { min-height: 40px; padding: 9px 14px; }
+            .file-actions .btn-small { min-height: 40px; }
+            .hero-subtitle { font-size: 0.72rem; }
+            select, input[type="text"], input[type="url"], input[type="number"] {
+                font-size: 1rem; /* prevents iOS zoom on focus */
+            }
+        }
     </style>
 </head>
 <body>
@@ -1045,6 +1154,43 @@
             <button class="nav-item" id="nav-features" onclick="showFeaturesModal()" aria-label="Recommended Features">
                 <i class="fas fa-star" aria-hidden="true"></i>
                 <span class="nav-label">Recommended</span>
+            </button>
+        </div>
+        <!-- Hamburger button — visible on mobile only -->
+        <button class="nav-hamburger" id="nav-hamburger"
+                onclick="toggleMobileNav()"
+                aria-label="Open navigation menu"
+                aria-expanded="false"
+                aria-controls="mobile-nav">
+            <i class="fas fa-bars" id="hamburger-icon"></i>
+        </button>
+    </nav>
+
+    <!-- Mobile nav backdrop (closes menu on outside click) -->
+    <div class="mobile-nav-backdrop" id="mobile-nav-backdrop" onclick="closeMobileNav()"></div>
+
+    <!-- Mobile nav panel (visible on small screens only) -->
+    <nav class="mobile-nav" id="mobile-nav" aria-label="Mobile navigation">
+        <div class="mobile-nav-inner">
+            <button class="mobile-nav-item" onclick="showSectionPanel('download-panel'); closeMobileNav();">
+                <i class="fas fa-home"></i> Home
+            </button>
+            <button class="mobile-nav-item" onclick="showAboutModal(); closeMobileNav();">
+                <i class="fas fa-info-circle"></i> About
+            </button>
+            <button class="mobile-nav-item" onclick="showFeaturesModal(); closeMobileNav();">
+                <i class="fas fa-star"></i> Recommended
+            </button>
+            <div class="mobile-nav-divider"></div>
+            <div class="mobile-nav-section-label">Services</div>
+            <button class="mobile-nav-item" onclick="showSectionPanel('download-panel'); closeMobileNav();">
+                <i class="fas fa-download"></i> Download Videos
+            </button>
+            <button class="mobile-nav-item" onclick="showSectionPanel('playlist-panel'); closeMobileNav();">
+                <i class="fas fa-list"></i> Playlist &amp; Bulk Download
+            </button>
+            <button class="mobile-nav-item" onclick="showSectionPanel('editing-panel'); closeMobileNav();">
+                <i class="fas fa-tools"></i> Video Editing &amp; Conversion
             </button>
         </div>
     </nav>
@@ -1234,11 +1380,13 @@
                     </div>
                     <!-- Playlist & Bulk Download panel (hidden by default) -->
                     <div id="playlist-panel" class="card-body" style="display:none;">
+                        <div class="tab-nav-scroll">
                         <div class="tab-nav">
                             <button class="tab-btn active" onclick="switchFeatureTab('playlist-tab', this, 'playlist-tabs')"><i class="fas fa-play-circle"></i> Playlist / Channel</button>
                             <button class="tab-btn" onclick="switchFeatureTab('batch-tab', this, 'playlist-tabs')"><i class="fas fa-layer-group"></i> Batch URLs</button>
                             <button class="tab-btn" onclick="switchFeatureTab('zip-tab', this, 'playlist-tabs')"><i class="fas fa-file-archive"></i> Export as ZIP</button>
                         </div>
+                        </div><!-- /.tab-nav-scroll -->
 
                         <!-- Playlist/Channel tab -->
                         <div id="playlist-tab" class="tab-pane active" data-tabgroup="playlist-tabs">
@@ -1311,6 +1459,7 @@
                     </div>
                     <!-- Video Editing & Conversion panel (hidden by default) -->
                     <div id="editing-panel" class="card-body" style="display:none;">
+                        <div class="tab-nav-scroll">
                         <div class="tab-nav">
                             <button class="tab-btn active" onclick="switchFeatureTab('edit-convert-tab', this, 'edit-tabs')"><i class="fas fa-exchange-alt"></i> Convert</button>
                             <button class="tab-btn" onclick="switchFeatureTab('edit-batch-convert-tab', this, 'edit-tabs')"><i class="fas fa-copy"></i> Batch Convert</button>
@@ -1320,6 +1469,7 @@
                             <button class="tab-btn" onclick="switchFeatureTab('edit-merge-tab', this, 'edit-tabs')"><i class="fas fa-compress-arrows-alt"></i> Merge</button>
                             <button class="tab-btn" onclick="switchFeatureTab('edit-clip-tab', this, 'edit-tabs')"><i class="fas fa-film"></i> Extract Clip</button>
                         </div>
+                        </div><!-- /.tab-nav-scroll -->
 
                         <!-- Convert tab -->
                         <div id="edit-convert-tab" class="tab-pane active" data-tabgroup="edit-tabs">
@@ -2777,6 +2927,7 @@
                     closeServicesDropdown();
                     closeAboutModal();
                     closeFeaturesModal();
+                    closeMobileNav();
                 }
             });
         });
@@ -2837,6 +2988,29 @@
             const footerYear = document.getElementById('footer-year');
             if (footerYear) footerYear.textContent = new Date().getFullYear();
         });
+
+        // ─── Mobile nav ────────────────────────────────────────────
+        function toggleMobileNav() {
+            const menu     = document.getElementById('mobile-nav');
+            const backdrop = document.getElementById('mobile-nav-backdrop');
+            const btn      = document.getElementById('nav-hamburger');
+            const icon     = document.getElementById('hamburger-icon');
+            const isOpen   = menu.classList.toggle('open');
+            backdrop.classList.toggle('open', isOpen);
+            btn.setAttribute('aria-expanded', String(isOpen));
+            icon.className = isOpen ? 'fas fa-times' : 'fas fa-bars';
+        }
+
+        function closeMobileNav() {
+            const menu     = document.getElementById('mobile-nav');
+            const backdrop = document.getElementById('mobile-nav-backdrop');
+            const btn      = document.getElementById('nav-hamburger');
+            const icon     = document.getElementById('hamburger-icon');
+            menu.classList.remove('open');
+            backdrop.classList.remove('open');
+            btn.setAttribute('aria-expanded', 'false');
+            icon.className = 'fas fa-bars';
+        }
     </script>
 </body>
 </html>
