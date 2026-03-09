@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import secrets
 import subprocess
@@ -9,6 +10,7 @@ import shutil
 import json
 import logging
 import sqlite3
+import zipfile
 import certifi
 import yt_dlp
 from pathlib import Path
@@ -130,6 +132,9 @@ downloads_lock = RLock()  # Reentrant lock for nested access
 downloads = {}            # download_id -> metadata
 active_threads = {}       # download_id -> thread
 ip_download_count = {}    # ip -> count
+
+conversions_lock = RLock()  # Lock for ffmpeg/editing jobs
+conversions = {}             # job_id -> editing/conversion job metadata
 
 visitors_lock = Lock()
 visitors = []             # List of visitor dicts tracked on page visits
@@ -821,6 +826,108 @@ def download_worker(download_id, url, output_template, format_spec):
                 del active_threads[download_id]
 
 # =========================================================
+# CONVERSION / EDITING HELPERS
+# =========================================================
+
+_VALID_VIDEO_FORMATS = {"mp4", "webm", "avi"}
+_VALID_AUDIO_FORMATS = {"mp3", "wav"}
+_ALL_CONVERT_FORMATS = _VALID_VIDEO_FORMATS | _VALID_AUDIO_FORMATS
+
+_VALID_RESOLUTION_RE = re.compile(r"^\d{2,5}x\d{2,5}$")
+_VALID_BITRATE_RE    = re.compile(r"^\d+[kKmMgG]?$")
+# Matches: plain seconds (e.g. "90", "1.5"), MM:SS (e.g. "1:30"), HH:MM:SS (e.g. "1:02:30")
+_VALID_TIME_RE = re.compile(r"^\d+(\.\d+)?$|^\d+:\d{1,2}(\.\d+)?$|^\d+:\d{2}:\d{2}(\.\d+)?$")
+
+
+def _resolve_download_file(filename: str):
+    """Validate that *filename* refers to a real file inside DOWNLOAD_FOLDER.
+
+    Returns ``(abs_path, None)`` on success or ``(None, error_response)`` on
+    failure so callers can simply ``return err`` when it is set.
+    """
+    if not filename:
+        return None, (jsonify({"error": "filename is required"}), 400)
+    filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+    if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
+        return None, (jsonify({"error": "Invalid filename"}), 400)
+    if not os.path.isfile(filepath):
+        return None, (jsonify({"error": "File not found"}), 404)
+    return filepath, None
+
+
+def _unique_output(base: str, suffix: str, ext: str) -> tuple[str, str]:
+    """Return ``(abs_path, filename)`` for a new file inside DOWNLOAD_FOLDER.
+
+    If ``base_suffix.ext`` already exists, a counter is appended until a free
+    name is found.
+    """
+    name = f"{base}_{suffix}.{ext}"
+    path = os.path.join(DOWNLOAD_FOLDER, name)
+    i = 2
+    while os.path.exists(path):
+        name = f"{base}_{suffix}_{i}.{ext}"
+        path = os.path.join(DOWNLOAD_FOLDER, name)
+        i += 1
+    return path, name
+
+
+def _start_ffmpeg_job(
+    job_id: str,
+    cmd: list,
+    output_filename: str,
+    event: str = "job_complete",
+    cleanup=None,
+):
+    """Run an ffmpeg *cmd* in a daemon thread, updating *conversions[job_id]*.
+
+    Emits ``event`` with ``{id, filename}`` on success, or ``event_failed``
+    with ``{id, error}`` on failure.  The optional *cleanup* callable is
+    invoked (once) when the thread finishes, regardless of outcome.
+    """
+    def _worker():
+        with conversions_lock:
+            conversions[job_id]["status"] = "processing"
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                timeout=3600, env=get_ssl_env(),
+            )
+            if result.returncode != 0:
+                err = (result.stderr or "ffmpeg returned a non-zero exit code")[-800:]
+                with conversions_lock:
+                    conversions[job_id].update({"status": "failed", "error": err})
+                socketio.emit(event + "_failed", {"id": job_id, "error": err})
+                logger.error("ffmpeg [%s]: %s", job_id, err)
+            else:
+                with conversions_lock:
+                    conversions[job_id].update({
+                        "status": "completed",
+                        "filename": output_filename,
+                    })
+                socketio.emit(event, {"id": job_id, "filename": output_filename})
+                socketio.emit("files_updated")
+        except subprocess.TimeoutExpired:
+            err = "ffmpeg timed out (1-hour limit exceeded)"
+            with conversions_lock:
+                conversions[job_id].update({"status": "failed", "error": err})
+            socketio.emit(event + "_failed", {"id": job_id, "error": err})
+        except Exception as exc:
+            err = str(exc)
+            logger.error("ffmpeg worker exception [%s]: %s", job_id, exc)
+            with conversions_lock:
+                conversions[job_id].update({"status": "failed", "error": err})
+            socketio.emit(event + "_failed", {"id": job_id, "error": err})
+        finally:
+            if cleanup:
+                try:
+                    cleanup()
+                except Exception:
+                    pass
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+# =========================================================
 # ROUTES
 # =========================================================
 
@@ -1504,6 +1611,677 @@ def admin_db_upload():
                 os.remove(tmp_path)
             except OSError:
                 pass
+
+# =========================================================
+# VIDEO / AUDIO CONVERSION
+# =========================================================
+
+def _build_video_convert_cmd(ffmpeg_path, input_path, output_path, fmt,
+                              resolution, video_bitrate, audio_bitrate):
+    """Build an ffmpeg command list for video/audio conversion."""
+    cmd = [ffmpeg_path, "-y", "-i", input_path]
+    is_audio_only = fmt in _VALID_AUDIO_FORMATS
+    if is_audio_only:
+        cmd.append("-vn")
+        if fmt == "mp3":
+            cmd.extend(["-c:a", "libmp3lame", "-b:a", audio_bitrate or "128k"])
+        else:  # wav
+            cmd.extend(["-c:a", "pcm_s16le"])
+    else:
+        if resolution:
+            w, h = resolution.split("x")
+            cmd.extend(["-vf", f"scale={w}:{h}"])
+        if fmt == "mp4":
+            cmd.extend(["-c:v", "libx264"])
+            if video_bitrate:
+                cmd.extend(["-b:v", video_bitrate])
+            cmd.extend(["-c:a", "aac"])
+            if audio_bitrate:
+                cmd.extend(["-b:a", audio_bitrate])
+        elif fmt == "webm":
+            cmd.extend(["-c:v", "libvpx"])
+            if video_bitrate:
+                cmd.extend(["-b:v", video_bitrate])
+            cmd.extend(["-c:a", "libvorbis"])
+            if audio_bitrate:
+                cmd.extend(["-b:a", audio_bitrate])
+        elif fmt == "avi":
+            cmd.extend(["-c:v", "libx264"])
+            if video_bitrate:
+                cmd.extend(["-b:v", video_bitrate])
+            cmd.extend(["-c:a", "libmp3lame"])
+            if audio_bitrate:
+                cmd.extend(["-b:a", audio_bitrate])
+    cmd.append(output_path)
+    return cmd
+
+
+@app.route("/convert", methods=["POST"])
+def convert_file():
+    """Convert a downloaded file to a different format, resolution, or bitrate."""
+    filename      = request.form.get("filename", "").strip()
+    fmt           = request.form.get("format", "mp4").strip().lower()
+    resolution    = request.form.get("resolution", "").strip()
+    audio_bitrate = request.form.get("audio_bitrate", "").strip()
+    video_bitrate = request.form.get("video_bitrate", "").strip()
+
+    if fmt not in _ALL_CONVERT_FORMATS:
+        return jsonify({"error": f"Unsupported format. Choose from: {', '.join(sorted(_ALL_CONVERT_FORMATS))}"}), 400
+
+    filepath, err = _resolve_download_file(filename)
+    if err:
+        return err
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    if resolution and not _VALID_RESOLUTION_RE.match(resolution):
+        return jsonify({"error": "Invalid resolution. Use WxH (e.g. 1280x720)"}), 400
+    if audio_bitrate and not _VALID_BITRATE_RE.match(audio_bitrate):
+        return jsonify({"error": "Invalid audio bitrate (e.g. 128k, 192k)"}), 400
+    if video_bitrate and not _VALID_BITRATE_RE.match(video_bitrate):
+        return jsonify({"error": "Invalid video bitrate (e.g. 2M, 1500k)"}), 400
+
+    base = safe_filename(os.path.splitext(filename)[0])
+    output_path, output_filename = _unique_output(base, fmt, fmt)
+
+    cmd = _build_video_convert_cmd(
+        ffmpeg_path, filepath, output_path, fmt,
+        resolution, video_bitrate, audio_bitrate,
+    )
+
+    job_id = str(uuid.uuid4())
+    with conversions_lock:
+        conversions[job_id] = {"status": "queued", "type": "convert", "filename": output_filename}
+
+    _start_ffmpeg_job(job_id, cmd, output_filename)
+    return jsonify({"job_id": job_id, "output_filename": output_filename})
+
+
+@app.route("/batch_convert", methods=["POST"])
+def batch_convert():
+    """Convert multiple files to a target format/resolution/bitrate."""
+    filenames_json = request.form.get("filenames", "[]")
+    fmt           = request.form.get("format", "mp4").strip().lower()
+    resolution    = request.form.get("resolution", "").strip()
+    audio_bitrate = request.form.get("audio_bitrate", "").strip()
+    video_bitrate = request.form.get("video_bitrate", "").strip()
+
+    try:
+        filenames = json.loads(filenames_json)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({"error": "Invalid filenames JSON"}), 400
+
+    if not isinstance(filenames, list) or len(filenames) == 0:
+        return jsonify({"error": "No files provided"}), 400
+
+    if fmt not in _ALL_CONVERT_FORMATS:
+        return jsonify({"error": f"Unsupported format. Choose from: {', '.join(sorted(_ALL_CONVERT_FORMATS))}"}), 400
+
+    if len(filenames) > 20:
+        return jsonify({"error": "Maximum 20 files per batch"}), 400
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    if resolution and not _VALID_RESOLUTION_RE.match(resolution):
+        return jsonify({"error": "Invalid resolution. Use WxH (e.g. 1280x720)"}), 400
+    if audio_bitrate and not _VALID_BITRATE_RE.match(audio_bitrate):
+        return jsonify({"error": "Invalid audio bitrate"}), 400
+    if video_bitrate and not _VALID_BITRATE_RE.match(video_bitrate):
+        return jsonify({"error": "Invalid video bitrate"}), 400
+
+    jobs = []
+    for fn in filenames:
+        filepath, ferr = _resolve_download_file(fn)
+        if ferr:
+            continue  # skip invalid files silently
+        base = safe_filename(os.path.splitext(fn)[0])
+        output_path, output_filename = _unique_output(base, fmt, fmt)
+        cmd = _build_video_convert_cmd(
+            ffmpeg_path, filepath, output_path, fmt,
+            resolution, video_bitrate, audio_bitrate,
+        )
+        job_id = str(uuid.uuid4())
+        with conversions_lock:
+            conversions[job_id] = {"status": "queued", "type": "batch_convert", "filename": output_filename}
+        _start_ffmpeg_job(job_id, cmd, output_filename)
+        jobs.append({"job_id": job_id, "source": fn, "output_filename": output_filename})
+
+    if not jobs:
+        return jsonify({"error": "No valid files to convert"}), 400
+
+    return jsonify({"jobs": jobs, "total": len(jobs)})
+
+
+# =========================================================
+# VIDEO EDITING TOOLS
+# =========================================================
+
+@app.route("/trim", methods=["POST"])
+def trim_video():
+    """Trim a video to [start_time, end_time]."""
+    filename   = request.form.get("filename", "").strip()
+    start_time = request.form.get("start_time", "0").strip() or "0"
+    end_time   = request.form.get("end_time", "").strip()
+
+    if not end_time:
+        return jsonify({"error": "end_time is required"}), 400
+
+    filepath, err = _resolve_download_file(filename)
+    if err:
+        return err
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    time_re = _VALID_TIME_RE
+    if not time_re.match(start_time):
+        return jsonify({"error": "Invalid start_time. Use seconds or HH:MM:SS"}), 400
+    if not time_re.match(end_time):
+        return jsonify({"error": "Invalid end_time. Use seconds or HH:MM:SS"}), 400
+
+    ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
+    base = safe_filename(os.path.splitext(filename)[0])
+    output_path, output_filename = _unique_output(base, "trim", ext)
+
+    cmd = [
+        ffmpeg_path, "-y", "-i", filepath,
+        "-ss", start_time, "-to", end_time,
+        "-c", "copy", output_path,
+    ]
+
+    job_id = str(uuid.uuid4())
+    with conversions_lock:
+        conversions[job_id] = {"status": "queued", "type": "trim", "filename": output_filename}
+
+    _start_ffmpeg_job(job_id, cmd, output_filename)
+    return jsonify({"job_id": job_id, "output_filename": output_filename})
+
+
+@app.route("/crop", methods=["POST"])
+def crop_video():
+    """Crop a video frame to (x, y, width, height)."""
+    filename = request.form.get("filename", "").strip()
+    x        = request.form.get("x", "0").strip() or "0"
+    y        = request.form.get("y", "0").strip() or "0"
+    width    = request.form.get("width", "").strip()
+    height   = request.form.get("height", "").strip()
+
+    if not width or not height:
+        return jsonify({"error": "width and height are required"}), 400
+
+    filepath, err = _resolve_download_file(filename)
+    if err:
+        return err
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    for val in [x, y, width, height]:
+        if not val.isdigit():
+            return jsonify({"error": "x, y, width, and height must be positive integers"}), 400
+
+    ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
+    base = safe_filename(os.path.splitext(filename)[0])
+    output_path, output_filename = _unique_output(base, "crop", ext)
+
+    # ffmpeg crop filter: crop=w:h:x:y
+    cmd = [
+        ffmpeg_path, "-y", "-i", filepath,
+        "-vf", f"crop={width}:{height}:{x}:{y}",
+        output_path,
+    ]
+
+    job_id = str(uuid.uuid4())
+    with conversions_lock:
+        conversions[job_id] = {"status": "queued", "type": "crop", "filename": output_filename}
+
+    _start_ffmpeg_job(job_id, cmd, output_filename)
+    return jsonify({"job_id": job_id, "output_filename": output_filename})
+
+
+@app.route("/watermark", methods=["POST"])
+def watermark_video():
+    """Overlay a text watermark onto a video."""
+    filename = request.form.get("filename", "").strip()
+    text     = request.form.get("text", "").strip()
+    position = request.form.get("position", "bottom-right").strip()
+    fontsize = request.form.get("fontsize", "24").strip() or "24"
+
+    if not text:
+        return jsonify({"error": "Watermark text is required"}), 400
+    if len(text) > 200:
+        return jsonify({"error": "Watermark text too long (max 200 chars)"}), 400
+
+    filepath, err = _resolve_download_file(filename)
+    if err:
+        return err
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    if not fontsize.isdigit() or not (8 <= int(fontsize) <= 120):
+        return jsonify({"error": "fontsize must be an integer between 8 and 120"}), 400
+
+    # Escape special chars for ffmpeg drawtext
+    escaped = (
+        text
+        .replace("\\", "\\\\")
+        .replace("'",  "\\'")
+        .replace(":",  "\\:")
+        .replace("%",  "\\%")
+    )
+
+    pos_map = {
+        "top-left":     "x=10:y=10",
+        "top-right":    "x=w-tw-10:y=10",
+        "bottom-left":  "x=10:y=h-th-10",
+        "bottom-right": "x=w-tw-10:y=h-th-10",
+        "center":       "x=(w-tw)/2:y=(h-th)/2",
+    }
+    xy = pos_map.get(position, pos_map["bottom-right"])
+
+    drawtext = (
+        f"drawtext=text='{escaped}':fontsize={fontsize}"
+        f":fontcolor=white:box=1:boxcolor=black@0.5:boxborderw=4:{xy}"
+    )
+
+    ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
+    base = safe_filename(os.path.splitext(filename)[0])
+    output_path, output_filename = _unique_output(base, "watermark", ext)
+
+    cmd = [
+        ffmpeg_path, "-y", "-i", filepath,
+        "-vf", drawtext, "-c:a", "copy", output_path,
+    ]
+
+    job_id = str(uuid.uuid4())
+    with conversions_lock:
+        conversions[job_id] = {"status": "queued", "type": "watermark", "filename": output_filename}
+
+    _start_ffmpeg_job(job_id, cmd, output_filename)
+    return jsonify({"job_id": job_id, "output_filename": output_filename})
+
+
+@app.route("/extract_clip", methods=["POST"])
+def extract_clip():
+    """Extract a short clip (10–60 s) starting at start_time."""
+    filename   = request.form.get("filename", "").strip()
+    start_time = request.form.get("start_time", "0").strip() or "0"
+    duration   = request.form.get("duration", "30").strip() or "30"
+
+    filepath, err = _resolve_download_file(filename)
+    if err:
+        return err
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    try:
+        dur_sec = float(duration)
+    except ValueError:
+        return jsonify({"error": "duration must be a number"}), 400
+    if not (10 <= dur_sec <= 60):
+        return jsonify({"error": "duration must be between 10 and 60 seconds"}), 400
+
+    if not _VALID_TIME_RE.match(start_time):
+        return jsonify({"error": "Invalid start_time. Use seconds or HH:MM:SS"}), 400
+
+    ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
+    base = safe_filename(os.path.splitext(filename)[0])
+    output_path, output_filename = _unique_output(base, "clip", ext)
+
+    cmd = [
+        ffmpeg_path, "-y", "-i", filepath,
+        "-ss", start_time, "-t", str(dur_sec),
+        "-c", "copy", output_path,
+    ]
+
+    job_id = str(uuid.uuid4())
+    with conversions_lock:
+        conversions[job_id] = {"status": "queued", "type": "extract_clip", "filename": output_filename}
+
+    _start_ffmpeg_job(job_id, cmd, output_filename)
+    return jsonify({"job_id": job_id, "output_filename": output_filename})
+
+
+@app.route("/merge", methods=["POST"])
+def merge_videos():
+    """Concatenate multiple downloaded videos into a single output file."""
+    filenames_json = request.form.get("filenames", "[]")
+    output_format  = request.form.get("format", "mp4").strip().lower()
+
+    try:
+        filenames = json.loads(filenames_json)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({"error": "Invalid filenames JSON"}), 400
+
+    if not isinstance(filenames, list) or len(filenames) < 2:
+        return jsonify({"error": "At least 2 files are required for merge"}), 400
+    if len(filenames) > 20:
+        return jsonify({"error": "Maximum 20 files per merge"}), 400
+
+    if output_format not in _VALID_VIDEO_FORMATS:
+        return jsonify({"error": f"Unsupported format. Choose from: {', '.join(sorted(_VALID_VIDEO_FORMATS))}"}), 400
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+
+    filepaths = []
+    for fn in filenames:
+        fp, ferr = _resolve_download_file(fn)
+        if ferr:
+            return ferr
+        filepaths.append(fp)
+
+    job_id    = str(uuid.uuid4())
+    list_file = os.path.join(DOWNLOAD_FOLDER, f"concat_{job_id}.txt")
+    with open(list_file, "w") as fh:
+        for fp in filepaths:
+            fh.write(f"file '{fp}'\n")
+
+    output_path, output_filename = _unique_output("merged", "videos", output_format)
+
+    cmd = [
+        ffmpeg_path, "-y", "-f", "concat", "-safe", "0",
+        "-i", list_file, "-c", "copy", output_path,
+    ]
+
+    with conversions_lock:
+        conversions[job_id] = {"status": "queued", "type": "merge", "filename": output_filename}
+
+    def _remove_list_file():
+        try:
+            os.remove(list_file)
+        except OSError:
+            pass
+
+    _start_ffmpeg_job(job_id, cmd, output_filename, cleanup=_remove_list_file)
+    return jsonify({"job_id": job_id, "output_filename": output_filename})
+
+
+@app.route("/job_status/<job_id>")
+def job_status(job_id):
+    """Return the current status of a conversion or editing job."""
+    with conversions_lock:
+        job = conversions.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+    return jsonify({
+        "job_id":    job_id,
+        "status":    job.get("status"),
+        "type":      job.get("type"),
+        "filename":  job.get("filename"),
+        "error":     job.get("error"),
+    })
+
+
+# =========================================================
+# PLAYLIST & BULK DOWNLOAD
+# =========================================================
+
+@app.route("/start_playlist_download", methods=["POST"])
+@rate_limit()
+def start_playlist_download():
+    """Download an entire playlist or channel (yt-dlp playlist mode)."""
+    url         = request.form.get("url", "").strip()
+    format_spec = request.form.get("format", "bestvideo*+bestaudio*/best")
+
+    if not url:
+        return jsonify({"error": "URL is required"}), 400
+
+    with downloads_lock:
+        active_count = sum(
+            1 for d in downloads.values()
+            if d["status"] in ("queued", "downloading")
+        )
+        if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
+            return jsonify({
+                "error": f"Maximum concurrent downloads reached ({Config.MAX_CONCURRENT_DOWNLOADS})"
+            }), 429
+
+    batch_id = str(uuid.uuid4())
+    ip = request.remote_addr
+    hdr_country, hdr_code = _get_country_from_headers(request)
+    if hdr_country and ip not in ip_country_cache:
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+    cached_geo = ip_country_cache.get(ip, {})
+
+    output_template = os.path.join(
+        DOWNLOAD_FOLDER, "%(playlist_index)02d_%(title).80s.%(ext)s"
+    )
+
+    with downloads_lock:
+        downloads[batch_id] = {
+            "id":           batch_id,
+            "url":          url,
+            "title":        "Playlist Download",
+            "type":         "playlist",
+            "status":       "queued",
+            "percent":      0,
+            "ip":           ip,
+            "country":      cached_geo.get("country", ""),
+            "country_code": cached_geo.get("code", ""),
+            "created_at":   time.time(),
+        }
+
+    def playlist_worker():
+        completed = [0]
+        total     = [0]
+
+        def progress_hook(d):
+            if d["status"] == "finished":
+                completed[0] += 1
+                pct = (100.0 * completed[0] / total[0]) if total[0] else 0
+                with downloads_lock:
+                    downloads[batch_id].update({"percent": pct, "status": "downloading"})
+                socketio.emit(
+                    "progress",
+                    {"id": batch_id, "percent": pct,
+                     "line": f"Downloaded {completed[0]}/{total[0]} videos"},
+                    room=batch_id,
+                )
+
+        ydl_opts = {
+            "format":          normalize_format_spec(format_spec),
+            "outtmpl":         output_template,
+            "noplaylist":      False,
+            "extractor_args":  _get_yt_extractor_args(),
+            "http_headers":    {"User-Agent": _CHROME_UA},
+            "extractor_retries": 5,
+            "retries":         5,
+            "geo_bypass":      True,
+            "progress_hooks":  [progress_hook],
+            "quiet":           True,
+            "no_warnings":     True,
+        }
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            ydl_opts["ffmpeg_location"] = ffmpeg_path
+
+        with downloads_lock:
+            downloads[batch_id]["status"]     = "downloading"
+            downloads[batch_id]["start_time"] = time.time()
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info:
+                    entries = info.get("entries") or [info]
+                    total[0] = len(entries)
+                    with downloads_lock:
+                        downloads[batch_id]["title"] = info.get("title", "Playlist")
+                ydl.download([url])
+
+            with downloads_lock:
+                downloads[batch_id].update({
+                    "status":   "completed",
+                    "percent":  100,
+                    "end_time": time.time(),
+                })
+            socketio.emit(
+                "completed",
+                {"id": batch_id, "title": downloads[batch_id].get("title")},
+                room=batch_id,
+            )
+            socketio.emit("files_updated")
+            threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
+        except Exception as exc:
+            logger.error("Playlist download error: %s", exc)
+            with downloads_lock:
+                downloads[batch_id].update({
+                    "status":   "failed",
+                    "error":    str(exc),
+                    "end_time": time.time(),
+                })
+            socketio.emit("failed", {"id": batch_id, "error": str(exc)}, room=batch_id)
+            threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
+        finally:
+            with downloads_lock:
+                active_threads.pop(batch_id, None)
+
+    thread = threading.Thread(target=playlist_worker, daemon=True)
+    thread.start()
+    with downloads_lock:
+        active_threads[batch_id] = thread
+
+    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+    if ip not in ip_country_cache:
+        threading.Thread(target=_lookup_country_async, args=(ip,), daemon=True).start()
+
+    return jsonify({"download_id": batch_id, "title": "Playlist Download", "status": "queued"})
+
+
+@app.route("/start_batch_download", methods=["POST"])
+def start_batch_download():
+    """Start individual downloads for a newline-separated list of URLs."""
+    urls_text   = request.form.get("urls", "").strip()
+    format_spec = request.form.get("format", "bestvideo*+bestaudio*/best")
+
+    urls = [u.strip() for u in urls_text.splitlines() if u.strip()]
+    if not urls:
+        return jsonify({"error": "At least one URL is required"}), 400
+    if len(urls) > 20:
+        return jsonify({"error": "Maximum 20 URLs per batch"}), 400
+
+    started = []
+    ip = request.remote_addr
+    hdr_country, hdr_code = _get_country_from_headers(request)
+    if hdr_country and ip not in ip_country_cache:
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+    cached_geo = ip_country_cache.get(ip, {})
+
+    for url in urls:
+        with downloads_lock:
+            active_count = sum(
+                1 for d in downloads.values()
+                if d["status"] in ("queued", "downloading")
+            )
+            if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
+                break  # stop adding once limit reached
+
+        info = get_video_info(url)
+        title = (
+            info.get("title", f"video_{uuid.uuid4().hex[:8]}")
+            if info and "error" not in info
+            else f"video_{uuid.uuid4().hex[:8]}"
+        )
+        safe_title      = safe_filename(title)
+        download_id     = str(uuid.uuid4())
+        output_template = os.path.join(DOWNLOAD_FOLDER, f"{safe_title}.%(ext)s")
+
+        with downloads_lock:
+            downloads[download_id] = {
+                "id":              download_id,
+                "url":             url,
+                "title":           title,
+                "safe_title":      safe_title,
+                "status":          "queued",
+                "percent":         0,
+                "output_template": output_template,
+                "format":          format_spec,
+                "created_at":      time.time(),
+                "filename":        None,
+                "ip":              ip,
+                "country":         cached_geo.get("country", ""),
+                "country_code":    cached_geo.get("code", ""),
+            }
+
+        thread = threading.Thread(
+            target=download_worker,
+            args=(download_id, url, output_template, format_spec),
+            daemon=True,
+        )
+        thread.start()
+        with downloads_lock:
+            active_threads[download_id] = thread
+
+        started.append({"download_id": download_id, "url": url, "title": title})
+
+    if not started:
+        return jsonify({"error": "Could not start any downloads (concurrent limit reached)"}), 429
+
+    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+    if ip not in ip_country_cache:
+        threading.Thread(target=_lookup_country_async, args=(ip,), daemon=True).start()
+
+    return jsonify({"started": started, "total": len(started)})
+
+
+@app.route("/download_zip", methods=["POST"])
+def download_zip():
+    """Package a selection of downloaded files into a ZIP and serve it."""
+    filenames_json = request.form.get("filenames", "[]")
+
+    try:
+        filenames = json.loads(filenames_json)
+    except (json.JSONDecodeError, ValueError):
+        return jsonify({"error": "Invalid filenames JSON"}), 400
+
+    if not isinstance(filenames, list) or len(filenames) == 0:
+        return jsonify({"error": "No files selected"}), 400
+
+    filepairs = []
+    for fn in filenames:
+        if not fn:
+            continue
+        fp = os.path.join(DOWNLOAD_FOLDER, fn)
+        if not os.path.abspath(fp).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
+            continue
+        if os.path.isfile(fp):
+            filepairs.append((fn, fp))
+
+    if not filepairs:
+        return jsonify({"error": "No valid files found"}), 404
+
+    zip_filename = f"downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    zip_path     = os.path.join(DOWNLOAD_FOLDER, zip_filename)
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fn, fp in filepairs:
+                zf.write(fp, fn)
+    except Exception as exc:
+        logger.error("ZIP creation error: %s", exc)
+        return jsonify({"error": f"Failed to create ZIP: {exc}"}), 500
+
+    return send_from_directory(
+        DOWNLOAD_FOLDER,
+        zip_filename,
+        as_attachment=True,
+        download_name=zip_filename,
+        mimetype="application/zip",
+    )
+
 
 # =========================================================
 # SOCKET.IO EVENTS

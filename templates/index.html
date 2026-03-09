@@ -593,6 +593,63 @@
             flex-wrap: wrap;
             margin-top: 4px;
         }
+
+        /* ── Feature tabs ── */
+        .tab-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 16px;
+        }
+        .tab-btn {
+            padding: 7px 14px;
+            border-radius: 6px;
+            background: #f1f3fb;
+            color: #555;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1.5px solid transparent;
+            transition: background 0.15s, color 0.15s;
+        }
+        .tab-btn:hover { background: #e0e0ff; color: #4f46e5; }
+        .tab-btn.active { background: #667eea; color: white; border-color: #667eea; }
+        .tab-pane { display: none; }
+        .tab-pane.active { display: block; }
+
+        /* ── Checklist for multi-file ops ── */
+        .file-checklist {
+            max-height: 160px;
+            overflow-y: auto;
+            border: 1px solid #e8ecf0;
+            border-radius: 6px;
+            padding: 8px 10px;
+            background: #fafbff;
+        }
+        .file-checklist label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 3px 0;
+            font-weight: 400;
+            font-size: 0.88rem;
+            cursor: pointer;
+        }
+
+        /* ── Job status badge ── */
+        .job-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+        .job-badge.processing { background: #eff6ff; color: #2563eb; }
+        .job-badge.completed  { background: #f0fdf4; color: #16a34a; }
+        .job-badge.failed     { background: #fef2f2; color: #dc2626; }
     </style>
 </head>
 <body>
@@ -787,6 +844,342 @@
                                 <p>Loading files…</p>
                             </div>
                         </ul>
+                    </div>
+                </div>
+
+                <!-- Playlist & Bulk Download -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-list"></i> Playlist &amp; Bulk Download
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-nav">
+                            <button class="tab-btn active" onclick="switchFeatureTab('playlist-tab', this, 'playlist-tabs')"><i class="fas fa-play-circle"></i> Playlist / Channel</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('batch-tab', this, 'playlist-tabs')"><i class="fas fa-layer-group"></i> Batch URLs</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('zip-tab', this, 'playlist-tabs')"><i class="fas fa-file-archive"></i> Export as ZIP</button>
+                        </div>
+
+                        <!-- Playlist/Channel tab -->
+                        <div id="playlist-tab" class="tab-pane active" data-tabgroup="playlist-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Paste a YouTube playlist, channel, or any supported playlist URL.
+                            </p>
+                            <div class="form-group">
+                                <label for="playlist-url"><i class="fas fa-globe"></i> Playlist / Channel URL</label>
+                                <input type="url" id="playlist-url" placeholder="https://www.youtube.com/playlist?list=…">
+                            </div>
+                            <div class="form-group">
+                                <label for="playlist-format"><i class="fas fa-sliders-h"></i> Quality</label>
+                                <select id="playlist-format">
+                                    <option value="bestvideo*+bestaudio*/best">Best Quality</option>
+                                    <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
+                                    <option value="bestvideo[height<=720]+bestaudio/best">HD (720p)</option>
+                                    <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
+                                    <option value="bestaudio/best">Audio Only</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" id="playlist-btn" onclick="startPlaylistDownload()">
+                                <i class="fas fa-cloud-download-alt"></i> Download Playlist
+                            </button>
+                        </div>
+
+                        <!-- Batch URLs tab -->
+                        <div id="batch-tab" class="tab-pane" data-tabgroup="playlist-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Enter up to 20 video URLs, one per line.
+                            </p>
+                            <div class="form-group">
+                                <label for="batch-urls"><i class="fas fa-list-ul"></i> Video URLs (one per line)</label>
+                                <textarea id="batch-urls" rows="6"
+                                    style="width:100%;padding:10px 12px;border:2px solid #e8ecf0;border-radius:6px;font-family:inherit;font-size:0.88rem;resize:vertical;background:#fafafa;"
+                                    placeholder="https://www.youtube.com/watch?v=…&#10;https://www.youtube.com/watch?v=…"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label for="batch-format"><i class="fas fa-sliders-h"></i> Quality</label>
+                                <select id="batch-format">
+                                    <option value="bestvideo*+bestaudio*/best">Best Quality</option>
+                                    <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
+                                    <option value="bestvideo[height<=720]+bestaudio/best">HD (720p)</option>
+                                    <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
+                                    <option value="bestaudio/best">Audio Only</option>
+                                </select>
+                            </div>
+                            <button class="btn-primary" id="batch-btn" onclick="startBatchDownload()">
+                                <i class="fas fa-cloud-download-alt"></i> Start Batch Download
+                            </button>
+                        </div>
+
+                        <!-- Export as ZIP tab -->
+                        <div id="zip-tab" class="tab-pane" data-tabgroup="playlist-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Select files to package into a single ZIP download.
+                            </p>
+                            <div class="form-group">
+                                <label><i class="fas fa-check-square"></i> Select Files</label>
+                                <div class="file-checklist" id="zip-file-checklist">
+                                    <p style="color:#95a5a6;font-size:0.85rem;">No files available</p>
+                                </div>
+                            </div>
+                            <button class="btn-secondary btn-small" onclick="loadEditFileSelectors()" style="margin-bottom:10px;">
+                                <i class="fas fa-sync-alt"></i> Refresh list
+                            </button>
+                            <button class="btn-primary" onclick="downloadZip()">
+                                <i class="fas fa-file-archive"></i> Download as ZIP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Video Editing & Conversion -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-tools"></i> Video Editing &amp; Conversion
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-nav">
+                            <button class="tab-btn active" onclick="switchFeatureTab('edit-convert-tab', this, 'edit-tabs')"><i class="fas fa-exchange-alt"></i> Convert</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('edit-batch-convert-tab', this, 'edit-tabs')"><i class="fas fa-copy"></i> Batch Convert</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('edit-trim-tab', this, 'edit-tabs')"><i class="fas fa-cut"></i> Trim</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('edit-crop-tab', this, 'edit-tabs')"><i class="fas fa-crop-alt"></i> Crop</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('edit-watermark-tab', this, 'edit-tabs')"><i class="fas fa-stamp"></i> Watermark</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('edit-merge-tab', this, 'edit-tabs')"><i class="fas fa-compress-arrows-alt"></i> Merge</button>
+                            <button class="tab-btn" onclick="switchFeatureTab('edit-clip-tab', this, 'edit-tabs')"><i class="fas fa-film"></i> Extract Clip</button>
+                        </div>
+
+                        <!-- Convert tab -->
+                        <div id="edit-convert-tab" class="tab-pane active" data-tabgroup="edit-tabs">
+                            <div class="form-group">
+                                <label for="conv-file"><i class="fas fa-file-video"></i> Source File</label>
+                                <select id="conv-file" class="edit-file-selector">
+                                    <option value="">Loading…</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="conv-format"><i class="fas fa-exchange-alt"></i> Output Format</label>
+                                    <select id="conv-format">
+                                        <option value="mp4">MP4 (H.264)</option>
+                                        <option value="webm">WebM (VP8)</option>
+                                        <option value="avi">AVI</option>
+                                        <option value="mp3">MP3 (audio only)</option>
+                                        <option value="wav">WAV (audio only)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="conv-resolution"><i class="fas fa-expand-arrows-alt"></i> Resolution <small style="color:#94a3b8;">(optional)</small></label>
+                                    <input type="text" id="conv-resolution" placeholder="e.g. 1280x720">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="conv-vbitrate"><i class="fas fa-video"></i> Video Bitrate <small style="color:#94a3b8;">(optional)</small></label>
+                                    <input type="text" id="conv-vbitrate" placeholder="e.g. 2M or 1500k">
+                                </div>
+                                <div class="form-group">
+                                    <label for="conv-abitrate"><i class="fas fa-music"></i> Audio Bitrate <small style="color:#94a3b8;">(optional)</small></label>
+                                    <input type="text" id="conv-abitrate" placeholder="e.g. 192k">
+                                </div>
+                            </div>
+                            <button class="btn-primary" id="conv-btn" onclick="runConvert()">
+                                <i class="fas fa-cog"></i> Convert
+                            </button>
+                            <div id="conv-status"></div>
+                        </div>
+
+                        <!-- Batch Convert tab -->
+                        <div id="edit-batch-convert-tab" class="tab-pane" data-tabgroup="edit-tabs">
+                            <div class="form-group">
+                                <label><i class="fas fa-check-square"></i> Select Files to Convert</label>
+                                <div class="file-checklist" id="batch-conv-checklist">
+                                    <p style="color:#95a5a6;font-size:0.85rem;">No files available</p>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="batch-conv-format"><i class="fas fa-exchange-alt"></i> Output Format</label>
+                                    <select id="batch-conv-format">
+                                        <option value="mp4">MP4 (H.264)</option>
+                                        <option value="webm">WebM (VP8)</option>
+                                        <option value="avi">AVI</option>
+                                        <option value="mp3">MP3 (audio only)</option>
+                                        <option value="wav">WAV (audio only)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="batch-conv-resolution"><i class="fas fa-expand-arrows-alt"></i> Resolution <small style="color:#94a3b8;">(optional)</small></label>
+                                    <input type="text" id="batch-conv-resolution" placeholder="e.g. 1280x720">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="batch-conv-vbitrate"><i class="fas fa-video"></i> Video Bitrate <small style="color:#94a3b8;">(optional)</small></label>
+                                    <input type="text" id="batch-conv-vbitrate" placeholder="e.g. 2M">
+                                </div>
+                                <div class="form-group">
+                                    <label for="batch-conv-abitrate"><i class="fas fa-music"></i> Audio Bitrate <small style="color:#94a3b8;">(optional)</small></label>
+                                    <input type="text" id="batch-conv-abitrate" placeholder="e.g. 128k">
+                                </div>
+                            </div>
+                            <button class="btn-secondary btn-small" onclick="loadEditFileSelectors()" style="margin-bottom:10px;">
+                                <i class="fas fa-sync-alt"></i> Refresh list
+                            </button>
+                            <button class="btn-primary" onclick="runBatchConvert()">
+                                <i class="fas fa-cog"></i> Batch Convert
+                            </button>
+                        </div>
+
+                        <!-- Trim tab -->
+                        <div id="edit-trim-tab" class="tab-pane" data-tabgroup="edit-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Cut the video to keep only the portion between start and end times.
+                            </p>
+                            <div class="form-group">
+                                <label for="trim-file"><i class="fas fa-file-video"></i> Source File</label>
+                                <select id="trim-file" class="edit-file-selector">
+                                    <option value="">Loading…</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="trim-start"><i class="fas fa-step-forward"></i> Start Time</label>
+                                    <input type="text" id="trim-start" placeholder="0 or 0:30 or 1:02:30">
+                                </div>
+                                <div class="form-group">
+                                    <label for="trim-end"><i class="fas fa-step-backward"></i> End Time</label>
+                                    <input type="text" id="trim-end" placeholder="e.g. 1:30 or 90">
+                                </div>
+                            </div>
+                            <button class="btn-primary" onclick="runTrim()">
+                                <i class="fas fa-cut"></i> Trim Video
+                            </button>
+                            <div id="trim-status"></div>
+                        </div>
+
+                        <!-- Crop tab -->
+                        <div id="edit-crop-tab" class="tab-pane" data-tabgroup="edit-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Crop a rectangular region from the video frame (all values in pixels).
+                            </p>
+                            <div class="form-group">
+                                <label for="crop-file"><i class="fas fa-file-video"></i> Source File</label>
+                                <select id="crop-file" class="edit-file-selector">
+                                    <option value="">Loading…</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="crop-w"><i class="fas fa-arrows-alt-h"></i> Width (px)</label>
+                                    <input type="number" id="crop-w" placeholder="e.g. 1280" min="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="crop-h"><i class="fas fa-arrows-alt-v"></i> Height (px)</label>
+                                    <input type="number" id="crop-h" placeholder="e.g. 720" min="1">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="crop-x">X Offset (px)</label>
+                                    <input type="number" id="crop-x" placeholder="0" min="0" value="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="crop-y">Y Offset (px)</label>
+                                    <input type="number" id="crop-y" placeholder="0" min="0" value="0">
+                                </div>
+                            </div>
+                            <button class="btn-primary" onclick="runCrop()">
+                                <i class="fas fa-crop-alt"></i> Crop Video
+                            </button>
+                            <div id="crop-status"></div>
+                        </div>
+
+                        <!-- Watermark tab -->
+                        <div id="edit-watermark-tab" class="tab-pane" data-tabgroup="edit-tabs">
+                            <div class="form-group">
+                                <label for="wm-file"><i class="fas fa-file-video"></i> Source File</label>
+                                <select id="wm-file" class="edit-file-selector">
+                                    <option value="">Loading…</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="wm-text"><i class="fas fa-font"></i> Watermark Text</label>
+                                <input type="text" id="wm-text" placeholder="e.g. © My Channel 2024" maxlength="200">
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="wm-position"><i class="fas fa-map-marker-alt"></i> Position</label>
+                                    <select id="wm-position">
+                                        <option value="bottom-right">Bottom Right</option>
+                                        <option value="bottom-left">Bottom Left</option>
+                                        <option value="top-right">Top Right</option>
+                                        <option value="top-left">Top Left</option>
+                                        <option value="center">Center</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="wm-fontsize"><i class="fas fa-text-height"></i> Font Size</label>
+                                    <input type="number" id="wm-fontsize" value="24" min="8" max="120">
+                                </div>
+                            </div>
+                            <button class="btn-primary" onclick="runWatermark()">
+                                <i class="fas fa-stamp"></i> Add Watermark
+                            </button>
+                            <div id="wm-status"></div>
+                        </div>
+
+                        <!-- Merge tab -->
+                        <div id="edit-merge-tab" class="tab-pane" data-tabgroup="edit-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Select 2 or more files to merge in order (files must share the same codec and resolution for best results).
+                            </p>
+                            <div class="form-group">
+                                <label><i class="fas fa-check-square"></i> Select Files (in merge order)</label>
+                                <div class="file-checklist" id="merge-checklist">
+                                    <p style="color:#95a5a6;font-size:0.85rem;">No files available</p>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="merge-format"><i class="fas fa-exchange-alt"></i> Output Format</label>
+                                <select id="merge-format">
+                                    <option value="mp4">MP4</option>
+                                    <option value="webm">WebM</option>
+                                    <option value="avi">AVI</option>
+                                </select>
+                            </div>
+                            <button class="btn-secondary btn-small" onclick="loadEditFileSelectors()" style="margin-bottom:10px;">
+                                <i class="fas fa-sync-alt"></i> Refresh list
+                            </button>
+                            <button class="btn-primary" onclick="runMerge()">
+                                <i class="fas fa-compress-arrows-alt"></i> Merge Videos
+                            </button>
+                            <div id="merge-status"></div>
+                        </div>
+
+                        <!-- Extract Clip tab -->
+                        <div id="edit-clip-tab" class="tab-pane" data-tabgroup="edit-tabs">
+                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
+                                Extract a short clip (10–60 seconds) from a video.
+                            </p>
+                            <div class="form-group">
+                                <label for="clip-file"><i class="fas fa-file-video"></i> Source File</label>
+                                <select id="clip-file" class="edit-file-selector">
+                                    <option value="">Loading…</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="clip-start"><i class="fas fa-step-forward"></i> Start Time</label>
+                                    <input type="text" id="clip-start" placeholder="0 or 1:30">
+                                </div>
+                                <div class="form-group">
+                                    <label for="clip-duration"><i class="fas fa-clock"></i> Duration (seconds, 10–60)</label>
+                                    <input type="number" id="clip-duration" value="30" min="10" max="60">
+                                </div>
+                            </div>
+                            <button class="btn-primary" onclick="runExtractClip()">
+                                <i class="fas fa-film"></i> Extract Clip
+                            </button>
+                            <div id="clip-status"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -1491,6 +1884,315 @@
             loadFiles(false);
             updateStatsBadge();
         }, 30000);
+
+        // ─── Tab switcher (feature cards) ─────────────────────────
+        function switchFeatureTab(tabId, btn, groupAttr) {
+            document.querySelectorAll(`.tab-pane[data-tabgroup="${groupAttr}"]`)
+                    .forEach(p => p.classList.remove('active'));
+            btn.closest('.tab-nav').querySelectorAll('.tab-btn')
+               .forEach(b => b.classList.remove('active'));
+            document.getElementById(tabId).classList.add('active');
+            btn.classList.add('active');
+        }
+
+        // ─── Edit file selectors / checklists ─────────────────────
+        async function loadEditFileSelectors() {
+            try {
+                const res   = await fetch('/files?t=' + Date.now());
+                const files = await res.json();
+                const list  = Array.isArray(files) ? files : [];
+
+                // Single-file dropdowns
+                const noOpt  = '<option value="">— no files available —</option>';
+                const opts   = list.length
+                    ? list.map(f => `<option value="${escHtml(f.name)}">${escHtml(f.name)}</option>`).join('')
+                    : noOpt;
+                document.querySelectorAll('.edit-file-selector').forEach(sel => {
+                    sel.innerHTML = opts;
+                });
+
+                // Multi-file checklists
+                const noChk  = '<p style="color:#95a5a6;font-size:0.85rem;">No files available</p>';
+                const checks = list.length
+                    ? list.map(f => `
+                        <label>
+                            <input type="checkbox" class="file-check" value="${escHtml(f.name)}">
+                            <span>${escHtml(f.name)} <small style="color:#94a3b8;">(${(f.size/1024/1024).toFixed(2)} MB)</small></span>
+                        </label>`).join('')
+                    : noChk;
+                document.querySelectorAll('.file-checklist').forEach(cl => {
+                    cl.innerHTML = checks;
+                });
+            } catch (_) {}
+        }
+
+        // Populate selectors on load and whenever the file list changes
+        loadEditFileSelectors();
+
+        // ─── Socket.IO: job events ─────────────────────────────────
+        if (typeof socket !== 'undefined' && socket) {
+            socket.on('job_complete', (data) => {
+                showToast(`✅ Done: ${escHtml(data.filename || 'file ready')}`, 'success', 6000);
+                loadFiles(true);
+                loadEditFileSelectors();
+            });
+            socket.on('job_complete_failed', (data) => {
+                const msg = (data.error || 'Operation failed').slice(0, 200);
+                showToast(`❌ ${escHtml(msg)}`, 'error', 8000);
+            });
+        }
+
+        // ─── Job status badge helper ───────────────────────────────
+        function setJobStatus(el, status, text) {
+            if (!el) return;
+            el.innerHTML = '';
+            const badge = document.createElement('div');
+            badge.className = 'job-badge ' + (status === 'ok' ? 'processing' : status);
+            badge.innerHTML = status === 'ok'
+                ? `<span class="spinner" style="border-color:rgba(37,99,235,.3);border-top-color:#2563eb;"></span> ${escHtml(text)}`
+                : `<i class="fas ${status === 'completed' ? 'fa-check-circle' : 'fa-exclamation-circle'}"></i> ${escHtml(text)}`;
+            el.appendChild(badge);
+        }
+
+        // ─── Generic ffmpeg job runner ─────────────────────────────
+        async function runJob(endpoint, formData, statusEl, btnEl, label) {
+            if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '<span class="spinner"></span> Processing…'; }
+            if (statusEl) setJobStatus(statusEl, 'ok', 'Processing…');
+            try {
+                const res  = await fetch(endpoint, { method: 'POST', body: formData });
+                const data = await res.json();
+                if (!res.ok || data.error) {
+                    throw new Error(data.error || 'Server error');
+                }
+                if (statusEl) setJobStatus(statusEl, 'ok', `Queued — you'll be notified when done`);
+                showToast(`⚙️ ${label} started`, 'info');
+            } catch (err) {
+                if (statusEl) setJobStatus(statusEl, 'failed', err.message);
+                showToast('Error: ' + err.message, 'error', 6000);
+            } finally {
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = `<i class="fas fa-cog"></i> ${label}`;
+                }
+            }
+        }
+
+        // ─── Convert ──────────────────────────────────────────────
+        async function runConvert() {
+            const fn = document.getElementById('conv-file').value;
+            if (!fn) { showToast('Please select a file', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filename',      fn);
+            fd.append('format',        document.getElementById('conv-format').value);
+            fd.append('resolution',    document.getElementById('conv-resolution').value.trim());
+            fd.append('video_bitrate', document.getElementById('conv-vbitrate').value.trim());
+            fd.append('audio_bitrate', document.getElementById('conv-abitrate').value.trim());
+            await runJob('/convert', fd,
+                document.getElementById('conv-status'),
+                document.getElementById('conv-btn'),
+                'Convert');
+        }
+
+        // ─── Batch Convert ────────────────────────────────────────
+        async function runBatchConvert() {
+            const checked = [...document.querySelectorAll('#batch-conv-checklist .file-check:checked')]
+                             .map(c => c.value);
+            if (checked.length === 0) { showToast('Select at least one file', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filenames',     JSON.stringify(checked));
+            fd.append('format',        document.getElementById('batch-conv-format').value);
+            fd.append('resolution',    document.getElementById('batch-conv-resolution').value.trim());
+            fd.append('video_bitrate', document.getElementById('batch-conv-vbitrate').value.trim());
+            fd.append('audio_bitrate', document.getElementById('batch-conv-abitrate').value.trim());
+            try {
+                const res  = await fetch('/batch_convert', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Server error');
+                showToast(`⚙️ Batch convert started for ${data.total} file(s)`, 'info');
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error', 6000);
+            }
+        }
+
+        // ─── Trim ─────────────────────────────────────────────────
+        async function runTrim() {
+            const fn = document.getElementById('trim-file').value;
+            if (!fn) { showToast('Please select a file', 'warning'); return; }
+            const end = document.getElementById('trim-end').value.trim();
+            if (!end) { showToast('End time is required', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filename',   fn);
+            fd.append('start_time', document.getElementById('trim-start').value.trim() || '0');
+            fd.append('end_time',   end);
+            await runJob('/trim', fd,
+                document.getElementById('trim-status'),
+                null,
+                'Trim Video');
+        }
+
+        // ─── Crop ─────────────────────────────────────────────────
+        async function runCrop() {
+            const fn = document.getElementById('crop-file').value;
+            if (!fn) { showToast('Please select a file', 'warning'); return; }
+            const w = document.getElementById('crop-w').value.trim();
+            const h = document.getElementById('crop-h').value.trim();
+            if (!w || !h) { showToast('Width and height are required', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filename', fn);
+            fd.append('width',    w);
+            fd.append('height',   h);
+            fd.append('x',        document.getElementById('crop-x').value || '0');
+            fd.append('y',        document.getElementById('crop-y').value || '0');
+            await runJob('/crop', fd,
+                document.getElementById('crop-status'),
+                null,
+                'Crop Video');
+        }
+
+        // ─── Watermark ────────────────────────────────────────────
+        async function runWatermark() {
+            const fn   = document.getElementById('wm-file').value;
+            const text = document.getElementById('wm-text').value.trim();
+            if (!fn)   { showToast('Please select a file', 'warning'); return; }
+            if (!text) { showToast('Watermark text is required', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filename', fn);
+            fd.append('text',     text);
+            fd.append('position', document.getElementById('wm-position').value);
+            fd.append('fontsize', document.getElementById('wm-fontsize').value);
+            await runJob('/watermark', fd,
+                document.getElementById('wm-status'),
+                null,
+                'Add Watermark');
+        }
+
+        // ─── Merge ────────────────────────────────────────────────
+        async function runMerge() {
+            const checked = [...document.querySelectorAll('#merge-checklist .file-check:checked')]
+                             .map(c => c.value);
+            if (checked.length < 2) { showToast('Select at least 2 files to merge', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filenames', JSON.stringify(checked));
+            fd.append('format',    document.getElementById('merge-format').value);
+            await runJob('/merge', fd,
+                document.getElementById('merge-status'),
+                null,
+                'Merge Videos');
+        }
+
+        // ─── Extract Clip ─────────────────────────────────────────
+        async function runExtractClip() {
+            const fn  = document.getElementById('clip-file').value;
+            const dur = document.getElementById('clip-duration').value;
+            if (!fn) { showToast('Please select a file', 'warning'); return; }
+            const fd = new FormData();
+            fd.append('filename',   fn);
+            fd.append('start_time', document.getElementById('clip-start').value.trim() || '0');
+            fd.append('duration',   dur);
+            await runJob('/extract_clip', fd,
+                document.getElementById('clip-status'),
+                null,
+                'Extract Clip');
+        }
+
+        // ─── Playlist download ────────────────────────────────────
+        async function startPlaylistDownload() {
+            const url = document.getElementById('playlist-url').value.trim();
+            const btn = document.getElementById('playlist-btn');
+            if (!url) { showToast('Playlist URL is required', 'warning'); return; }
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Starting…';
+            try {
+                const fd = new FormData();
+                fd.append('url',    url);
+                fd.append('format', document.getElementById('playlist-format').value);
+                const res  = await fetch('/start_playlist_download', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Failed to start');
+                const id = data.download_id;
+                activeDownloads.set(id, { title: 'Playlist Download', status: 'queued', percent: 0, speed: '', eta: '', size: '' });
+                socket?.emit('subscribe', { download_id: id });
+                renderActiveDownloads();
+                openProgressModal();
+                showToast('▶ Playlist download started', 'info');
+                document.getElementById('playlist-url').value = '';
+                beep(440, 200);
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error', 6000);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Download Playlist';
+            }
+        }
+
+        // ─── Batch URL download ───────────────────────────────────
+        async function startBatchDownload() {
+            const urls = document.getElementById('batch-urls').value.trim();
+            const btn  = document.getElementById('batch-btn');
+            if (!urls) { showToast('Please enter at least one URL', 'warning'); return; }
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Starting…';
+            try {
+                const fd = new FormData();
+                fd.append('urls',   urls);
+                fd.append('format', document.getElementById('batch-format').value);
+                const res  = await fetch('/start_batch_download', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Failed to start');
+                for (const item of (data.started || [])) {
+                    activeDownloads.set(item.download_id, {
+                        title:   item.title || item.url,
+                        status:  'queued',
+                        percent: 0, speed: '', eta: '', size: '',
+                    });
+                    socket?.emit('subscribe', { download_id: item.download_id });
+                }
+                renderActiveDownloads();
+                openProgressModal();
+                showToast(`▶ ${data.total} download(s) started`, 'success');
+                document.getElementById('batch-urls').value = '';
+                beep(440, 200);
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error', 6000);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Start Batch Download';
+            }
+        }
+
+        // ─── Download ZIP ─────────────────────────────────────────
+        async function downloadZip() {
+            const checked = [...document.querySelectorAll('#zip-file-checklist .file-check:checked')]
+                             .map(c => c.value);
+            if (checked.length === 0) { showToast('Select at least one file', 'warning'); return; }
+            try {
+                const fd = new FormData();
+                fd.append('filenames', JSON.stringify(checked));
+                const res = await fetch('/download_zip', { method: 'POST', body: fd });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || 'Failed to create ZIP');
+                }
+                // Trigger browser download
+                const blob = await res.blob();
+                const a    = document.createElement('a');
+                a.href     = URL.createObjectURL(blob);
+                a.download = `downloads_${new Date().toISOString().slice(0,10)}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+                showToast(`✅ ZIP ready for ${checked.length} file(s)`, 'success');
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error', 6000);
+            }
+        }
+
+        // Keep edit selectors in sync when file list changes
+        const _origLoadFiles = loadFiles;
+        loadFiles = async function(animate) {
+            await _origLoadFiles(animate);
+            loadEditFileSelectors();
+        };
     </script>
 </body>
 </html>
