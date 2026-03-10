@@ -218,6 +218,9 @@
         @media (max-width: 900px) {
             .ad-col { display: none !important; }
             .main-grid { grid-template-columns: 1fr !important; }
+            /* Prevent 1fr column from growing beyond viewport width
+               (CSS Grid 1fr items default to min-width: auto) */
+            .main-grid > * { min-width: 0; }
         }
         @media (max-width: 600px) {
             .form-row { grid-template-columns: 1fr; }
@@ -476,7 +479,9 @@
         .ad-placeholder--compact { min-height: 140px; }
 
         /* ── card variant: allow dropdown overflow ── */
-        .card-has-dropdown { overflow: visible; }
+        /* overflow-x: clip prevents horizontal page overflow without creating a
+           scroll context, while overflow-y: visible keeps absolute dropdowns visible */
+        .card-has-dropdown { overflow-x: clip; overflow-y: visible; }
 
         /* ── Main section tab navigation (Download / Playlist / Editing) ── */
         .main-section-header {
@@ -771,19 +776,6 @@
             flex-wrap: wrap;
             gap: 6px;
             margin-bottom: 16px;
-        }
-        .tab-btn {
-            padding: 7px 14px;
-            border-radius: 8px;
-            background: #f1f5f9;
-            color: #475569;
-            font-size: 0.82rem;
-            font-weight: 600;
-            cursor: pointer;
-            border: 1.5px solid transparent;
-            transition: background 0.15s, color 0.15s;
-            min-height: 36px;
-            font-family: inherit;
         }
         .tab-btn:hover { background: #e0e7ff; color: #4f46e5; }
         .tab-btn.active { background: #667eea; color: white; border-color: #667eea; }
@@ -1111,9 +1103,63 @@
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
+            position: relative;
         }
         .tab-nav-scroll::-webkit-scrollbar { display: none; }
         .tab-nav-scroll .tab-nav { flex-wrap: nowrap; min-width: max-content; }
+
+        /* Fade-out gradient on the right to hint that tabs are horizontally scrollable.
+           Uses the same white as .card-body so it blends seamlessly. */
+        .tab-nav-scroll::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: 100%;
+            width: 40px;
+            background: linear-gradient(to right, transparent, rgba(255,255,255,0.92));
+            pointer-events: none;
+        }
+
+        /* ── Video editing & conversion panel — mobile responsive ── */
+        /* Tab buttons: increase touch target on all screens */
+        .tab-btn {
+            padding: 7px 14px;
+            border-radius: 8px;
+            background: #f1f5f9;
+            color: #475569;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1.5px solid transparent;
+            transition: background 0.15s, color 0.15s;
+            min-height: 44px;
+            font-family: inherit;
+        }
+
+        @media (max-width: 600px) {
+            /* Larger tap targets for feature tab buttons */
+            .tab-btn { font-size: 0.8rem; padding: 10px 13px; }
+
+            /* Stack the secondary "Refresh list" button and the primary action
+               button in editing tabs so both span full width on small screens */
+            #editing-panel .tab-pane > .btn-secondary {
+                width: 100%;
+                justify-content: center;
+                margin-bottom: 10px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            /* Tighten card-body padding slightly for very small phones */
+            #editing-panel.card-body { padding: 12px 10px; }
+            /* Give status output boxes a little breathing room */
+            #conv-status, #trim-status, #crop-status,
+            #wm-status, #merge-status, #clip-status {
+                margin-top: 10px;
+                font-size: 0.85rem;
+            }
+        }
 
         /* ── Improved touch target for small buttons ── */
         @media (max-width: 600px) {
