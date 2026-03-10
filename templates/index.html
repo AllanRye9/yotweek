@@ -151,9 +151,17 @@
             transition: background 0.2s;
         }
         .hero-admin-link:hover { background: rgba(255, 255, 255, 0.15); }
+
+        /* Hero layout groups (replaces inline styles for responsive control) */
+        .hero-left  { display: flex; align-items: center; gap: 10px; }
+        .hero-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+        .hero-stats-text { font-size: 0.75rem; color: rgba(255, 255, 255, 0.7); }
+
         @media (max-width: 600px) {
             .hero { padding: 8px 14px; }
             .hero-title { font-size: 1rem; }
+            /* Hide inline stats in hero on mobile — the bottom badge shows them */
+            .hero-stats-text { display: none; }
         }
 
         /* ── Card ── */
@@ -216,10 +224,12 @@
         }
         @media (max-width: 600px) {
             .form-row { grid-template-columns: 1fr; }
-            .stats-badge { width: 52px; height: 52px; font-size: 0.9rem; top: 64px; left: 10px; }
+            /* Move badge below the hero so it doesn't overlap the title */
+            .stats-badge { width: 52px; height: 52px; font-size: 0.9rem; top: auto; bottom: 16px; left: 10px; }
             .stats-badge small { font-size: 0.6rem; }
             .card-body { padding: 14px; }
-            .toast-container { left: 10px; right: 10px; bottom: 10px; }
+            /* Lift toast stack above the stats badge */
+            .toast-container { left: 10px; right: 10px; bottom: 78px; }
             .toast { max-width: 100%; }
         }
         @media (max-width: 480px) {
@@ -434,6 +444,12 @@
         }
 
         /* ── Ad columns ── */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 180px 1fr 180px;
+            gap: 20px;
+            align-items: start;
+        }
         .ad-col {
             display: flex;
             flex-direction: column;
@@ -507,6 +523,8 @@
         }
         @media (max-width: 600px) {
             .main-tab-btn { font-size: 0.75rem; padding: 11px 10px; min-height: 44px; }
+            /* Start tabs from the left so the cut-off right tab hints at scrollability */
+            .main-section-header { justify-content: flex-start; }
         }
 
         /* ── Footer ── */
@@ -1251,7 +1269,7 @@
     </div>
 
     <header class="hero">
-        <div style="display:flex; align-items:center; gap:10px;">
+        <div class="hero-left">
             <div class="hero-icon" aria-hidden="true">
                 <i class="fas fa-download"></i>
             </div>
@@ -1263,8 +1281,8 @@
                 </p>
             </div>
         </div>
-        <div style="display:flex; align-items:center; gap:12px; flex-shrink:0;">
-            <span style="font-size:0.75rem; color:rgba(255,255,255,0.7);">
+        <div class="hero-right">
+            <span class="hero-stats-text">
                 <span id="badge-count-hero">0</span> downloads &bull; <span id="badge-size-hero">0 MB</span>
             </span>
             {% if is_admin %}
@@ -1278,7 +1296,7 @@
     <div class="container">
 
         <!-- 3-column layout: left ad | content | right ad -->
-        <div class="main-grid" style="display:grid; grid-template-columns:180px 1fr 180px; gap:20px; align-items:start;">
+        <div class="main-grid">
 
             <!-- Left ad column -->
             <div class="ad-col">
