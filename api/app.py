@@ -197,22 +197,58 @@ TRACKED_VISITOR_PATHS = {"/const", "/"}
 # =========================================================
 
 _ISO2_TO_NAME: dict[str, str] = {
-    "US": "United States", "GB": "United Kingdom", "DE": "Germany",
-    "FR": "France", "IN": "India", "CN": "China", "RU": "Russia",
-    "CA": "Canada", "AU": "Australia", "BR": "Brazil", "JP": "Japan",
-    "KR": "South Korea", "NL": "Netherlands", "SE": "Sweden",
-    "NO": "Norway", "PL": "Poland", "IT": "Italy", "ES": "Spain",
-    "MX": "Mexico", "ZA": "South Africa", "NG": "Nigeria",
-    "KE": "Kenya", "GH": "Ghana", "EG": "Egypt", "PK": "Pakistan",
-    "ID": "Indonesia", "TH": "Thailand", "VN": "Vietnam",
-    "PH": "Philippines", "TR": "Turkey", "AR": "Argentina",
-    "CO": "Colombia", "CL": "Chile", "PE": "Peru",
-    "UA": "Ukraine", "BE": "Belgium", "CH": "Switzerland",
-    "AT": "Austria", "PT": "Portugal", "FI": "Finland",
-    "DK": "Denmark", "CZ": "Czech Republic", "RO": "Romania",
-    "HU": "Hungary", "SG": "Singapore", "MY": "Malaysia",
-    "NZ": "New Zealand", "IR": "Iran", "SA": "Saudi Arabia",
-    "AE": "United Arab Emirates", "IL": "Israel",
+    "AF": "Afghanistan", "AL": "Albania", "DZ": "Algeria", "AD": "Andorra",
+    "AO": "Angola", "AG": "Antigua and Barbuda", "AR": "Argentina",
+    "AM": "Armenia", "AU": "Australia", "AT": "Austria", "AZ": "Azerbaijan",
+    "BS": "Bahamas", "BH": "Bahrain", "BD": "Bangladesh", "BB": "Barbados",
+    "BY": "Belarus", "BE": "Belgium", "BZ": "Belize", "BJ": "Benin",
+    "BT": "Bhutan", "BO": "Bolivia", "BA": "Bosnia and Herzegovina",
+    "BW": "Botswana", "BR": "Brazil", "BN": "Brunei", "BG": "Bulgaria",
+    "BF": "Burkina Faso", "BI": "Burundi", "CV": "Cabo Verde",
+    "KH": "Cambodia", "CM": "Cameroon", "CA": "Canada", "CF": "Central African Republic",
+    "TD": "Chad", "CL": "Chile", "CN": "China", "CO": "Colombia",
+    "KM": "Comoros", "CG": "Congo", "CD": "DR Congo", "CR": "Costa Rica",
+    "CI": "Ivory Coast", "HR": "Croatia", "CU": "Cuba", "CY": "Cyprus",
+    "CZ": "Czech Republic", "DK": "Denmark", "DJ": "Djibouti", "DM": "Dominica",
+    "DO": "Dominican Republic", "EC": "Ecuador", "EG": "Egypt",
+    "SV": "El Salvador", "GQ": "Equatorial Guinea", "ER": "Eritrea",
+    "EE": "Estonia", "SZ": "Eswatini", "ET": "Ethiopia", "FJ": "Fiji",
+    "FI": "Finland", "FR": "France", "GA": "Gabon", "GM": "Gambia",
+    "GE": "Georgia", "DE": "Germany", "GH": "Ghana", "GR": "Greece",
+    "GD": "Grenada", "GT": "Guatemala", "GN": "Guinea", "GW": "Guinea-Bissau",
+    "GY": "Guyana", "HT": "Haiti", "HN": "Honduras", "HK": "Hong Kong",
+    "HU": "Hungary", "IS": "Iceland", "IN": "India", "ID": "Indonesia",
+    "IR": "Iran", "IQ": "Iraq", "IE": "Ireland", "IL": "Israel",
+    "IT": "Italy", "JM": "Jamaica", "JP": "Japan", "JO": "Jordan",
+    "KZ": "Kazakhstan", "KE": "Kenya", "KI": "Kiribati", "KP": "North Korea",
+    "KR": "South Korea", "KW": "Kuwait", "KG": "Kyrgyzstan", "LA": "Laos",
+    "LV": "Latvia", "LB": "Lebanon", "LS": "Lesotho", "LR": "Liberia",
+    "LY": "Libya", "LI": "Liechtenstein", "LT": "Lithuania", "LU": "Luxembourg",
+    "MO": "Macao", "MG": "Madagascar", "MW": "Malawi", "MY": "Malaysia",
+    "MV": "Maldives", "ML": "Mali", "MT": "Malta", "MH": "Marshall Islands",
+    "MR": "Mauritania", "MU": "Mauritius", "MX": "Mexico", "FM": "Micronesia",
+    "MD": "Moldova", "MC": "Monaco", "MN": "Mongolia", "ME": "Montenegro",
+    "MA": "Morocco", "MZ": "Mozambique", "MM": "Myanmar", "NA": "Namibia",
+    "NR": "Nauru", "NP": "Nepal", "NL": "Netherlands", "NZ": "New Zealand",
+    "NI": "Nicaragua", "NE": "Niger", "NG": "Nigeria", "MK": "North Macedonia",
+    "NO": "Norway", "OM": "Oman", "PK": "Pakistan", "PW": "Palau",
+    "PS": "Palestine", "PA": "Panama", "PG": "Papua New Guinea", "PY": "Paraguay",
+    "PE": "Peru", "PH": "Philippines", "PL": "Poland", "PT": "Portugal",
+    "PR": "Puerto Rico", "QA": "Qatar", "RO": "Romania", "RU": "Russia",
+    "RW": "Rwanda", "KN": "Saint Kitts and Nevis", "LC": "Saint Lucia",
+    "VC": "Saint Vincent and the Grenadines", "WS": "Samoa",
+    "SM": "San Marino", "ST": "Sao Tome and Principe", "SA": "Saudi Arabia",
+    "SN": "Senegal", "RS": "Serbia", "SC": "Seychelles", "SL": "Sierra Leone",
+    "SG": "Singapore", "SK": "Slovakia", "SI": "Slovenia", "SB": "Solomon Islands",
+    "SO": "Somalia", "ZA": "South Africa", "SS": "South Sudan", "ES": "Spain",
+    "LK": "Sri Lanka", "SD": "Sudan", "SR": "Suriname", "SE": "Sweden",
+    "CH": "Switzerland", "SY": "Syria", "TW": "Taiwan", "TJ": "Tajikistan",
+    "TZ": "Tanzania", "TH": "Thailand", "TL": "Timor-Leste", "TG": "Togo",
+    "TO": "Tonga", "TT": "Trinidad and Tobago", "TN": "Tunisia", "TR": "Turkey",
+    "TM": "Turkmenistan", "TV": "Tuvalu", "UG": "Uganda", "UA": "Ukraine",
+    "AE": "United Arab Emirates", "GB": "United Kingdom", "US": "United States",
+    "UY": "Uruguay", "UZ": "Uzbekistan", "VU": "Vanuatu", "VE": "Venezuela",
+    "VN": "Vietnam", "YE": "Yemen", "ZM": "Zambia", "ZW": "Zimbabwe",
 }
 
 # =========================================================
@@ -529,7 +565,48 @@ def _is_private_ip(ip: str) -> bool:
         return False
 
 
-def _lookup_country_async(ip: str):
+# ── Accept-Language → country heuristic ──────────────────────────────────
+# Maps common primary language codes to their most likely country ISO-2 code.
+# Used only as a last-resort fallback when all geo-IP services fail.
+_LANG_TO_COUNTRY: dict[str, str] = {
+    "en": "US", "zh": "CN", "hi": "IN", "es": "ES", "fr": "FR",
+    "ar": "SA", "bn": "BD", "pt": "BR", "ru": "RU", "ja": "JP",
+    "de": "DE", "ko": "KR", "vi": "VN", "it": "IT", "tr": "TR",
+    "pl": "PL", "uk": "UA", "nl": "NL", "th": "TH", "id": "ID",
+    "sv": "SE", "da": "DK", "fi": "FI", "nb": "NO", "no": "NO",
+    "cs": "CZ", "ro": "RO", "hu": "HU", "el": "GR", "he": "IL",
+    "ms": "MY", "tl": "PH", "sw": "KE", "fa": "IR",
+}
+
+
+def _country_from_accept_language(accept_lang: str) -> tuple[str, str]:
+    """Best-effort country guess from an Accept-Language header value.
+
+    Returns (country_name, iso2_code) or ("", "") when no guess can be made.
+    Handles formats like "en-US,en;q=0.9" – tries region subtag first, then
+    falls back to the primary language code.
+    """
+    if not accept_lang:
+        return "", ""
+    # Parse the first (highest-priority) language tag
+    first = accept_lang.split(",")[0].split(";")[0].strip()
+    parts = first.replace("_", "-").split("-")
+    # Check for explicit region subtag (e.g. "en-GB", "pt-BR")
+    if len(parts) >= 2:
+        region = parts[1].upper()
+        if len(region) == 2 and region.isalpha():
+            name = _ISO2_TO_NAME.get(region)
+            if name:
+                return name, region
+    # Fall back to primary language code
+    lang = parts[0].lower()
+    code = _LANG_TO_COUNTRY.get(lang, "")
+    if code:
+        return _ISO2_TO_NAME.get(code, code), code
+    return "", ""
+
+
+def _lookup_country_async(ip: str, accept_language: str = ""):
     """Resolve an IP to its country using multiple geo-IP services (fallback chain)."""
     if ip in ip_country_cache:
         return
@@ -590,6 +667,42 @@ def _lookup_country_async(ip: str):
                 code = data.get("country_code", "")
         except Exception:
             pass
+
+    # --- Service 4: ipapi.co (third fallback) ---
+    if country == "Unknown":
+        try:
+            req = urllib.request.Request(
+                f"https://ipapi.co/{ip}/json/",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            if data.get("country_name") and not data.get("error"):
+                country = data["country_name"]
+                code = data.get("country_code", "").upper()
+        except Exception:
+            pass
+
+    # --- Service 5: api.country.is (lightweight, returns ISO code only) ---
+    if country == "Unknown":
+        try:
+            with urllib.request.urlopen(
+                f"https://api.country.is/{ip}", timeout=5
+            ) as resp:
+                data = json.loads(resp.read())
+            iso = (data.get("country") or "").upper()
+            if iso and len(iso) == 2:
+                code = iso
+                country = _ISO2_TO_NAME.get(code, code)
+        except Exception:
+            pass
+
+    # --- Last resort: Accept-Language header heuristic ---
+    if country == "Unknown" and accept_language:
+        lang_country, lang_code = _country_from_accept_language(accept_language)
+        if lang_country:
+            country = lang_country
+            code = lang_code
 
     ip_country_cache[ip] = {"country": country, "code": code}
     # Back-fill any visitor records that are waiting for this IP's country
@@ -1206,8 +1319,9 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
         }
     # Resolve the requester's country in background if not already cached
     if ip not in ip_country_cache:
+        accept_lang = request.headers.get("accept-language", "")
         threading.Thread(
-            target=_lookup_country_async, args=(ip,), daemon=True
+            target=_lookup_country_async, args=(ip, accept_lang), daemon=True
         ).start()
 
     # Start download thread
@@ -1541,8 +1655,9 @@ async def track_admin_visitor(request: Request, call_next):
         visitors.append(visitor_entry)
     # Resolve country in the background if not cached yet
     if ip not in ip_country_cache:
+        accept_lang = request.headers.get("accept-language", "")
         threading.Thread(
-            target=_lookup_country_async, args=(ip,), daemon=True
+            target=_lookup_country_async, args=(ip, accept_lang), daemon=True
         ).start()
     # Debounced save to avoid a thread-per-visit under high traffic
     _schedule_visitor_save()
@@ -2568,7 +2683,8 @@ async def start_playlist_download(
 
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
     if ip not in ip_country_cache:
-        threading.Thread(target=_lookup_country_async, args=(ip,), daemon=True).start()
+        accept_lang = request.headers.get("accept-language", "")
+        threading.Thread(target=_lookup_country_async, args=(ip, accept_lang), daemon=True).start()
 
     return JSONResponse({"download_id": batch_id, "title": "Playlist Download", "status": "queued"})
 
@@ -2650,7 +2766,8 @@ async def start_batch_download(
 
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
     if ip not in ip_country_cache:
-        threading.Thread(target=_lookup_country_async, args=(ip,), daemon=True).start()
+        accept_lang = request.headers.get("accept-language", "")
+        threading.Thread(target=_lookup_country_async, args=(ip, accept_lang), daemon=True).start()
 
     return JSONResponse({"started": started, "total": len(started)})
 
