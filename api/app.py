@@ -678,6 +678,30 @@ def _get_cookie_opts() -> dict:
         return {"cookiefile": COOKIES_FILE}
     return {}
 
+def _friendly_cookie_error(error_msg: str) -> str:
+    """Return a user-friendly message when YouTube bot-detection triggers.
+
+    Detects the ``Sign in to confirm you're not a bot`` error emitted by
+    yt-dlp and replaces it with actionable guidance so the user knows they
+    need to upload a cookies file via the admin panel.
+    """
+    lower = error_msg.lower()
+    if "sign in to confirm" in lower or "confirm you're not a bot" in lower:
+        if os.path.isfile(COOKIES_FILE):
+            return (
+                "YouTube bot detection triggered. Your cookies file may be "
+                "expired or invalid. Please upload a fresh cookies.txt file "
+                "via the Admin panel (Admin → Cookies)."
+            )
+        return (
+            "YouTube requires authentication. Please upload a cookies.txt "
+            "file via the Admin panel (Admin → Cookies) to bypass bot "
+            "detection. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ"
+            "#how-do-i-pass-cookies-to-yt-dlp for how to export cookies."
+        )
+    return error_msg
+
+
 def format_speed(bytes_per_sec) -> str:
     """Format bytes/s to a human-readable speed string"""
     if bytes_per_sec is None or bytes_per_sec <= 0:
@@ -766,10 +790,10 @@ def get_video_info(url: str) -> dict:
             ]
         }
     except yt_dlp.utils.DownloadError as e:
-        error_msg = str(e)
+        error_msg = _friendly_cookie_error(str(e))
         return {"error": error_msg}
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": _friendly_cookie_error(str(e))}
 
 # =========================================================
 # DOWNLOAD WORKER
@@ -872,7 +896,7 @@ def download_worker(download_id, url, output_template, format_spec):
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
-        error_msg = str(e)
+        error_msg = _friendly_cookie_error(str(e))
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
@@ -887,15 +911,16 @@ def download_worker(download_id, url, output_template, format_spec):
 
     except Exception as e:
         logger.error(f"Download worker error: {e}")
+        error_msg = _friendly_cookie_error(str(e))
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
-                "error": str(e),
+                "error": error_msg,
                 "end_time": time.time(),
             })
         emit_from_thread("failed", {
             "id": download_id,
-            "error": str(e)
+            "error": error_msg
         }, room=download_id)
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
@@ -2398,13 +2423,14 @@ async def start_playlist_download(
 
         except Exception as exc:
             logger.error("Playlist download error: %s", exc)
+            error_msg = _friendly_cookie_error(str(exc))
             with downloads_lock:
                 downloads[batch_id].update({
                     "status":   "failed",
-                    "error":    str(exc),
+                    "error":    error_msg,
                     "end_time": time.time(),
                 })
-            emit_from_thread("failed", {"id": batch_id, "error": str(exc)}, room=batch_id)
+            emit_from_thread("failed", {"id": batch_id, "error": error_msg}, room=batch_id)
             threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
         finally:
