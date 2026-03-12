@@ -2612,11 +2612,14 @@
             if (isAudioFile(filename)) {
                 video.style.display = 'none';
                 audio.style.display = 'block';
+                audio.muted = false;
                 audio.src = streamUrl;
                 audio.load();
             } else {
                 video.style.display = 'block';
                 audio.style.display = 'none';
+                // Ensure audio is never muted when the player opens
+                video.muted = false;
                 video.src = streamUrl;
                 video.load();
             }

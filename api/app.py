@@ -1133,6 +1133,16 @@ def download_file(filename):
         logger.error(f"Download error: {e}")
         return jsonify({"error": "File not found"}), 404
 
+# MIME types that Python's mimetypes module maps incorrectly or leaves absent,
+# causing browsers to refuse to decode the audio track inside video files.
+_MIME_OVERRIDES = {
+    ".ts":   "video/mp2t",    # Python maps .ts → text/vnd.trolltech.linguist
+    ".weba": "audio/webm",    # Python has no mapping for .weba
+    ".opus": "audio/opus",    # Python maps .opus → audio/ogg (imprecise)
+    ".3gp":  "video/3gpp",    # Python maps .3gp → audio/3gpp (wrong for video)
+    ".3g2":  "video/3gpp2",   # Python maps .3g2 → audio/3gpp2 (wrong for video)
+}
+
 @app.route("/stream/<path:filename>")
 def stream_file(filename):
     """Serve a downloaded file inline for in-browser preview.
@@ -1142,6 +1152,10 @@ def stream_file(filename):
     can play it directly in a <video>/<audio> element.  Werkzeug's
     send_from_directory supports HTTP range requests out-of-the-box, which is
     required by iOS Safari for media playback.
+
+    Explicit MIME type overrides are applied for extensions that Python's
+    mimetypes module maps incorrectly (e.g. .ts → text/vnd.trolltech.linguist),
+    which would otherwise prevent the browser from decoding the audio track.
     """
     try:
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
@@ -1149,10 +1163,12 @@ def stream_file(filename):
             return jsonify({"error": "Invalid filename"}), 400
         if not os.path.isfile(filepath):
             return jsonify({"error": "File not found"}), 404
+        ext = os.path.splitext(filename)[1].lower()
         return send_from_directory(
             DOWNLOAD_FOLDER,
             filename,
             as_attachment=False,
+            mimetype=_MIME_OVERRIDES.get(ext),
         )
     except Exception as e:
         logger.error(f"Stream error: {e}")
