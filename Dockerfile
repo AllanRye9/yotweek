@@ -23,4 +23,4 @@ ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 EXPOSE 5000
 
-CMD ["sh", "-c", "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:$PORT api.app:app"]
+CMD ["sh", "-c", "uvicorn api.app:app --host 0.0.0.0 --port $PORT --workers 1"]

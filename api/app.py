@@ -12,25 +12,21 @@ import logging
 import sqlite3
 import zipfile
 import ipaddress
+import asyncio
+import mimetypes
 import certifi
 import yt_dlp
 from pathlib import Path
 from datetime import datetime, timedelta
 from functools import wraps
 
-from flask import (
-    Flask,
-    render_template,
-    request,
-    jsonify,
-    send_from_directory,
-    url_for,
-    session,
-    redirect,
-)
-from flask_socketio import SocketIO, emit, join_room
-from flask_cors import CORS
-from werkzeug.middleware.proxy_fix import ProxyFix
+import socketio as socketio_pkg
+from fastapi import FastAPI, Request, Form, UploadFile, File, HTTPException
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse, Response
+from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
+from starlette.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from werkzeug.security import generate_password_hash, check_password_hash
 
 # =========================================================
@@ -89,38 +85,69 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =========================================================
-# FLASK APP INITIALIZATION
+# FASTAPI APP INITIALIZATION
 # =========================================================
 
-app = Flask(__name__, 
-            template_folder=TEMPLATES_DIR,
-            static_folder=STATIC_DIR,
-            static_url_path='/static')
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
 
-app.config.from_object(Config)
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
+# Event loop reference for thread-safe Socket.IO emits
+_loop: asyncio.AbstractEventLoop | None = None
 
-# Enable CORS with production settings
-CORS(app, resources={
-    r"/*": {
-        "origins": os.environ.get("ALLOWED_ORIGINS", "*").split(","),
-        "methods": ["GET", "POST", "DELETE", "OPTIONS"],
-        "allow_headers": ["Content-Type"]
-    }
-})
+from contextlib import asynccontextmanager
 
-# Socket.IO with production settings
-socketio = SocketIO(
-    app,
-    cors_allowed_origins=os.environ.get("ALLOWED_ORIGINS", "*").split(","),
-    async_mode='eventlet',
+@asynccontextmanager
+async def lifespan(application):
+    global _loop
+    _loop = asyncio.get_running_loop()
+    yield
+
+fastapi_app = FastAPI(lifespan=lifespan)
+
+# Session middleware (replaces Flask's built-in session)
+fastapi_app.add_middleware(SessionMiddleware, secret_key=Config.SECRET_KEY)
+
+# CORS middleware (replaces Flask-CORS)
+fastapi_app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_allowed_origins,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
+# Jinja2 template rendering
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+# Mount static files
+from starlette.staticfiles import StaticFiles
+if os.path.isdir(STATIC_DIR):
+    fastapi_app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Socket.IO with ASGI mode
+sio = socketio_pkg.AsyncServer(
+    async_mode="asgi",
+    cors_allowed_origins=_allowed_origins,
     logger=True if os.environ.get("FLASK_DEBUG") else False,
     engineio_logger=True if os.environ.get("FLASK_DEBUG") else False,
     ping_timeout=60,
     ping_interval=25,
-    max_http_buffer_size=1e8,
-    manage_session=False
+    max_http_buffer_size=int(1e8),
 )
+
+# The top-level ASGI app: Socket.IO wrapping FastAPI
+app = socketio_pkg.ASGIApp(sio, other_asgi_app=fastapi_app)
+
+
+def emit_from_thread(event, data=None, room=None):
+    """Thread-safe wrapper to emit Socket.IO events from background threads."""
+    if _loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(
+            sio.emit(event, data, room=room),
+            _loop,
+        )
+    except Exception as e:
+        logger.error(f"emit_from_thread error: {e}")
 
 # =========================================================
 # GLOBAL STATE WITH THREAD SAFETY
@@ -521,21 +548,26 @@ def _get_country_from_headers(req) -> tuple[str, str]:
 # =========================================================
 
 def rate_limit(max_per_ip=Config.MAX_DOWNLOADS_PER_IP):
-    """Rate limiting decorator"""
+    """Rate limiting decorator for FastAPI endpoints.
+
+    The decorated function must accept ``request: Request`` as its first
+    positional or keyword argument so that the IP address can be extracted.
+    """
     def decorator(f):
         @wraps(f)
-        def wrapped(*args, **kwargs):
-            ip = request.remote_addr
+        async def wrapped(*args, request: Request, **kwargs):
+            ip = request.client.host if request.client else "unknown"
             with downloads_lock:
                 count = ip_download_count.get(ip, 0)
                 if count >= max_per_ip:
-                    return jsonify({
-                        "error": f"Rate limit exceeded. Maximum {max_per_ip} concurrent downloads per IP."
-                    }), 429
+                    return JSONResponse(
+                        {"error": f"Rate limit exceeded. Maximum {max_per_ip} concurrent downloads per IP."},
+                        status_code=429,
+                    )
                 ip_download_count[ip] = count + 1
-            
+
             try:
-                return f(*args, **kwargs)
+                return await f(*args, request=request, **kwargs)
             finally:
                 with downloads_lock:
                     ip_download_count[ip] = ip_download_count.get(ip, 1) - 1
@@ -549,24 +581,22 @@ def rate_limit(max_per_ip=Config.MAX_DOWNLOADS_PER_IP):
 # =========================================================
 
 def admin_required(f):
-    """Decorator that requires admin login for the wrapped view."""
+    """Decorator that requires admin login for the wrapped view.
+
+    The decorated function must accept ``request: Request`` so that the
+    session and accept headers can be inspected.
+    """
     @wraps(f)
-    def wrapped(*args, **kwargs):
-        if not session.get("admin_logged_in"):
-            # Non-GET requests (DELETE, POST, PUT, PATCH) are always API calls —
-            # return JSON 401 so the client can handle the error without receiving HTML.
+    async def wrapped(*args, request: Request, **kwargs):
+        if not request.session.get("admin_logged_in"):
             if request.method != "GET":
-                return jsonify({"error": "Authentication required"}), 401
-            # Detect API vs browser requests: if the client prefers JSON (e.g. fetch())
-            # or explicitly requests it, return a JSON 401; otherwise redirect to login.
-            best = request.accept_mimetypes.best_match(
-                ["application/json", "text/html"],
-                default="text/html",
-            )
-            if best == "application/json":
-                return jsonify({"error": "Authentication required"}), 401
-            return redirect(url_for("admin_login", next=request.url))
-        return f(*args, **kwargs)
+                return JSONResponse({"error": "Authentication required"}, status_code=401)
+            accept = request.headers.get("accept", "text/html")
+            if "application/json" in accept and "text/html" not in accept:
+                return JSONResponse({"error": "Authentication required"}, status_code=401)
+            login_url = "/admin/login?next=" + str(request.url)
+            return RedirectResponse(url=login_url, status_code=302)
+        return await f(*args, request=request, **kwargs)
     return wrapped
 
 
@@ -751,7 +781,7 @@ def download_worker(download_id, url, output_template, format_spec):
             })
 
         try:
-            socketio.emit(
+            emit_from_thread(
                 "progress",
                 {
                     "id": download_id,
@@ -815,12 +845,12 @@ def download_worker(download_id, url, output_template, format_spec):
                     })
                     break
 
-        socketio.emit("completed", {
+        emit_from_thread("completed", {
             "id": download_id,
             "filename": downloads[download_id].get("filename"),
             "title": downloads[download_id].get("title")
         }, room=download_id)
-        socketio.emit("files_updated")
+        emit_from_thread("files_updated")
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
@@ -831,7 +861,7 @@ def download_worker(download_id, url, output_template, format_spec):
                 "error": error_msg,
                 "end_time": time.time(),
             })
-        socketio.emit("failed", {
+        emit_from_thread("failed", {
             "id": download_id,
             "error": error_msg
         }, room=download_id)
@@ -845,7 +875,7 @@ def download_worker(download_id, url, output_template, format_spec):
                 "error": str(e),
                 "end_time": time.time(),
             })
-        socketio.emit("failed", {
+        emit_from_thread("failed", {
             "id": download_id,
             "error": str(e)
         }, room=download_id)
@@ -874,16 +904,16 @@ _VALID_TIME_RE = re.compile(r"^\d+(\.\d+)?$|^\d+:\d{1,2}(\.\d+)?$|^\d+:\d{2}:\d{
 def _resolve_download_file(filename: str):
     """Validate that *filename* refers to a real file inside DOWNLOAD_FOLDER.
 
-    Returns ``(abs_path, None)`` on success or ``(None, error_response)`` on
+    Returns ``(abs_path, None)`` on success or ``(None, JSONResponse)`` on
     failure so callers can simply ``return err`` when it is set.
     """
     if not filename:
-        return None, (jsonify({"error": "filename is required"}), 400)
+        return None, JSONResponse({"error": "filename is required"}, status_code=400)
     filepath = os.path.join(DOWNLOAD_FOLDER, filename)
     if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
-        return None, (jsonify({"error": "Invalid filename"}), 400)
+        return None, JSONResponse({"error": "Invalid filename"}, status_code=400)
     if not os.path.isfile(filepath):
-        return None, (jsonify({"error": "File not found"}), 404)
+        return None, JSONResponse({"error": "File not found"}, status_code=404)
     return filepath, None
 
 
@@ -928,7 +958,7 @@ def _start_ffmpeg_job(
                 err = (result.stderr or "ffmpeg returned a non-zero exit code")[-800:]
                 with conversions_lock:
                     conversions[job_id].update({"status": "failed", "error": err})
-                socketio.emit(event + "_failed", {"id": job_id, "error": err})
+                emit_from_thread(event + "_failed", {"id": job_id, "error": err})
                 logger.error("ffmpeg [%s]: %s", job_id, err)
             else:
                 with conversions_lock:
@@ -936,19 +966,19 @@ def _start_ffmpeg_job(
                         "status": "completed",
                         "filename": output_filename,
                     })
-                socketio.emit(event, {"id": job_id, "filename": output_filename})
-                socketio.emit("files_updated")
+                emit_from_thread(event, {"id": job_id, "filename": output_filename})
+                emit_from_thread("files_updated")
         except subprocess.TimeoutExpired:
             err = "ffmpeg timed out (1-hour limit exceeded)"
             with conversions_lock:
                 conversions[job_id].update({"status": "failed", "error": err})
-            socketio.emit(event + "_failed", {"id": job_id, "error": err})
+            emit_from_thread(event + "_failed", {"id": job_id, "error": err})
         except Exception as exc:
             err = str(exc)
             logger.error("ffmpeg worker exception [%s]: %s", job_id, exc)
             with conversions_lock:
                 conversions[job_id].update({"status": "failed", "error": err})
-            socketio.emit(event + "_failed", {"id": job_id, "error": err})
+            emit_from_thread(event + "_failed", {"id": job_id, "error": err})
         finally:
             if cleanup:
                 try:
@@ -963,54 +993,56 @@ def _start_ffmpeg_job(
 # ROUTES
 # =========================================================
 
-@app.route("/")
-def index():
+@fastapi_app.get("/")
+async def index(request: Request):
     """Main page"""
     try:
-        return render_template("index.html", is_admin=bool(session.get("admin_logged_in")))
+        return templates.TemplateResponse(
+            "index.html",
+            {"request": request, "is_admin": bool(request.session.get("admin_logged_in"))},
+        )
     except Exception as e:
         logger.error(f"Template error: {e}")
-        return jsonify({"error": "Template not found"}), 500
+        return JSONResponse({"error": "Template not found"}, status_code=500)
 
-@app.route("/ads.txt")
-def ads_txt():
+@fastapi_app.get("/ads.txt")
+async def ads_txt():
     """Serve ads.txt for Google AdSense verification"""
     ads_txt_path = os.path.join(ROOT_DIR, "ads.txt")
     if os.path.exists(ads_txt_path):
-        return send_from_directory(ROOT_DIR, "ads.txt", mimetype="text/plain")
+        return FileResponse(ads_txt_path, media_type="text/plain")
     logger.warning("ads.txt file not found at %s", ads_txt_path)
-    return jsonify({"error": "ads.txt not found"}), 404
+    return JSONResponse({"error": "ads.txt not found"}, status_code=404)
 
-@app.route("/health")
-def health():
+@fastapi_app.get("/health")
+async def health():
     """Health check endpoint"""
-    return jsonify({
+    return JSONResponse({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "1.0.0"
     })
 
-@app.route("/start_download", methods=["POST"])
+@fastapi_app.post("/start_download")
 @rate_limit()
-def start_download():
+async def start_download(request: Request, url: str = Form(None), format: str = Form("best")):
     """Start a download with better error feedback"""
-    url = request.form.get("url")
-    format_spec = request.form.get("format", "best")
-    
+    format_spec = format
+
     if not url:
-        return jsonify({"error": "URL is required"}), 400
-    
+        return JSONResponse({"error": "URL is required"}, status_code=400)
+
     # Check concurrent downloads
     with downloads_lock:
-        active_count = sum(1 for d in downloads.values() 
+        active_count = sum(1 for d in downloads.values()
                           if d["status"] in ("queued", "downloading"))
         if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
-            return jsonify({
+            return JSONResponse({
                 "error": f"Maximum concurrent downloads reached ({Config.MAX_CONCURRENT_DOWNLOADS})"
-            }), 429
-    
+            }, status_code=429)
+
     download_id = str(uuid.uuid4())
-    
+
     # Get video info (may contain error, but we still allow download attempt)
     info = get_video_info(url)
     if info and "error" not in info:
@@ -1019,12 +1051,12 @@ def start_download():
         title = f"video_{download_id[:8]}"
         if info and "error" in info:
             logger.warning(f"Info error for {url}: {info['error']}")
-    
+
     safe_title = safe_filename(title)
     output_template = os.path.join(DOWNLOAD_FOLDER, f"{safe_title}.%(ext)s")
-    
+
     # Store download info
-    ip = request.remote_addr
+    ip = request.client.host if request.client else "unknown"
     # Try CDN/proxy headers first for country
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
@@ -1054,7 +1086,7 @@ def start_download():
         threading.Thread(
             target=_lookup_country_async, args=(ip,), daemon=True
         ).start()
-    
+
     # Start download thread
     thread = threading.Thread(
         target=download_worker,
@@ -1062,25 +1094,24 @@ def start_download():
         daemon=True,
     )
     thread.start()
-    
+
     with downloads_lock:
         active_threads[download_id] = thread
 
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
-    return jsonify({
+    return JSONResponse({
         "download_id": download_id,
         "title": title,
         "status": "queued",
         "warning": info.get("error") if info and "error" in info else None
     })
 
-@app.route("/status/<download_id>")
-def get_status(download_id):
+@fastapi_app.get("/status/{download_id}")
+async def get_status(download_id: str):
     """Get download status"""
     with downloads_lock:
         download = downloads.get(download_id, {})
-        # Don't send internal data
         safe_download = {
             "id": download.get("id"),
             "title": download.get("title"),
@@ -1093,10 +1124,10 @@ def get_status(download_id):
             "file_size_hr": download.get("file_size_hr"),
             "error": download.get("error")
         }
-    return jsonify(safe_download)
+    return JSONResponse(safe_download)
 
-@app.route("/files")
-def list_files():
+@fastapi_app.get("/files")
+async def list_files(request: Request):
     """List downloaded files"""
     files = []
     try:
@@ -1110,28 +1141,32 @@ def list_files():
                     "size_hr": format_size(stat.st_size),
                     "modified": stat.st_mtime,
                     "modified_str": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
-                    "url": url_for('download_file', filename=name, _external=True)
+                    "url": str(request.url_for('download_file', filename=name))
                 })
         files.sort(key=lambda f: f["modified"], reverse=True)
     except Exception as e:
         logger.error(f"Error listing files: {e}")
-        return jsonify({"error": "Failed to list files"}), 500
-    
-    return jsonify(files)
+        return JSONResponse({"error": "Failed to list files"}, status_code=500)
 
-@app.route("/downloads/<path:filename>")
-def download_file(filename):
+    return JSONResponse(files)
+
+@fastapi_app.get("/downloads/{filename:path}", name="download_file")
+async def download_file(filename: str):
     """Serve downloaded file"""
     try:
-        return send_from_directory(
-            DOWNLOAD_FOLDER, 
-            filename, 
-            as_attachment=True,
-            download_name=filename
+        filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+        if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
+            return JSONResponse({"error": "Invalid filename"}, status_code=400)
+        if not os.path.isfile(filepath):
+            return JSONResponse({"error": "File not found"}, status_code=404)
+        return FileResponse(
+            filepath,
+            filename=filename,
+            media_type="application/octet-stream",
         )
     except Exception as e:
         logger.error(f"Download error: {e}")
-        return jsonify({"error": "File not found"}), 404
+        return JSONResponse({"error": "File not found"}, status_code=404)
 
 # MIME types that Python's mimetypes module maps incorrectly or leaves absent,
 # causing browsers to refuse to decode the audio track inside video files.
@@ -1143,15 +1178,13 @@ _MIME_OVERRIDES = {
     ".3g2":  "video/3gpp2",   # Python maps .3g2 → audio/3gpp2 (wrong for video)
 }
 
-@app.route("/stream/<path:filename>")
-def stream_file(filename):
+@fastapi_app.get("/stream/{filename:path}")
+async def stream_file(filename: str):
     """Serve a downloaded file inline for in-browser preview.
 
     Differs from /downloads/ in that the file is served without the
     Content-Disposition: attachment header, so browsers (including iOS Safari)
-    can play it directly in a <video>/<audio> element.  Werkzeug's
-    send_from_directory supports HTTP range requests out-of-the-box, which is
-    required by iOS Safari for media playback.
+    can play it directly in a <video>/<audio> element.
 
     Explicit MIME type overrides are applied for extensions that Python's
     mimetypes module maps incorrectly (e.g. .ts → text/vnd.trolltech.linguist),
@@ -1160,45 +1193,45 @@ def stream_file(filename):
     try:
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
         if not os.path.realpath(filepath).startswith(os.path.realpath(DOWNLOAD_FOLDER)):
-            return jsonify({"error": "Invalid filename"}), 400
+            return JSONResponse({"error": "Invalid filename"}, status_code=400)
         if not os.path.isfile(filepath):
-            return jsonify({"error": "File not found"}), 404
+            return JSONResponse({"error": "File not found"}, status_code=404)
         ext = os.path.splitext(filename)[1].lower()
-        return send_from_directory(
-            DOWNLOAD_FOLDER,
-            filename,
-            as_attachment=False,
-            mimetype=_MIME_OVERRIDES.get(ext),
+        media_type = _MIME_OVERRIDES.get(ext) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        return FileResponse(
+            filepath,
+            media_type=media_type,
+            content_disposition_type="inline",
         )
     except Exception as e:
         logger.error(f"Stream error: {e}")
-        return jsonify({"error": "File not found"}), 404
+        return JSONResponse({"error": "File not found"}, status_code=404)
 
 
-@app.route("/delete/<path:filename>", methods=["DELETE"])
-def delete_file(filename):
+@fastapi_app.delete("/delete/{filename:path}")
+async def delete_file(filename: str):
     """Delete a downloaded file"""
     try:
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
-        
+
         # Security check
         if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
-            return jsonify({"error": "Invalid filename"}), 400
-        
+            return JSONResponse({"error": "Invalid filename"}, status_code=400)
+
         if os.path.exists(filepath) and os.path.isfile(filepath):
             os.remove(filepath)
-            socketio.emit("files_updated")
+            emit_from_thread("files_updated")
             logger.info(f"Deleted file: {filename}")
-            return jsonify({"success": True})
+            return JSONResponse({"success": True})
         else:
-            return jsonify({"error": "File not found"}), 404
+            return JSONResponse({"error": "File not found"}, status_code=404)
     except Exception as e:
         logger.error(f"Delete error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse({"error": str(e)}, status_code=500)
 
-@app.route("/stats")
-def get_stats():
-    """Get download statistics"""
+@fastapi_app.get("/stats")
+async def get_stats():
+    """Get download statistics including all-time totals"""
     try:
         files = []
         total_size = 0
@@ -1208,24 +1241,28 @@ def get_stats():
                 size = os.path.getsize(path)
                 total_size += size
                 files.append(name)
-        
+
         with downloads_lock:
-            active_count = sum(1 for d in downloads.values() 
+            active_count = sum(1 for d in downloads.values()
                               if d["status"] in ("queued", "downloading"))
-        
-        return jsonify({
+
+        persistent = _get_persistent_stats()
+
+        return JSONResponse({
             "file_count": len(files),
             "total_size": total_size,
             "total_size_hr": format_size(total_size),
             "active_downloads": active_count,
-            "max_concurrent": Config.MAX_CONCURRENT_DOWNLOADS
+            "max_concurrent": Config.MAX_CONCURRENT_DOWNLOADS,
+            "total_downloads": persistent["total_downloads"],
+            "total_visitors": persistent["total_site_visitors"],
         })
     except Exception as e:
         logger.error(f"Stats error: {e}")
-        return jsonify({"error": str(e)}), 500
+        return JSONResponse({"error": str(e)}, status_code=500)
 
-@app.route("/active_downloads")
-def active_downloads_list():
+@fastapi_app.get("/active_downloads")
+async def active_downloads_list():
     """Return count and details of active/queued downloads"""
     with downloads_lock:
         active = [
@@ -1241,102 +1278,129 @@ def active_downloads_list():
             for d in downloads.values()
             if d["status"] in ("queued", "downloading")
         ]
-    return jsonify({"count": len(active), "downloads": active})
+    return JSONResponse({"count": len(active), "downloads": active})
 
-@app.route("/cancel/<download_id>", methods=["POST"])
-def cancel_download(download_id):
+@fastapi_app.post("/cancel/{download_id}")
+async def cancel_download(download_id: str):
     """Cancel an ongoing download"""
     with downloads_lock:
         if download_id in downloads:
             if downloads[download_id]["status"] in ("queued", "downloading"):
                 downloads[download_id]["status"] = "cancelled"
-                socketio.emit("cancelled", {"id": download_id}, room=download_id)
+                emit_from_thread("cancelled", {"id": download_id}, room=download_id)
                 logger.info(f"Cancelled download: {download_id}")
-                return jsonify({"success": True})
-    
-    return jsonify({"error": "Download not found"}), 404
+                return JSONResponse({"success": True})
 
-@app.route("/const")
+    return JSONResponse({"error": "Download not found"}, status_code=404)
+
+@fastapi_app.get("/const")
 @admin_required
-def admin_page():
+async def admin_page(request: Request):
     """Admin page — full download history (authentication required)"""
-    return render_template("const.html")
+    return templates.TemplateResponse("const.html", {"request": request})
 
 
-@app.route("/admin/login", methods=["GET", "POST"])
-def admin_login():
-    """Admin login page (username + password)."""
+@fastapi_app.get("/admin/login")
+async def admin_login_get(request: Request):
+    """Admin login page (GET)."""
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": None, "has_admin": admin_user_exists()},
+    )
+
+
+@fastapi_app.post("/admin/login")
+async def admin_login_post(request: Request):
+    """Admin login (POST with form data)."""
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
     error = None
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        # If no DB user exists, fall back to legacy env-var password (username is ignored)
-        if not admin_user_exists():
-            if secrets.compare_digest(password, app.config["ADMIN_PASSWORD"]):
-                session.permanent = True
-                session["admin_logged_in"] = True
-                session["admin_username"] = username or "admin"
-                next_url = request.args.get("next") or url_for("admin_page")
-                return redirect(next_url)
-            error = "Incorrect password. Please try again."
-        else:
-            if verify_admin_user(username, password):
-                session.permanent = True
-                session["admin_logged_in"] = True
-                session["admin_username"] = username
-                next_url = request.args.get("next") or url_for("admin_page")
-                return redirect(next_url)
-            error = "Incorrect username or password. Please try again."
-    return render_template("admin_login.html", error=error, has_admin=admin_user_exists())
+
+    if not admin_user_exists():
+        if secrets.compare_digest(password, Config.ADMIN_PASSWORD):
+            request.session["admin_logged_in"] = True
+            request.session["admin_username"] = username or "admin"
+            next_url = request.query_params.get("next") or "/const"
+            return RedirectResponse(url=next_url, status_code=302)
+        error = "Incorrect password. Please try again."
+    else:
+        if verify_admin_user(username, password):
+            request.session["admin_logged_in"] = True
+            request.session["admin_username"] = username
+            next_url = request.query_params.get("next") or "/const"
+            return RedirectResponse(url=next_url, status_code=302)
+        error = "Incorrect username or password. Please try again."
+
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": error, "has_admin": admin_user_exists()},
+    )
 
 
-@app.route("/admin/register", methods=["GET", "POST"])
-def admin_register():
-    """Admin registration page — only one admin account is allowed."""
-    # If already logged in, redirect to dashboard
-    if session.get("admin_logged_in"):
-        return redirect(url_for("admin_page"))
+@fastapi_app.get("/admin/register")
+async def admin_register_get(request: Request):
+    """Admin registration page (GET)."""
+    if request.session.get("admin_logged_in"):
+        return RedirectResponse(url="/const", status_code=302)
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": None, "success": None,
+         "register_mode": True, "has_admin": admin_user_exists()},
+    )
+
+
+@fastapi_app.post("/admin/register")
+async def admin_register_post(request: Request):
+    """Admin registration (POST with form data)."""
+    if request.session.get("admin_logged_in"):
+        return RedirectResponse(url="/const", status_code=302)
+    form = await request.form()
+    username = (form.get("username") or "").strip()
+    password = form.get("password") or ""
+    confirm  = form.get("confirm_password") or ""
     error = None
     success = None
-    if request.method == "POST":
-        username = request.form.get("username", "").strip()
-        password = request.form.get("password", "")
-        confirm  = request.form.get("confirm_password", "")
-        if not username or not password:
-            error = "Username and password are required."
-        elif password != confirm:
-            error = "Passwords do not match."
+    if not username or not password:
+        error = "Username and password are required."
+    elif password != confirm:
+        error = "Passwords do not match."
+    else:
+        ok, msg = register_admin_user(username, password)
+        if ok:
+            success = "Admin account created! You can now log in."
         else:
-            ok, msg = register_admin_user(username, password)
-            if ok:
-                success = "Admin account created! You can now log in."
-            else:
-                error = msg
-    return render_template("admin_login.html", error=error, success=success,
-                           register_mode=True, has_admin=admin_user_exists())
+            error = msg
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request, "error": error, "success": success,
+         "register_mode": True, "has_admin": admin_user_exists()},
+    )
 
 
-@app.route("/admin/logout", methods=["POST"])
-def admin_logout():
+@fastapi_app.post("/admin/logout")
+async def admin_logout(request: Request):
     """Log out of the admin panel."""
-    session.pop("admin_logged_in", None)
-    session.pop("admin_username", None)
-    return redirect(url_for("admin_login"))
+    request.session.pop("admin_logged_in", None)
+    request.session.pop("admin_username", None)
+    return RedirectResponse(url="/admin/login", status_code=302)
 
 
-@app.before_request
-def track_admin_visitor():
+@fastapi_app.middleware("http")
+async def track_admin_visitor(request: Request, call_next):
     """Record a visit to tracked pages (main site + admin page) for analytics."""
-    if request.path not in TRACKED_VISITOR_PATHS:
-        return
-    ip = request.remote_addr or "unknown"
-    ua = request.headers.get("User-Agent", "")
+    response = await call_next(request)
+
+    if request.url.path not in TRACKED_VISITOR_PATHS:
+        return response
+
+    ip = request.client.host if request.client else "unknown"
+    ua = request.headers.get("user-agent", "")
 
     # Try to get country from CDN/proxy headers first
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
         ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
-    # Pre-populate cache for private/loopback IPs to avoid unnecessary async lookups
     elif ip not in ip_country_cache and _is_private_ip(ip):
         ip_country_cache[ip] = {"country": "Local", "code": ""}
 
@@ -1348,7 +1412,7 @@ def track_admin_visitor():
         "browser": _parse_browser(ua),
         "country": cached.get("country", ""),
         "country_code": cached.get("code", ""),
-        "page": request.path,
+        "page": request.url.path,
     }
     with visitors_lock:
         visitors.append(visitor_entry)
@@ -1360,10 +1424,12 @@ def track_admin_visitor():
     # Debounced save to avoid a thread-per-visit under high traffic
     _schedule_visitor_save()
 
+    return response
 
-@app.route("/admin/downloads")
+
+@fastapi_app.get("/admin/downloads")
 @admin_required
-def admin_downloads_api():
+async def admin_downloads_api(request: Request):
     """Return the complete download history for the admin page"""
     with downloads_lock:
         history = []
@@ -1384,17 +1450,17 @@ def admin_downloads_api():
                 "country_code": d.get("country_code", ""),
             })
         history.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
-    return jsonify(history)
+    return JSONResponse(history)
 
 
-@app.route("/admin/visitors")
+@fastapi_app.get("/admin/visitors")
 @admin_required
-def admin_visitors_api():
+async def admin_visitors_api(request: Request):
     """Return visitor analytics for the admin page."""
     with visitors_lock:
         data = list(visitors)
     data.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
-    return jsonify(data)
+    return JSONResponse(data)
 
 
 def _get_persistent_stats() -> dict:
@@ -1463,9 +1529,9 @@ def _get_persistent_stats() -> dict:
     }
 
 
-@app.route("/admin/analytics")
+@fastapi_app.get("/admin/analytics")
 @admin_required
-def admin_analytics_api():
+async def admin_analytics_api(request: Request):
     """Return aggregated analytics including country totals and persistent stats."""
     with downloads_lock:
         dl_list = list(downloads.values())
@@ -1498,7 +1564,7 @@ def admin_analytics_api():
     # Persistent aggregate stats (queried from SQLite for accuracy)
     persistent = _get_persistent_stats()
 
-    return jsonify({
+    return JSONResponse({
         "download_countries": [
             {"country": k.split("||")[0], "code": k.split("||")[1], "count": v}
             for k, v in sorted(dl_countries.items(), key=lambda x: x[1], reverse=True)
@@ -1516,55 +1582,53 @@ def admin_analytics_api():
     })
 
 
-@app.route("/admin/delete_record/<download_id>", methods=["DELETE"])
+@fastapi_app.delete("/admin/delete_record/{download_id}")
 @admin_required
-def admin_delete_record(download_id):
+async def admin_delete_record(request: Request, download_id: str):
     """Remove a download record from the history (admin only)."""
     with downloads_lock:
         if download_id not in downloads:
-            return jsonify({"error": "Record not found"}), 404
+            return JSONResponse({"error": "Record not found"}, status_code=404)
         status = downloads[download_id].get("status")
         if status in ("queued", "downloading"):
-            return jsonify({"error": "Cannot delete an active download. Cancel it first."}), 409
+            return JSONResponse({"error": "Cannot delete an active download. Cancel it first."}, status_code=409)
         del downloads[download_id]
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
     logger.info(f"Admin deleted download record: {download_id}")
-    return jsonify({"success": True})
+    return JSONResponse({"success": True})
 
 
-@app.route("/admin/clear_visitors", methods=["DELETE"])
+@fastapi_app.delete("/admin/clear_visitors")
 @admin_required
-def admin_clear_visitors():
+async def admin_clear_visitors(request: Request):
     """Clear all visitor records (admin only)."""
     with visitors_lock:
         visitors.clear()
     threading.Thread(target=save_visitors_to_disk, daemon=True).start()
     logger.info("Admin cleared all visitor records")
-    return jsonify({"success": True})
+    return JSONResponse({"success": True})
 
 
-@app.route("/admin/db/download")
+@fastapi_app.get("/admin/db/download")
 @admin_required
-def admin_db_download():
+async def admin_db_download(request: Request):
     """Download the SQLite database file for backup (admin only)."""
     if not os.path.exists(DB_PATH):
-        return jsonify({"error": "Database file not found"}), 404
+        return JSONResponse({"error": "Database file not found"}, status_code=404)
     # Flush in-memory state to disk before serving the file
     save_downloads_to_disk()
     save_visitors_to_disk()
     logger.info("Admin downloaded database backup")
-    return send_from_directory(
-        DATA_DIR,
-        os.path.basename(DB_PATH),
-        as_attachment=True,
-        download_name="admin.db",
-        mimetype="application/x-sqlite3",
+    return FileResponse(
+        DB_PATH,
+        filename="admin.db",
+        media_type="application/x-sqlite3",
     )
 
 
-@app.route("/admin/db/upload", methods=["POST"])
+@fastapi_app.post("/admin/db/upload")
 @admin_required
-def admin_db_upload():
+async def admin_db_upload(request: Request):
     """Merge an uploaded backup database into the live database (admin only).
 
     The uploaded file is validated as a SQLite database before merging.
@@ -1573,16 +1637,17 @@ def admin_db_upload():
     and re-sorted by timestamp so that records appear in chronological order.
     After a successful merge the in-memory state is reloaded.
     """
-    if "db_file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
-    f = request.files["db_file"]
-    if not f or not f.filename:
-        return jsonify({"error": "No file selected"}), 400
+    form = await request.form()
+    db_file = form.get("db_file")
+    if db_file is None:
+        return JSONResponse({"error": "No file uploaded"}, status_code=400)
+    if not hasattr(db_file, "read"):
+        return JSONResponse({"error": "No file selected"}, status_code=400)
 
     # Read uploaded content and validate SQLite magic header
-    content = f.read()
+    content = await db_file.read()
     if len(content) < 16 or content[:16] != b"SQLite format 3\x00":
-        return jsonify({"error": "Uploaded file is not a valid SQLite database"}), 400
+        return JSONResponse({"error": "Uploaded file is not a valid SQLite database"}, status_code=400)
 
     # Write to a temp file and run an integrity check
     tmp_path = DB_PATH + ".upload_tmp"
@@ -1596,7 +1661,7 @@ def admin_db_upload():
         try:
             result = check_conn.execute("PRAGMA integrity_check").fetchone()
             if result[0] != "ok":
-                return jsonify({"error": "Uploaded database failed integrity check"}), 400
+                return JSONResponse({"error": "Uploaded database failed integrity check"}, status_code=400)
 
             # Read downloads and visitors from the backup
             try:
@@ -1673,7 +1738,7 @@ def admin_db_upload():
             f"Admin merged database backup: {added_dl} download records and "
             f"{added_v} visitor records from backup processed"
         )
-        return jsonify({
+        return JSONResponse({
             "success": True,
             "message": (
                 f"Database merged successfully. "
@@ -1683,7 +1748,7 @@ def admin_db_upload():
         })
     except Exception as exc:
         logger.error(f"DB upload error: {exc}")
-        return jsonify({"error": f"Upload failed: {exc}"}), 500
+        return JSONResponse({"error": f"Upload failed: {exc}"}, status_code=500)
     finally:
         if os.path.exists(tmp_path):
             try:
@@ -1735,17 +1800,24 @@ def _build_video_convert_cmd(ffmpeg_path, input_path, output_path, fmt,
     return cmd
 
 
-@app.route("/convert", methods=["POST"])
-def convert_file():
+@fastapi_app.post("/convert")
+async def convert_file(
+    request: Request,
+    filename: str = Form(""),
+    format: str = Form("mp4"),
+    resolution: str = Form(""),
+    audio_bitrate: str = Form(""),
+    video_bitrate: str = Form(""),
+):
     """Convert a downloaded file to a different format, resolution, or bitrate."""
-    filename      = request.form.get("filename", "").strip()
-    fmt           = request.form.get("format", "mp4").strip().lower()
-    resolution    = request.form.get("resolution", "").strip()
-    audio_bitrate = request.form.get("audio_bitrate", "").strip()
-    video_bitrate = request.form.get("video_bitrate", "").strip()
+    filename      = filename.strip()
+    fmt           = format.strip().lower()
+    resolution    = resolution.strip()
+    audio_bitrate = audio_bitrate.strip()
+    video_bitrate = video_bitrate.strip()
 
     if fmt not in _ALL_CONVERT_FORMATS:
-        return jsonify({"error": f"Unsupported format. Choose from: {', '.join(sorted(_ALL_CONVERT_FORMATS))}"}), 400
+        return JSONResponse({"error": f"Unsupported format. Choose from: {', '.join(sorted(_ALL_CONVERT_FORMATS))}"}, status_code=400)
 
     filepath, err = _resolve_download_file(filename)
     if err:
@@ -1753,14 +1825,14 @@ def convert_file():
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     if resolution and not _VALID_RESOLUTION_RE.match(resolution):
-        return jsonify({"error": "Invalid resolution. Use WxH (e.g. 1280x720)"}), 400
+        return JSONResponse({"error": "Invalid resolution. Use WxH (e.g. 1280x720)"}, status_code=400)
     if audio_bitrate and not _VALID_BITRATE_RE.match(audio_bitrate):
-        return jsonify({"error": "Invalid audio bitrate (e.g. 128k, 192k)"}), 400
+        return JSONResponse({"error": "Invalid audio bitrate (e.g. 128k, 192k)"}, status_code=400)
     if video_bitrate and not _VALID_BITRATE_RE.match(video_bitrate):
-        return jsonify({"error": "Invalid video bitrate (e.g. 2M, 1500k)"}), 400
+        return JSONResponse({"error": "Invalid video bitrate (e.g. 2M, 1500k)"}, status_code=400)
 
     base = safe_filename(os.path.splitext(filename)[0])
     output_path, output_filename = _unique_output(base, fmt, fmt)
@@ -1775,42 +1847,49 @@ def convert_file():
         conversions[job_id] = {"status": "queued", "type": "convert", "filename": output_filename}
 
     _start_ffmpeg_job(job_id, cmd, output_filename)
-    return jsonify({"job_id": job_id, "output_filename": output_filename})
+    return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
-@app.route("/batch_convert", methods=["POST"])
-def batch_convert():
+@fastapi_app.post("/batch_convert")
+async def batch_convert(
+    request: Request,
+    filenames: str = Form("[]"),
+    format: str = Form("mp4"),
+    resolution: str = Form(""),
+    audio_bitrate: str = Form(""),
+    video_bitrate: str = Form(""),
+):
     """Convert multiple files to a target format/resolution/bitrate."""
-    filenames_json = request.form.get("filenames", "[]")
-    fmt           = request.form.get("format", "mp4").strip().lower()
-    resolution    = request.form.get("resolution", "").strip()
-    audio_bitrate = request.form.get("audio_bitrate", "").strip()
-    video_bitrate = request.form.get("video_bitrate", "").strip()
+    filenames_json = filenames
+    fmt           = format.strip().lower()
+    resolution    = resolution.strip()
+    audio_bitrate = audio_bitrate.strip()
+    video_bitrate = video_bitrate.strip()
 
     try:
         filenames = json.loads(filenames_json)
     except (json.JSONDecodeError, ValueError):
-        return jsonify({"error": "Invalid filenames JSON"}), 400
+        return JSONResponse({"error": "Invalid filenames JSON"}, status_code=400)
 
     if not isinstance(filenames, list) or len(filenames) == 0:
-        return jsonify({"error": "No files provided"}), 400
+        return JSONResponse({"error": "No files provided"}, status_code=400)
 
     if fmt not in _ALL_CONVERT_FORMATS:
-        return jsonify({"error": f"Unsupported format. Choose from: {', '.join(sorted(_ALL_CONVERT_FORMATS))}"}), 400
+        return JSONResponse({"error": f"Unsupported format. Choose from: {', '.join(sorted(_ALL_CONVERT_FORMATS))}"}, status_code=400)
 
     if len(filenames) > 20:
-        return jsonify({"error": "Maximum 20 files per batch"}), 400
+        return JSONResponse({"error": "Maximum 20 files per batch"}, status_code=400)
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     if resolution and not _VALID_RESOLUTION_RE.match(resolution):
-        return jsonify({"error": "Invalid resolution. Use WxH (e.g. 1280x720)"}), 400
+        return JSONResponse({"error": "Invalid resolution. Use WxH (e.g. 1280x720)"}, status_code=400)
     if audio_bitrate and not _VALID_BITRATE_RE.match(audio_bitrate):
-        return jsonify({"error": "Invalid audio bitrate"}), 400
+        return JSONResponse({"error": "Invalid audio bitrate"}, status_code=400)
     if video_bitrate and not _VALID_BITRATE_RE.match(video_bitrate):
-        return jsonify({"error": "Invalid video bitrate"}), 400
+        return JSONResponse({"error": "Invalid video bitrate"}, status_code=400)
 
     jobs = []
     for fn in filenames:
@@ -1830,24 +1909,29 @@ def batch_convert():
         jobs.append({"job_id": job_id, "source": fn, "output_filename": output_filename})
 
     if not jobs:
-        return jsonify({"error": "No valid files to convert"}), 400
+        return JSONResponse({"error": "No valid files to convert"}, status_code=400)
 
-    return jsonify({"jobs": jobs, "total": len(jobs)})
+    return JSONResponse({"jobs": jobs, "total": len(jobs)})
 
 
 # =========================================================
 # VIDEO EDITING TOOLS
 # =========================================================
 
-@app.route("/trim", methods=["POST"])
-def trim_video():
+@fastapi_app.post("/trim")
+async def trim_video(
+    request: Request,
+    filename: str = Form(""),
+    start_time: str = Form("0"),
+    end_time: str = Form(""),
+):
     """Trim a video to [start_time, end_time]."""
-    filename   = request.form.get("filename", "").strip()
-    start_time = request.form.get("start_time", "0").strip() or "0"
-    end_time   = request.form.get("end_time", "").strip()
+    filename   = filename.strip()
+    start_time = start_time.strip() or "0"
+    end_time   = end_time.strip()
 
     if not end_time:
-        return jsonify({"error": "end_time is required"}), 400
+        return JSONResponse({"error": "end_time is required"}, status_code=400)
 
     filepath, err = _resolve_download_file(filename)
     if err:
@@ -1855,13 +1939,13 @@ def trim_video():
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     time_re = _VALID_TIME_RE
     if not time_re.match(start_time):
-        return jsonify({"error": "Invalid start_time. Use seconds or HH:MM:SS"}), 400
+        return JSONResponse({"error": "Invalid start_time. Use seconds or HH:MM:SS"}, status_code=400)
     if not time_re.match(end_time):
-        return jsonify({"error": "Invalid end_time. Use seconds or HH:MM:SS"}), 400
+        return JSONResponse({"error": "Invalid end_time. Use seconds or HH:MM:SS"}, status_code=400)
 
     ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
     base = safe_filename(os.path.splitext(filename)[0])
@@ -1878,20 +1962,27 @@ def trim_video():
         conversions[job_id] = {"status": "queued", "type": "trim", "filename": output_filename}
 
     _start_ffmpeg_job(job_id, cmd, output_filename)
-    return jsonify({"job_id": job_id, "output_filename": output_filename})
+    return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
-@app.route("/crop", methods=["POST"])
-def crop_video():
+@fastapi_app.post("/crop")
+async def crop_video(
+    request: Request,
+    filename: str = Form(""),
+    x: str = Form("0"),
+    y: str = Form("0"),
+    width: str = Form(""),
+    height: str = Form(""),
+):
     """Crop a video frame to (x, y, width, height)."""
-    filename = request.form.get("filename", "").strip()
-    x        = request.form.get("x", "0").strip() or "0"
-    y        = request.form.get("y", "0").strip() or "0"
-    width    = request.form.get("width", "").strip()
-    height   = request.form.get("height", "").strip()
+    filename = filename.strip()
+    x        = x.strip() or "0"
+    y        = y.strip() or "0"
+    width    = width.strip()
+    height   = height.strip()
 
     if not width or not height:
-        return jsonify({"error": "width and height are required"}), 400
+        return JSONResponse({"error": "width and height are required"}, status_code=400)
 
     filepath, err = _resolve_download_file(filename)
     if err:
@@ -1899,11 +1990,11 @@ def crop_video():
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     for val in [x, y, width, height]:
         if not val.isdigit():
-            return jsonify({"error": "x, y, width, and height must be positive integers"}), 400
+            return JSONResponse({"error": "x, y, width, and height must be positive integers"}, status_code=400)
 
     ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
     base = safe_filename(os.path.splitext(filename)[0])
@@ -1921,21 +2012,27 @@ def crop_video():
         conversions[job_id] = {"status": "queued", "type": "crop", "filename": output_filename}
 
     _start_ffmpeg_job(job_id, cmd, output_filename)
-    return jsonify({"job_id": job_id, "output_filename": output_filename})
+    return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
-@app.route("/watermark", methods=["POST"])
-def watermark_video():
+@fastapi_app.post("/watermark")
+async def watermark_video(
+    request: Request,
+    filename: str = Form(""),
+    text: str = Form(""),
+    position: str = Form("bottom-right"),
+    fontsize: str = Form("24"),
+):
     """Overlay a text watermark onto a video."""
-    filename = request.form.get("filename", "").strip()
-    text     = request.form.get("text", "").strip()
-    position = request.form.get("position", "bottom-right").strip()
-    fontsize = request.form.get("fontsize", "24").strip() or "24"
+    filename = filename.strip()
+    text     = text.strip()
+    position = position.strip()
+    fontsize = fontsize.strip() or "24"
 
     if not text:
-        return jsonify({"error": "Watermark text is required"}), 400
+        return JSONResponse({"error": "Watermark text is required"}, status_code=400)
     if len(text) > 200:
-        return jsonify({"error": "Watermark text too long (max 200 chars)"}), 400
+        return JSONResponse({"error": "Watermark text too long (max 200 chars)"}, status_code=400)
 
     filepath, err = _resolve_download_file(filename)
     if err:
@@ -1943,10 +2040,10 @@ def watermark_video():
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     if not fontsize.isdigit() or not (8 <= int(fontsize) <= 120):
-        return jsonify({"error": "fontsize must be an integer between 8 and 120"}), 400
+        return JSONResponse({"error": "fontsize must be an integer between 8 and 120"}, status_code=400)
 
     # Escape special chars for ffmpeg drawtext
     escaped = (
@@ -1985,15 +2082,20 @@ def watermark_video():
         conversions[job_id] = {"status": "queued", "type": "watermark", "filename": output_filename}
 
     _start_ffmpeg_job(job_id, cmd, output_filename)
-    return jsonify({"job_id": job_id, "output_filename": output_filename})
+    return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
-@app.route("/extract_clip", methods=["POST"])
-def extract_clip():
+@fastapi_app.post("/extract_clip")
+async def extract_clip(
+    request: Request,
+    filename: str = Form(""),
+    start_time: str = Form("0"),
+    duration: str = Form("30"),
+):
     """Extract a short clip (10–60 s) starting at start_time."""
-    filename   = request.form.get("filename", "").strip()
-    start_time = request.form.get("start_time", "0").strip() or "0"
-    duration   = request.form.get("duration", "30").strip() or "30"
+    filename   = filename.strip()
+    start_time = start_time.strip() or "0"
+    duration   = duration.strip() or "30"
 
     filepath, err = _resolve_download_file(filename)
     if err:
@@ -2001,17 +2103,17 @@ def extract_clip():
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     try:
         dur_sec = float(duration)
     except ValueError:
-        return jsonify({"error": "duration must be a number"}), 400
+        return JSONResponse({"error": "duration must be a number"}, status_code=400)
     if not (10 <= dur_sec <= 60):
-        return jsonify({"error": "duration must be between 10 and 60 seconds"}), 400
+        return JSONResponse({"error": "duration must be between 10 and 60 seconds"}, status_code=400)
 
     if not _VALID_TIME_RE.match(start_time):
-        return jsonify({"error": "Invalid start_time. Use seconds or HH:MM:SS"}), 400
+        return JSONResponse({"error": "Invalid start_time. Use seconds or HH:MM:SS"}, status_code=400)
 
     ext = os.path.splitext(filename)[1].lstrip(".") or "mp4"
     base = safe_filename(os.path.splitext(filename)[0])
@@ -2028,31 +2130,35 @@ def extract_clip():
         conversions[job_id] = {"status": "queued", "type": "extract_clip", "filename": output_filename}
 
     _start_ffmpeg_job(job_id, cmd, output_filename)
-    return jsonify({"job_id": job_id, "output_filename": output_filename})
+    return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
-@app.route("/merge", methods=["POST"])
-def merge_videos():
+@fastapi_app.post("/merge")
+async def merge_videos(
+    request: Request,
+    filenames: str = Form("[]"),
+    format: str = Form("mp4"),
+):
     """Concatenate multiple downloaded videos into a single output file."""
-    filenames_json = request.form.get("filenames", "[]")
-    output_format  = request.form.get("format", "mp4").strip().lower()
+    filenames_json = filenames
+    output_format  = format.strip().lower()
 
     try:
         filenames = json.loads(filenames_json)
     except (json.JSONDecodeError, ValueError):
-        return jsonify({"error": "Invalid filenames JSON"}), 400
+        return JSONResponse({"error": "Invalid filenames JSON"}, status_code=400)
 
     if not isinstance(filenames, list) or len(filenames) < 2:
-        return jsonify({"error": "At least 2 files are required for merge"}), 400
+        return JSONResponse({"error": "At least 2 files are required for merge"}, status_code=400)
     if len(filenames) > 20:
-        return jsonify({"error": "Maximum 20 files per merge"}), 400
+        return JSONResponse({"error": "Maximum 20 files per merge"}, status_code=400)
 
     if output_format not in _VALID_VIDEO_FORMATS:
-        return jsonify({"error": f"Unsupported format. Choose from: {', '.join(sorted(_VALID_VIDEO_FORMATS))}"}), 400
+        return JSONResponse({"error": f"Unsupported format. Choose from: {', '.join(sorted(_VALID_VIDEO_FORMATS))}"}, status_code=400)
 
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
-        return jsonify({"error": "ffmpeg is not installed on this server"}), 503
+        return JSONResponse({"error": "ffmpeg is not installed on this server"}, status_code=503)
 
     filepaths = []
     for fn in filenames:
@@ -2084,17 +2190,17 @@ def merge_videos():
             pass
 
     _start_ffmpeg_job(job_id, cmd, output_filename, cleanup=_remove_list_file)
-    return jsonify({"job_id": job_id, "output_filename": output_filename})
+    return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
-@app.route("/job_status/<job_id>")
-def job_status(job_id):
+@fastapi_app.get("/job_status/{job_id}")
+async def job_status(job_id: str):
     """Return the current status of a conversion or editing job."""
     with conversions_lock:
         job = conversions.get(job_id)
     if not job:
-        return jsonify({"error": "Job not found"}), 404
-    return jsonify({
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    return JSONResponse({
         "job_id":    job_id,
         "status":    job.get("status"),
         "type":      job.get("type"),
@@ -2107,15 +2213,19 @@ def job_status(job_id):
 # PLAYLIST & BULK DOWNLOAD
 # =========================================================
 
-@app.route("/start_playlist_download", methods=["POST"])
+@fastapi_app.post("/start_playlist_download")
 @rate_limit()
-def start_playlist_download():
+async def start_playlist_download(
+    request: Request,
+    url: str = Form(""),
+    format: str = Form("bestvideo*+bestaudio*/best"),
+):
     """Download an entire playlist or channel (yt-dlp playlist mode)."""
-    url         = request.form.get("url", "").strip()
-    format_spec = request.form.get("format", "bestvideo*+bestaudio*/best")
+    url = url.strip()
+    format_spec = format
 
     if not url:
-        return jsonify({"error": "URL is required"}), 400
+        return JSONResponse({"error": "URL is required"}, status_code=400)
 
     with downloads_lock:
         active_count = sum(
@@ -2123,12 +2233,12 @@ def start_playlist_download():
             if d["status"] in ("queued", "downloading")
         )
         if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
-            return jsonify({
+            return JSONResponse({
                 "error": f"Maximum concurrent downloads reached ({Config.MAX_CONCURRENT_DOWNLOADS})"
-            }), 429
+            }, status_code=429)
 
     batch_id = str(uuid.uuid4())
-    ip = request.remote_addr
+    ip = request.client.host if request.client else "unknown"
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
         ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
@@ -2164,7 +2274,7 @@ def start_playlist_download():
                 pct = (100.0 * completed[0] / total[0]) if total[0] else 0
                 with downloads_lock:
                     downloads[batch_id].update({"percent": pct, "status": "downloading"})
-                socketio.emit(
+                emit_from_thread(
                     "progress",
                     {"id": batch_id, "percent": pct,
                      "line": f"Downloaded {completed[0]}/{total[0]} videos"},
@@ -2208,12 +2318,12 @@ def start_playlist_download():
                     "percent":  100,
                     "end_time": time.time(),
                 })
-            socketio.emit(
+            emit_from_thread(
                 "completed",
                 {"id": batch_id, "title": downloads[batch_id].get("title")},
                 room=batch_id,
             )
-            socketio.emit("files_updated")
+            emit_from_thread("files_updated")
             threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
         except Exception as exc:
@@ -2224,7 +2334,7 @@ def start_playlist_download():
                     "error":    str(exc),
                     "end_time": time.time(),
                 })
-            socketio.emit("failed", {"id": batch_id, "error": str(exc)}, room=batch_id)
+            emit_from_thread("failed", {"id": batch_id, "error": str(exc)}, room=batch_id)
             threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
         finally:
@@ -2240,23 +2350,27 @@ def start_playlist_download():
     if ip not in ip_country_cache:
         threading.Thread(target=_lookup_country_async, args=(ip,), daemon=True).start()
 
-    return jsonify({"download_id": batch_id, "title": "Playlist Download", "status": "queued"})
+    return JSONResponse({"download_id": batch_id, "title": "Playlist Download", "status": "queued"})
 
 
-@app.route("/start_batch_download", methods=["POST"])
-def start_batch_download():
+@fastapi_app.post("/start_batch_download")
+async def start_batch_download(
+    request: Request,
+    urls: str = Form(""),
+    format: str = Form("bestvideo*+bestaudio*/best"),
+):
     """Start individual downloads for a newline-separated list of URLs."""
-    urls_text   = request.form.get("urls", "").strip()
-    format_spec = request.form.get("format", "bestvideo*+bestaudio*/best")
+    urls_text   = urls.strip()
+    format_spec = format
 
-    urls = [u.strip() for u in urls_text.splitlines() if u.strip()]
-    if not urls:
-        return jsonify({"error": "At least one URL is required"}), 400
-    if len(urls) > 20:
-        return jsonify({"error": "Maximum 20 URLs per batch"}), 400
+    url_list = [u.strip() for u in urls_text.splitlines() if u.strip()]
+    if not url_list:
+        return JSONResponse({"error": "At least one URL is required"}, status_code=400)
+    if len(url_list) > 20:
+        return JSONResponse({"error": "Maximum 20 URLs per batch"}, status_code=400)
 
     started = []
-    ip = request.remote_addr
+    ip = request.client.host if request.client else "unknown"
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
         ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
@@ -2264,7 +2378,7 @@ def start_batch_download():
         ip_country_cache[ip] = {"country": "Local", "code": ""}
     cached_geo = ip_country_cache.get(ip, {})
 
-    for url in urls:
+    for url in url_list:
         with downloads_lock:
             active_count = sum(
                 1 for d in downloads.values()
@@ -2312,30 +2426,33 @@ def start_batch_download():
         started.append({"download_id": download_id, "url": url, "title": title})
 
     if not started:
-        return jsonify({"error": "Could not start any downloads (concurrent limit reached)"}), 429
+        return JSONResponse({"error": "Could not start any downloads (concurrent limit reached)"}, status_code=429)
 
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
     if ip not in ip_country_cache:
         threading.Thread(target=_lookup_country_async, args=(ip,), daemon=True).start()
 
-    return jsonify({"started": started, "total": len(started)})
+    return JSONResponse({"started": started, "total": len(started)})
 
 
-@app.route("/download_zip", methods=["POST"])
-def download_zip():
+@fastapi_app.post("/download_zip")
+async def download_zip(
+    request: Request,
+    filenames: str = Form("[]"),
+):
     """Package a selection of downloaded files into a ZIP and serve it."""
-    filenames_json = request.form.get("filenames", "[]")
+    filenames_json = filenames
 
     try:
-        filenames = json.loads(filenames_json)
+        parsed_filenames = json.loads(filenames_json)
     except (json.JSONDecodeError, ValueError):
-        return jsonify({"error": "Invalid filenames JSON"}), 400
+        return JSONResponse({"error": "Invalid filenames JSON"}, status_code=400)
 
-    if not isinstance(filenames, list) or len(filenames) == 0:
-        return jsonify({"error": "No files selected"}), 400
+    if not isinstance(parsed_filenames, list) or len(parsed_filenames) == 0:
+        return JSONResponse({"error": "No files selected"}, status_code=400)
 
     filepairs = []
-    for fn in filenames:
+    for fn in parsed_filenames:
         if not fn:
             continue
         fp = os.path.join(DOWNLOAD_FOLDER, fn)
@@ -2345,7 +2462,7 @@ def download_zip():
             filepairs.append((fn, fp))
 
     if not filepairs:
-        return jsonify({"error": "No valid files found"}), 404
+        return JSONResponse({"error": "No valid files found"}, status_code=404)
 
     zip_filename = f"downloads_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
     zip_path     = os.path.join(DOWNLOAD_FOLDER, zip_filename)
@@ -2355,14 +2472,12 @@ def download_zip():
                 zf.write(fp, fn)
     except Exception as exc:
         logger.error("ZIP creation error: %s", exc)
-        return jsonify({"error": f"Failed to create ZIP: {exc}"}), 500
+        return JSONResponse({"error": f"Failed to create ZIP: {exc}"}, status_code=500)
 
-    return send_from_directory(
-        DOWNLOAD_FOLDER,
-        zip_filename,
-        as_attachment=True,
-        download_name=zip_filename,
-        mimetype="application/zip",
+    return FileResponse(
+        zip_path,
+        filename=zip_filename,
+        media_type="application/zip",
     )
 
 
@@ -2370,24 +2485,24 @@ def download_zip():
 # SOCKET.IO EVENTS
 # =========================================================
 
-@socketio.on("connect")
-def on_connect():
+@sio.event
+async def connect(sid, environ):
     """Handle client connection"""
-    logger.info(f"Client connected: {request.sid}")
+    logger.info(f"Client connected: {sid}")
 
-@socketio.on("disconnect")
-def on_disconnect():
+@sio.event
+async def disconnect(sid):
     """Handle client disconnection"""
-    logger.info(f"Client disconnected: {request.sid}")
+    logger.info(f"Client disconnected: {sid}")
 
-@socketio.on("subscribe")
-def on_subscribe(data):
+@sio.on("subscribe")
+async def on_subscribe(sid, data):
     """Subscribe to download updates"""
-    download_id = data.get("download_id")
+    download_id = data.get("download_id") if isinstance(data, dict) else None
     if download_id:
-        join_room(download_id)
-        emit("subscribed", {"id": download_id})
-        logger.info(f"Client {request.sid} subscribed to {download_id}")
+        sio.enter_room(sid, download_id)
+        await sio.emit("subscribed", {"id": download_id}, room=sid)
+        logger.info(f"Client {sid} subscribed to {download_id}")
 
 # =========================================================
 # CLEANUP THREAD
@@ -2412,7 +2527,7 @@ def cleanup_old_files():
             # Notify all connected clients from this background thread so they
             # refresh their "Downloaded Videos" list without waiting for the next
             # manual refresh or Socket.IO reconnect.
-            socketio.emit("files_updated")
+            emit_from_thread("files_updated")
     except Exception as e:
         logger.error(f"Cleanup error: {e}")
 
@@ -2474,29 +2589,40 @@ logger.info("=" * 50)
 # ERROR HANDLERS
 # =========================================================
 
-@app.errorhandler(404)
-def not_found_error(error):
-    return jsonify({"error": "Not found"}), 404
+@fastapi_app.exception_handler(404)
+async def not_found_error(request: Request, exc):
+    return JSONResponse({"error": "Not found"}, status_code=404)
 
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f"Internal error: {error}")
-    return jsonify({"error": "Internal server error"}), 500
+@fastapi_app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404:
+        return JSONResponse({"error": "Not found"}, status_code=404)
+    if exc.status_code == 500:
+        logger.error(f"Internal error: {exc.detail}")
+        return JSONResponse({"error": "Internal server error"}, status_code=500)
+    return JSONResponse({"error": exc.detail or "Error"}, status_code=exc.status_code)
+
+@fastapi_app.exception_handler(500)
+async def internal_error(request: Request, exc):
+    logger.error(f"Internal error: {exc}")
+    return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 # =========================================================
 # ENTRY POINT
 # =========================================================
 
 if __name__ == "__main__":
+    import uvicorn
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
-    
+
     logger.info(f"🌐 Starting server on port {port}")
     logger.info(f"🐛 Debug mode: {debug}")
-    
-    socketio.run(
-        app,
+
+    uvicorn.run(
+        "api.app:app",
         host="0.0.0.0",
         port=port,
-        debug=debug
+        reload=debug,
+        workers=1,
     )
