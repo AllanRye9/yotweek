@@ -607,7 +607,7 @@ def _country_from_accept_language(accept_lang: str) -> tuple[str, str]:
 
 
 def _lookup_country_async(ip: str, accept_language: str = ""):
-    """Resolve an IP to its country using multiple geo-IP services (fallback chain).
+    """Resolve an IP to its country (and city/region when available) using multiple geo-IP services.
 
     Args:
         ip: The IP address to geo-locate.
@@ -619,32 +619,38 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
 
     # Private / loopback addresses cannot be geo-located
     if _is_private_ip(ip):
-        ip_country_cache[ip] = {"country": "Local", "code": ""}
+        ip_country_cache[ip] = {"country": "Local", "code": "", "city": "", "region": ""}
         with visitors_lock:
             for v in visitors[-200:]:
                 if v.get("ip") == ip and not v.get("country"):
                     v["country"] = "Local"
                     v["country_code"] = ""
+                    v["city"] = ""
+                    v["region"] = ""
         with downloads_lock:
             for d in downloads.values():
                 if d.get("ip") == ip and not d.get("country"):
                     d["country"] = "Local"
                     d["country_code"] = ""
+                    d["city"] = ""
+                    d["region"] = ""
         _schedule_visitor_save()
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
         return
 
-    country, code = "Unknown", ""
+    country, code, city, region = "Unknown", "", "", ""
 
     # --- Service 1: ip-api.com (free, no key) ---
     try:
         with urllib.request.urlopen(
-            f"https://ip-api.com/json/{ip}?fields=status,country,countryCode", timeout=5
+            f"https://ip-api.com/json/{ip}?fields=status,country,countryCode,city,regionName", timeout=5
         ) as resp:
             data = json.loads(resp.read())
         if data.get("status") == "success" and data.get("country"):
             country = data["country"]
             code = data.get("countryCode", "")
+            city = data.get("city", "")
+            region = data.get("regionName", "")
     except Exception:
         pass
 
@@ -658,6 +664,8 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
             if data.get("country") and not data.get("bogon"):
                 code = data["country"].upper()  # ipinfo returns 2-letter code in "country"
                 country = _ISO2_TO_NAME.get(code, code)
+                city = data.get("city", "")
+                region = data.get("region", "")
         except Exception:
             pass
 
@@ -665,12 +673,14 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
     if country == "Unknown":
         try:
             with urllib.request.urlopen(
-                f"https://ipwhois.app/json/{ip}?objects=country,country_code", timeout=5
+                f"https://ipwhois.app/json/{ip}?objects=country,country_code,city,region", timeout=5
             ) as resp:
                 data = json.loads(resp.read())
             if data.get("country"):
                 country = data["country"]
                 code = data.get("country_code", "")
+                city = data.get("city", "")
+                region = data.get("region", "")
         except Exception:
             pass
 
@@ -686,6 +696,8 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
             if data.get("country_name") and not data.get("error"):
                 country = data["country_name"]
                 code = data.get("country_code", "").upper()
+                city = data.get("city", "")
+                region = data.get("region", "")
         except Exception:
             pass
 
@@ -710,19 +722,23 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
             country = lang_country
             code = lang_code
 
-    ip_country_cache[ip] = {"country": country, "code": code}
+    ip_country_cache[ip] = {"country": country, "code": code, "city": city, "region": region}
     # Back-fill any visitor records that are waiting for this IP's country
     with visitors_lock:
         for v in visitors[-200:]:
             if v.get("ip") == ip and not v.get("country"):
                 v["country"] = country
                 v["country_code"] = code
+                v["city"] = city
+                v["region"] = region
     # Back-fill any download records that are waiting for this IP's country
     with downloads_lock:
         for d in downloads.values():
             if d.get("ip") == ip and not d.get("country"):
                 d["country"] = country
                 d["country_code"] = code
+                d["city"] = city
+                d["region"] = region
     _schedule_visitor_save()
     # Persist updated download records so country is not lost on restart
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
@@ -1302,9 +1318,9 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
     # Try CDN/proxy headers first for country
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
-        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code, "city": "", "region": ""}
     elif ip not in ip_country_cache and _is_private_ip(ip):
-        ip_country_cache[ip] = {"country": "Local", "code": ""}
+        ip_country_cache[ip] = {"country": "Local", "code": "", "city": "", "region": ""}
     cached_geo = ip_country_cache.get(ip, {})
     with downloads_lock:
         downloads[download_id] = {
@@ -1321,6 +1337,8 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
             "ip": ip,
             "country": cached_geo.get("country", ""),
             "country_code": cached_geo.get("code", ""),
+            "city": cached_geo.get("city", ""),
+            "region": cached_geo.get("region", ""),
             "info_error": info.get("error") if info and "error" in info else None
         }
     # Resolve the requester's country in background if not already cached
@@ -1643,9 +1661,9 @@ async def track_admin_visitor(request: Request, call_next):
     # Try to get country from CDN/proxy headers first
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
-        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code, "city": "", "region": ""}
     elif ip not in ip_country_cache and _is_private_ip(ip):
-        ip_country_cache[ip] = {"country": "Local", "code": ""}
+        ip_country_cache[ip] = {"country": "Local", "code": "", "city": "", "region": ""}
 
     cached = ip_country_cache.get(ip, {})
     visitor_entry = {
@@ -1655,6 +1673,8 @@ async def track_admin_visitor(request: Request, call_next):
         "browser": _parse_browser(ua),
         "country": cached.get("country", ""),
         "country_code": cached.get("code", ""),
+        "city": cached.get("city", ""),
+        "region": cached.get("region", ""),
         "page": request.url.path,
     }
     with visitors_lock:
@@ -1692,6 +1712,8 @@ async def admin_downloads_api(request: Request):
                 "ip":           d.get("ip"),
                 "country":      d.get("country", ""),
                 "country_code": d.get("country_code", ""),
+                "city":         d.get("city", ""),
+                "region":       d.get("region", ""),
             })
         history.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
     return JSONResponse(history)
@@ -2580,9 +2602,9 @@ async def start_playlist_download(
     ip = request.client.host if request.client else "unknown"
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
-        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code, "city": "", "region": ""}
     elif ip not in ip_country_cache and _is_private_ip(ip):
-        ip_country_cache[ip] = {"country": "Local", "code": ""}
+        ip_country_cache[ip] = {"country": "Local", "code": "", "city": "", "region": ""}
     cached_geo = ip_country_cache.get(ip, {})
 
     output_template = os.path.join(
@@ -2600,6 +2622,8 @@ async def start_playlist_download(
             "ip":           ip,
             "country":      cached_geo.get("country", ""),
             "country_code": cached_geo.get("code", ""),
+            "city":         cached_geo.get("city", ""),
+            "region":       cached_geo.get("region", ""),
             "created_at":   time.time(),
         }
 
@@ -2715,9 +2739,9 @@ async def start_batch_download(
     ip = request.client.host if request.client else "unknown"
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
-        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code}
+        ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code, "city": "", "region": ""}
     elif ip not in ip_country_cache and _is_private_ip(ip):
-        ip_country_cache[ip] = {"country": "Local", "code": ""}
+        ip_country_cache[ip] = {"country": "Local", "code": "", "city": "", "region": ""}
     cached_geo = ip_country_cache.get(ip, {})
 
     for url in url_list:
@@ -2754,6 +2778,8 @@ async def start_batch_download(
                 "ip":              ip,
                 "country":         cached_geo.get("country", ""),
                 "country_code":    cached_geo.get("code", ""),
+                "city":            cached_geo.get("city", ""),
+                "region":          cached_geo.get("region", ""),
             }
 
         thread = threading.Thread(
