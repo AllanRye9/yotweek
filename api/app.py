@@ -1803,7 +1803,7 @@ async def admin_cookies_upload(request: Request):
 
     # Basic validation: Netscape cookies files start with a comment or domain
     text = content.decode("utf-8", errors="replace")
-    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    lines = [s for ln in text.splitlines() if (s := ln.strip()) and not s.startswith("#")]
     if not lines:
         return JSONResponse({"error": "Cookies file appears to be empty (no cookie entries)"}, status_code=400)
 
