@@ -615,6 +615,13 @@
                 <i class="fas fa-upload"></i> <span class="hide-xs">Restore DB</span>
                 <input type="file" id="db-upload-input" accept=".db,application/x-sqlite3" style="display:none;" onchange="uploadDb(this)">
             </label>
+            <label class="back-link topbar-util-btn" title="Upload YouTube cookies.txt for authentication" style="cursor:pointer;" id="cookie-upload-label">
+                <i class="fas fa-cookie-bite"></i> <span class="hide-xs">Cookies</span>
+                <input type="file" id="cookie-upload-input" accept=".txt,text/plain" style="display:none;" onchange="uploadCookies(this)">
+            </label>
+            <button class="back-link topbar-util-btn" title="Delete cookies file" id="cookie-delete-btn" onclick="deleteCookies()" style="display:none;background:none;border:none;cursor:pointer;">
+                <i class="fas fa-cookie-bite" style="color:#ef4444;"></i> <span class="hide-xs" style="color:#ef4444;">Remove Cookies</span>
+            </button>
             <a href="/" class="back-link" aria-label="Back to site"><i class="fas fa-arrow-left"></i> <span class="hide-xs">Back</span></a>
             <form action="/admin/logout" method="post" style="display:inline;">
                 <button type="submit" class="back-link" style="background:none;border:none;cursor:pointer;">
@@ -647,6 +654,14 @@
                 <input type="file" accept=".db,application/x-sqlite3" style="display:none;"
                        onchange="uploadDb(this)">
             </label>
+            <label class="admin-menu-item" role="menuitem" style="cursor:pointer;" onclick="closeAdminMenu();">
+                <i class="fas fa-cookie-bite"></i> Upload Cookies
+                <input type="file" accept=".txt,text/plain" style="display:none;"
+                       onchange="uploadCookies(this)">
+            </label>
+            <button class="admin-menu-item cookie-delete-mobile" role="menuitem" onclick="deleteCookies(); closeAdminMenu();" style="display:none;">
+                <i class="fas fa-cookie-bite" style="color:#ef4444;"></i> Remove Cookies
+            </button>
             <a href="/" class="admin-menu-item" role="menuitem">
                 <i class="fas fa-arrow-left"></i> Back to Site
             </a>
@@ -1352,6 +1367,73 @@
         document.addEventListener('keydown', (ev) => {
             if (ev.key === 'Escape') closeAdminMenu();
         });
+
+        // ── Cookie management ─────────────────────────────────────
+        async function checkCookieStatus() {
+            try {
+                const res = await fetch('/admin/cookies/status');
+                if (!res.ok) return;
+                const data = await res.json();
+                const uploadLabel = document.getElementById('cookie-upload-label');
+                const deleteBtn   = document.getElementById('cookie-delete-btn');
+                const deleteMobile = document.querySelector('.cookie-delete-mobile');
+                if (data.has_cookies) {
+                    if (uploadLabel) uploadLabel.style.display = 'none';
+                    if (deleteBtn)   deleteBtn.style.display = '';
+                    if (deleteMobile) deleteMobile.style.display = '';
+                } else {
+                    if (uploadLabel) uploadLabel.style.display = '';
+                    if (deleteBtn)   deleteBtn.style.display = 'none';
+                    if (deleteMobile) deleteMobile.style.display = 'none';
+                }
+            } catch (_) { /* ignore */ }
+        }
+
+        async function uploadCookies(input) {
+            const file = input.files?.[0];
+            if (!file) return;
+            if (!confirm('Upload this cookies.txt file? It will be used for YouTube authentication to bypass bot detection.')) {
+                input.value = '';
+                return;
+            }
+            const formData = new FormData();
+            formData.append('cookie_file', file);
+            try {
+                const res = await fetch('/admin/cookies/upload', { method: 'POST', body: formData });
+                if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast('Upload failed: ' + esc(data.error || 'Unknown error'), 'error');
+                } else {
+                    showToast(esc(data.message || 'Cookies uploaded successfully.'), 'success');
+                    checkCookieStatus();
+                }
+            } catch (e) {
+                showToast('Upload failed: ' + esc(e.message), 'error');
+            } finally {
+                input.value = '';
+            }
+        }
+
+        async function deleteCookies() {
+            if (!confirm('Delete the cookies file? Downloads may fail with bot-detection errors until a new cookies file is uploaded.')) return;
+            try {
+                const res = await fetch('/admin/cookies', { method: 'DELETE' });
+                if (res.status === 401) { window.location.href = '/admin/login'; return; }
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast('Error: ' + esc(data.error || 'Unknown error'), 'error');
+                } else {
+                    showToast(esc(data.message || 'Cookies deleted.'), 'success');
+                    checkCookieStatus();
+                }
+            } catch (e) {
+                showToast('Request failed: ' + esc(e.message), 'error');
+            }
+        }
+
+        // Check cookie status on page load
+        checkCookieStatus();
     </script>
 </body>
 </html>

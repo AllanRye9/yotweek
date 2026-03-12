@@ -64,11 +64,14 @@ if os.path.basename(BASE_DIR) == "api":
 TEMPLATES_DIR = os.path.join(ROOT_DIR, Config.TEMPLATES_FOLDER)
 STATIC_DIR = os.path.join(ROOT_DIR, Config.STATIC_FOLDER)
 DOWNLOAD_FOLDER = os.path.join(ROOT_DIR, Config.DOWNLOAD_FOLDER)
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+COOKIES_FILE = os.environ.get("COOKIES_FILE", os.path.join(DATA_DIR, "cookies.txt"))
 
 # Create directories
 os.makedirs(TEMPLATES_DIR, exist_ok=True)
 os.makedirs(STATIC_DIR, exist_ok=True)
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+os.makedirs(DATA_DIR, exist_ok=True)
 
 # =========================================================
 # LOGGING SETUP
@@ -654,13 +657,26 @@ def _get_yt_extractor_args() -> dict:
     """Build YouTube extractor args with player clients that avoid bot detection.
 
     Uses the ``android_vr``, ``web``, and ``web_safari`` player clients, which
-    are the default clients supported by yt-dlp 2026.x and reliably bypass
-    YouTube's bot-detection checks without requiring cookies.
+    are the default clients supported by yt-dlp 2026.x.  When a cookies file is
+    present these clients combined with real YouTube cookies reliably bypass
+    YouTube's bot-detection checks.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
     args: dict = {"player_client": ["android_vr", "web", "web_safari"]}
     return {"youtube": args}
+
+
+def _get_cookie_opts() -> dict:
+    """Return yt-dlp ``cookiefile`` option when a valid cookies file exists.
+
+    The cookies file path is controlled by the ``COOKIES_FILE`` env-var and
+    defaults to ``data/cookies.txt``.  If the file doesn't exist an empty dict
+    is returned so callers can simply unpack it into their ``ydl_opts``.
+    """
+    if os.path.isfile(COOKIES_FILE):
+        return {"cookiefile": COOKIES_FILE}
+    return {}
 
 def format_speed(bytes_per_sec) -> str:
     """Format bytes/s to a human-readable speed string"""
@@ -715,6 +731,7 @@ def get_video_info(url: str) -> dict:
             "sleep_interval": 5,
             "max_sleep_interval": 10,
             "geo_bypass": True,
+            **_get_cookie_opts(),
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -811,6 +828,7 @@ def download_worker(download_id, url, output_template, format_spec):
         "progress_hooks": [progress_hook],
         "quiet": True,
         "no_warnings": True,
+        **_get_cookie_opts(),
     }
 
     # Add ffmpeg if available
@@ -1756,6 +1774,57 @@ async def admin_db_upload(request: Request):
             except OSError:
                 pass
 
+
+# ── Cookie management (admin) ─────────────────────────────
+@fastapi_app.get("/admin/cookies/status")
+@admin_required
+async def admin_cookies_status(request: Request):
+    """Return whether a cookies file is currently configured."""
+    exists = os.path.isfile(COOKIES_FILE)
+    info: dict = {"has_cookies": exists}
+    if exists:
+        info["size"] = os.path.getsize(COOKIES_FILE)
+        info["modified"] = os.path.getmtime(COOKIES_FILE)
+    return JSONResponse(info)
+
+
+@fastapi_app.post("/admin/cookies/upload")
+@admin_required
+async def admin_cookies_upload(request: Request):
+    """Upload a Netscape-format cookies.txt file for yt-dlp."""
+    form = await request.form()
+    cookie_file = form.get("cookie_file")
+    if cookie_file is None or not hasattr(cookie_file, "read"):
+        return JSONResponse({"error": "No file uploaded"}, status_code=400)
+
+    content = await cookie_file.read()
+    if not content:
+        return JSONResponse({"error": "Uploaded file is empty"}, status_code=400)
+
+    # Basic validation: Netscape cookies files start with a comment or domain
+    text = content.decode("utf-8", errors="replace")
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip() and not ln.strip().startswith("#")]
+    if not lines:
+        return JSONResponse({"error": "Cookies file appears to be empty (no cookie entries)"}, status_code=400)
+
+    os.makedirs(os.path.dirname(COOKIES_FILE), exist_ok=True)
+    with open(COOKIES_FILE, "wb") as fh:
+        fh.write(content)
+    logger.info("Admin uploaded new cookies file (%d bytes)", len(content))
+    return JSONResponse({"success": True, "message": "Cookies file uploaded successfully."})
+
+
+@fastapi_app.delete("/admin/cookies")
+@admin_required
+async def admin_cookies_delete(request: Request):
+    """Delete the current cookies file."""
+    if os.path.isfile(COOKIES_FILE):
+        os.remove(COOKIES_FILE)
+        logger.info("Admin deleted cookies file")
+        return JSONResponse({"success": True, "message": "Cookies file deleted."})
+    return JSONResponse({"error": "No cookies file found"}, status_code=404)
+
+
 # =========================================================
 # VIDEO / AUDIO CONVERSION
 # =========================================================
@@ -2293,6 +2362,7 @@ async def start_playlist_download(
             "progress_hooks":  [progress_hook],
             "quiet":           True,
             "no_warnings":     True,
+            **_get_cookie_opts(),
         }
         ffmpeg_path = shutil.which("ffmpeg")
         if ffmpeg_path:

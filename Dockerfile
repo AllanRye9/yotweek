@@ -13,6 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application source
 COPY . .
 
+# Create data directory for persistent files (cookies, etc.)
+RUN mkdir -p /app/data
+
 # Railway injects PORT at runtime; default to 5000 for local use
 ENV PORT=5000
 
