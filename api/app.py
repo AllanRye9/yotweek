@@ -607,7 +607,13 @@ def _country_from_accept_language(accept_lang: str) -> tuple[str, str]:
 
 
 def _lookup_country_async(ip: str, accept_language: str = ""):
-    """Resolve an IP to its country using multiple geo-IP services (fallback chain)."""
+    """Resolve an IP to its country using multiple geo-IP services (fallback chain).
+
+    Args:
+        ip: The IP address to geo-locate.
+        accept_language: Optional Accept-Language header value used as a
+            last-resort heuristic when all geo-IP services fail.
+    """
     if ip in ip_country_cache:
         return
 
