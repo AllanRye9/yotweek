@@ -1733,13 +1733,20 @@
                         <!-- Batch URLs tab -->
                         <div id="batch-tab" class="tab-pane" data-tabgroup="playlist-tabs">
                             <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
-                                Enter up to 20 video URLs, one per line.
+                                Enter up to 20 video URLs.
                             </p>
                             <div class="form-group">
-                                <label for="batch-urls"><i class="fas fa-list-ul"></i> Video URLs (one per line)</label>
-                                <textarea id="batch-urls" rows="6"
-                                    style="width:100%;padding:10px 12px;border:2px solid #e2e8f0;border-radius:8px;font-family:inherit;font-size:0.88rem;resize:vertical;background:#f8fafc;min-height:100px;color:#1e293b;"
-                                    placeholder="https://www.youtube.com/watch?v=…&#10;https://www.youtube.com/watch?v=…"></textarea>
+                                <label><i class="fas fa-list-ul"></i> Video URLs</label>
+                                <div id="batch-url-fields">
+                                    <div class="url-field-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
+                                        <input type="url" class="batch-url-input"
+                                               placeholder="https://www.youtube.com/watch?v=…  or any supported URL"
+                                               style="flex:1;">
+                                    </div>
+                                </div>
+                                <button type="button" class="btn-secondary btn-small" onclick="addBatchUrlField()" style="margin-top:2px;padding:6px 14px;font-size:0.82rem;">
+                                    <i class="fas fa-plus"></i> Add another URL
+                                </button>
                             </div>
                             <div class="form-group">
                                 <label for="batch-format"><i class="fas fa-sliders-h"></i> Quality</label>
@@ -2272,6 +2279,51 @@
             rows.forEach((row, i) => {
                 if (i > 0) row.remove();
                 else row.querySelector('.url-input').value = '';
+            });
+        }
+
+        // ─── Batch URL field helpers ──────────────────────────────
+        function addBatchUrlField() {
+            const container = document.getElementById('batch-url-fields');
+            const rows = container.querySelectorAll('.url-field-row');
+            if (rows.length >= 20) {
+                showToast('Maximum 20 URLs allowed', 'warning');
+                return;
+            }
+            const row = document.createElement('div');
+            row.className = 'url-field-row';
+            row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
+            row.innerHTML = `
+                <input type="url" class="batch-url-input"
+                       placeholder="https://www.youtube.com/watch?v=…  or any supported URL"
+                       style="flex:1;">
+                <button type="button" class="url-remove-btn" onclick="removeBatchUrlField(this)" title="Remove">
+                    <i class="fas fa-times"></i>
+                </button>`;
+            container.appendChild(row);
+            row.querySelector('.batch-url-input').focus();
+        }
+
+        function removeBatchUrlField(btn) {
+            const row = btn.closest('.url-field-row');
+            const container = document.getElementById('batch-url-fields');
+            if (container.querySelectorAll('.url-field-row').length > 1) {
+                row.remove();
+            }
+        }
+
+        function getBatchUrlValues() {
+            return Array.from(document.querySelectorAll('#batch-url-fields .batch-url-input'))
+                        .map(f => f.value.trim())
+                        .filter(Boolean);
+        }
+
+        function clearBatchUrlFields() {
+            const container = document.getElementById('batch-url-fields');
+            const rows = container.querySelectorAll('.url-field-row');
+            rows.forEach((row, i) => {
+                if (i > 0) row.remove();
+                else row.querySelector('.batch-url-input').value = '';
             });
         }
 
@@ -3364,14 +3416,14 @@
 
         // ─── Batch URL download ───────────────────────────────────
         async function startBatchDownload() {
-            const urls = document.getElementById('batch-urls').value.trim();
+            const urlValues = getBatchUrlValues();
             const btn  = document.getElementById('batch-btn');
-            if (!urls) { showToast('Please enter at least one URL', 'warning'); return; }
+            if (urlValues.length === 0) { showToast('Please enter at least one URL', 'warning'); return; }
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span> Starting…';
             try {
                 const fd = new FormData();
-                fd.append('urls',   urls);
+                fd.append('urls',   urlValues.join('\n'));
                 fd.append('format', document.getElementById('batch-format').value);
                 const res  = await fetch('/start_batch_download', { method: 'POST', body: fd });
                 const data = await res.json();
@@ -3387,7 +3439,7 @@
                 renderActiveDownloads();
                 openProgressModal();
                 showToast(`▶ ${data.total} download(s) started`, 'success');
-                document.getElementById('batch-urls').value = '';
+                clearBatchUrlFields();
                 beep(440, 200);
             } catch (err) {
                 showToast('Error: ' + err.message, 'error', 6000);
