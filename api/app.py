@@ -1133,6 +1133,32 @@ def download_file(filename):
         logger.error(f"Download error: {e}")
         return jsonify({"error": "File not found"}), 404
 
+@app.route("/stream/<path:filename>")
+def stream_file(filename):
+    """Serve a downloaded file inline for in-browser preview.
+
+    Differs from /downloads/ in that the file is served without the
+    Content-Disposition: attachment header, so browsers (including iOS Safari)
+    can play it directly in a <video>/<audio> element.  Werkzeug's
+    send_from_directory supports HTTP range requests out-of-the-box, which is
+    required by iOS Safari for media playback.
+    """
+    try:
+        filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+        if not os.path.realpath(filepath).startswith(os.path.realpath(DOWNLOAD_FOLDER)):
+            return jsonify({"error": "Invalid filename"}), 400
+        if not os.path.isfile(filepath):
+            return jsonify({"error": "File not found"}), 404
+        return send_from_directory(
+            DOWNLOAD_FOLDER,
+            filename,
+            as_attachment=False,
+        )
+    except Exception as e:
+        logger.error(f"Stream error: {e}")
+        return jsonify({"error": "File not found"}), 404
+
+
 @app.route("/delete/<path:filename>", methods=["DELETE"])
 def delete_file(filename):
     """Delete a downloaded file"""

@@ -1170,6 +1170,155 @@
                 font-size: 1rem; /* prevents iOS zoom on focus */
             }
         }
+
+        /* ── Compact mobile view ── */
+        @media (max-width: 600px) {
+            /* Use iOS safe-area insets for notched devices */
+            body {
+                padding-left:  env(safe-area-inset-left,  0px);
+                padding-right: env(safe-area-inset-right, 0px);
+                padding-bottom: env(safe-area-inset-bottom, 0px);
+            }
+            .top-nav {
+                padding-left:  max(16px, env(safe-area-inset-left,  0px));
+                padding-right: max(16px, env(safe-area-inset-right, 0px));
+            }
+
+            /* Compact card header */
+            .card-header { padding: 11px 14px; font-size: 0.88rem; }
+
+            /* Compact file list items */
+            .file-item { padding: 10px 12px; gap: 8px; }
+            .file-name { font-size: 0.85rem; }
+            .file-meta { font-size: 0.75rem; }
+            .file-actions { gap: 6px; margin-left: 8px; }
+
+            /* Compact file-action buttons — show only icon on very small screens */
+            .file-actions .btn-file-dl,
+            .file-actions .btn-file-watch,
+            .file-actions .btn-small {
+                padding: 7px 10px;
+                font-size: 0.8rem;
+            }
+
+            /* Watch button label hidden on ≤480 px so only the icon shows */
+        }
+        @media (max-width: 400px) {
+            .file-actions .btn-label { display: none; }
+            .file-actions .btn-file-dl,
+            .file-actions .btn-file-watch,
+            .file-actions .btn-small { padding: 8px 10px; }
+        }
+
+        /* ── Watch / preview button ── */
+        .btn-file-watch {
+            padding: 7px 14px;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            font-size: 0.82rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.2s;
+            min-height: 36px;
+            cursor: pointer;
+            font-family: inherit;
+        }
+        .btn-file-watch:hover {
+            background: linear-gradient(135deg, #059669 0%, #047857 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+        }
+
+        /* ── In-browser video/audio player modal ── */
+        #player-modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.82);
+            z-index: 6000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            /* iOS safe area */
+            padding-left:  max(12px, env(safe-area-inset-left,  0px));
+            padding-right: max(12px, env(safe-area-inset-right, 0px));
+            padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+        }
+        #player-modal.open { display: flex; }
+        .player-box {
+            background: #0f172a;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 860px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+            animation: slideUp 0.28s ease-out;
+            display: flex;
+            flex-direction: column;
+        }
+        .player-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: #1e293b;
+            gap: 10px;
+        }
+        .player-title {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #e2e8f0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            flex: 1;
+            min-width: 0;
+        }
+        .player-title i { color: #10b981; margin-right: 6px; }
+        .player-close {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            min-height: unset;
+            padding: 0;
+            cursor: pointer;
+            color: #e2e8f0;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: background 0.15s;
+        }
+        .player-close:hover { background: rgba(255,255,255,0.22); }
+        #player-media-wrap {
+            width: 100%;
+            background: #000;
+        }
+        #player-video {
+            width: 100%;
+            max-height: 65vh;
+            display: block;
+        }
+        #player-audio {
+            width: 100%;
+            padding: 20px 16px;
+            display: none;
+        }
+        .player-footer {
+            padding: 10px 16px;
+            background: #1e293b;
+            display: flex;
+            gap: 8px;
+            justify-content: flex-end;
+            flex-wrap: wrap;
+        }
     </style>
 </head>
 <body>
@@ -1815,6 +1964,35 @@
         </div>
     </div>
 
+    <!-- In-browser video/audio player modal -->
+    <div id="player-modal" role="dialog" aria-modal="true" aria-labelledby="player-modal-title">
+        <div class="player-box">
+            <div class="player-header">
+                <div class="player-title" id="player-modal-title">
+                    <i class="fas fa-play-circle"></i>
+                    <span id="player-filename-label">Preview</span>
+                </div>
+                <button class="player-close" onclick="closeVideoPlayer()" aria-label="Close player">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="player-media-wrap">
+                <video id="player-video" controls playsinline preload="metadata">
+                    Your browser does not support the video element.
+                </video>
+                <audio id="player-audio" controls></audio>
+            </div>
+            <div class="player-footer">
+                <a id="player-save-link" href="#" download="" class="btn-file-dl btn-small">
+                    <i class="fas fa-download"></i> <span class="btn-label">Save to device</span>
+                </a>
+                <button class="btn-secondary btn-small" onclick="closeVideoPlayer()">
+                    <i class="fas fa-times"></i> <span class="btn-label">Close</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- About modal -->
     <div class="info-modal-overlay" id="about-modal" role="dialog" aria-modal="true" aria-labelledby="about-modal-title">
         <div class="info-modal-box">
@@ -2397,6 +2575,80 @@
             document.getElementById('badge-count-hero').textContent = downloadCount;
         }
 
+        // ─── Media type helpers ───────────────────────────────────
+        const _VIDEO_EXTS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', '3gp', 'flv', 'ts']);
+        const _AUDIO_EXTS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus', 'weba']);
+
+        function _fileExt(name) {
+            const dot = (name || '').lastIndexOf('.');
+            return dot !== -1 ? name.slice(dot + 1).toLowerCase() : '';
+        }
+        function isVideoFile(name) { return _VIDEO_EXTS.has(_fileExt(name)); }
+        function isAudioFile(name) { return _AUDIO_EXTS.has(_fileExt(name)); }
+        function isMediaFile(name) { return isVideoFile(name) || isAudioFile(name); }
+
+        // ─── In-browser video/audio player ───────────────────────
+        function openVideoPlayer(filename) {
+            const modal    = document.getElementById('player-modal');
+            const video    = document.getElementById('player-video');
+            const audio    = document.getElementById('player-audio');
+            const label    = document.getElementById('player-filename-label');
+            const saveLink = document.getElementById('player-save-link');
+            const streamUrl = '/stream/' + encodeURIComponent(filename);
+            const dlUrl     = '/downloads/' + encodeURIComponent(filename);
+
+            // Stop any previously playing media
+            video.pause();
+            audio.pause();
+            video.removeAttribute('src');
+            audio.removeAttribute('src');
+            video.load();
+            audio.load();
+
+            label.textContent = filename;
+            saveLink.href     = dlUrl;
+            saveLink.download = filename;
+
+            if (isAudioFile(filename)) {
+                video.style.display = 'none';
+                audio.style.display = 'block';
+                audio.src = streamUrl;
+                audio.load();
+            } else {
+                video.style.display = 'block';
+                audio.style.display = 'none';
+                video.src = streamUrl;
+                video.load();
+            }
+
+            modal.classList.add('open');
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeVideoPlayer() {
+            const modal = document.getElementById('player-modal');
+            const video = document.getElementById('player-video');
+            const audio = document.getElementById('player-audio');
+            video.pause();
+            audio.pause();
+            video.removeAttribute('src');
+            audio.removeAttribute('src');
+            video.load();
+            audio.load();
+            modal.classList.remove('open');
+            document.body.style.overflow = '';
+        }
+
+        // Close player on backdrop click or Escape key
+        document.getElementById('player-modal').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('player-modal')) closeVideoPlayer();
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && document.getElementById('player-modal').classList.contains('open')) {
+                closeVideoPlayer();
+            }
+        });
+
         // ─── File list ────────────────────────────────────────────
         async function loadFiles(animate = false) {
             const list = document.getElementById('file-list');
@@ -2448,17 +2700,28 @@
                     const date   = new Date(file.modified * 1000).toLocaleDateString();
                     const safeName = escHtml(file.name);
                     const dlHref   = '/downloads/' + encodeURIComponent(file.name);
+                    const isMedia  = isMediaFile(file.name);
+                    const fileIcon = isAudioFile(file.name) ? 'fa-music' : 'fa-film';
+
+                    const watchBtn = isMedia
+                        ? `<button class="btn-file-watch watch-btn"
+                                   data-filename="${safeName}"
+                                   title="Watch / preview in browser">
+                               <i class="fas fa-play"></i> <span class="btn-label">Watch</span>
+                           </button>`
+                        : '';
 
                     li.innerHTML = `
                         <div class="file-info">
                             <div class="file-name">
-                                <i class="fas fa-film" style="color:#667eea; margin-right:7px;"></i>${safeName}
+                                <i class="fas ${fileIcon}" style="color:#667eea; margin-right:7px;"></i>${safeName}
                             </div>
                             <div class="file-meta">${sizeMB} MB &bull; ${date}</div>
                         </div>
                         <div class="file-actions">
+                            ${watchBtn}
                             <a href="${dlHref}" download="${safeName}" class="btn-file-dl">
-                                <i class="fas fa-download"></i> Save
+                                <i class="fas fa-download"></i> <span class="btn-label">Save</span>
                             </a>
                             <button class="btn-danger btn-small delete-btn"
                                     data-filename="${safeName}"
@@ -2480,6 +2743,13 @@
         // ─── Delete file ──────────────────────────────────────────
         // Use event delegation to avoid inline onclick with user data
         document.getElementById('file-list').addEventListener('click', async (e) => {
+            // Watch button
+            const watchBtn = e.target.closest('.watch-btn');
+            if (watchBtn) {
+                openVideoPlayer(watchBtn.dataset.filename);
+                return;
+            }
+            // Delete button
             const btn = e.target.closest('.delete-btn');
             if (!btn) return;
             const filename = btn.dataset.filename;
