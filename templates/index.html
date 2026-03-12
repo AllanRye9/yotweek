@@ -1305,6 +1305,14 @@
             width: 100%;
             max-height: 65vh;
             display: block;
+            object-fit: contain;
+        }
+        #player-video:-webkit-full-screen,
+        #player-video:fullscreen {
+            width: 100vw;
+            max-height: 100vh;
+            height: 100vh;
+            object-fit: contain;
         }
         #player-audio {
             width: 100%;
@@ -1977,7 +1985,7 @@
                 </button>
             </div>
             <div id="player-media-wrap">
-                <video id="player-video" controls playsinline preload="metadata">
+                <video id="player-video" controls preload="metadata">
                     Your browser does not support the video element.
                 </video>
                 <audio id="player-audio" controls></audio>
