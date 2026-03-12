@@ -17,7 +17,7 @@
 
         body {
             font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: linear-gradient(150deg, #eef2ff 0%, #f8faff 50%, #e8eeff 100%);
+            background: #f0f2f5;
             background-attachment: fixed;
             color: #1e293b;
             line-height: 1.6;
@@ -27,20 +27,20 @@
         .container {
             max-width: 1200px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 16px;
         }
         @media (max-width: 600px) {
-            .container { padding: 10px; }
+            .container { padding: 8px; }
         }
 
         /* ── Stats badge ── */
         .stats-badge {
             position: fixed;
-            top: 78px;
-            left: 20px;
-            width: 70px;
-            height: 70px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            top: 62px;
+            left: 16px;
+            width: 60px;
+            height: 60px;
+            background: #2563eb;
             border-radius: 50%;
             display: flex;
             flex-direction: column;
@@ -48,8 +48,8 @@
             justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 1.2rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-size: 1.1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
             z-index: 1000;
             cursor: pointer;
             transition: transform 0.2s;
@@ -66,18 +66,18 @@
         }
         .toast {
             background: white;
-            border-left: 4px solid #667eea;
+            border-left: 4px solid #2563eb;
             border-radius: 4px;
-            padding: 12px 20px;
-            margin-top: 10px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 10px 16px;
+            margin-top: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
             display: flex;
             align-items: center;
             gap: 10px;
             animation: slideInRight 0.3s ease-out;
-            max-width: 320px;
+            max-width: 300px;
         }
-        .toast i { color: #667eea; font-size: 1.2rem; }
+        .toast i { color: #2563eb; font-size: 1.1rem; }
         .toast.success { border-left-color: #10b981; }
         .toast.success i { color: #10b981; }
         .toast.error { border-left-color: #ef4444; }
@@ -97,16 +97,16 @@
         /* ── Hero header ── */
         .hero {
             width: 100%;
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 8px 18px;
+            background: #1e293b;
             color: #fff;
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
             gap: 8px;
-            min-height: 50px;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            min-height: 44px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
             margin-bottom: 0;
         }
         .hero-icon {
@@ -164,51 +164,52 @@
         /* ── Card ── */
         .card {
             background: white;
-            border-radius: 16px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.07);
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
             overflow: hidden;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             animation: slideUp 0.5s ease-out;
+            border: 1px solid #e5e7eb;
         }
         .card-header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #1e293b;
             color: white;
-            padding: 15px 20px;
-            font-size: 1rem;
+            padding: 12px 18px;
+            font-size: 0.92rem;
             font-weight: 700;
             display: flex;
             align-items: center;
             gap: 10px;
             letter-spacing: -0.01em;
         }
-        .card-body { padding: 20px; }
+        .card-body { padding: 18px; }
 
         /* ── Form ── */
-        .form-group { margin-bottom: 15px; }
+        .form-group { margin-bottom: 12px; }
         label {
             display: block;
             font-weight: 600;
             color: #374151;
-            margin-bottom: 6px;
-            font-size: 0.88rem;
+            margin-bottom: 5px;
+            font-size: 0.85rem;
         }
         input, select {
             width: 100%;
-            padding: 11px 14px;
-            border: 2px solid #e2e8f0;
+            padding: 10px 12px;
+            border: 1.5px solid #d1d5db;
             border-radius: 8px;
             font-family: inherit;
-            font-size: 0.95rem;
+            font-size: 0.92rem;
             transition: border-color 0.2s, box-shadow 0.2s;
-            background: #f8fafc;
-            min-height: 44px;
+            background: #fafbfc;
+            min-height: 42px;
             color: #1e293b;
         }
         input:focus, select:focus {
             outline: none;
-            border-color: #667eea;
+            border-color: #3b82f6;
             background: #fff;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.12);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
         }
         .form-row {
             display: grid;
@@ -239,10 +240,10 @@
 
         /* ── Buttons ── */
         button {
-            padding: 11px 22px;
+            padding: 10px 20px;
             border: none;
             border-radius: 8px;
-            font-size: 0.95rem;
+            font-size: 0.9rem;
             font-weight: 600;
             cursor: pointer;
             transition: all 0.25s;
@@ -250,18 +251,19 @@
             align-items: center;
             gap: 7px;
             justify-content: center;
-            min-height: 44px;
+            min-height: 42px;
             font-family: inherit;
         }
         .btn-primary {
             width: 100%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #2563eb;
             color: white;
             letter-spacing: 0.01em;
         }
         .btn-primary:hover:not(:disabled) {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+            background: #1d4ed8;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
         }
         .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
         .btn-secondary { background: #f1f5f9; color: #475569; border: 1.5px solid #e2e8f0; }
@@ -302,7 +304,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .dl-card-title i { color: #667eea; margin-right: 6px; }
+        .dl-card-title i { color: #2563eb; margin-right: 6px; }
         .progress-wrap {
             background: #e8ecf0;
             border-radius: 999px;
@@ -312,7 +314,7 @@
         }
         .progress-fill {
             height: 100%;
-            background: linear-gradient(90deg, #667eea, #764ba2);
+            background: linear-gradient(90deg, #3b82f6, #2563eb);
             border-radius: 999px;
             transition: width 0.4s ease;
             width: 0%;
@@ -341,7 +343,7 @@
             transition: all 0.2s;
             animation: slideIn 0.35s ease-out;
         }
-        .file-item:hover { background: #f5f7ff; border-color: #c4cdf8; transform: translateX(3px); }
+        .file-item:hover { background: #f0f7ff; border-color: #93c5fd; transform: translateX(2px); }
         .file-info { flex: 1; min-width: 0; }
         .file-name {
             font-weight: 600;
@@ -399,8 +401,8 @@
             transition: border-color 0.2s, background 0.2s;
         }
         .format-option:hover {
-            border-color: #667eea;
-            background: #f5f7ff;
+            border-color: #2563eb;
+            background: #eff6ff;
         }
         .format-option-icon {
             width: 38px;
@@ -419,7 +421,7 @@
             margin-bottom: 2px;
         }
         .format-option-tag {
-            background: #667eea;
+            background: #2563eb;
             color: white;
             font-size: 0.68rem;
             padding: 1px 6px;
@@ -447,7 +449,7 @@
         .main-grid {
             display: grid;
             grid-template-columns: 180px 1fr 180px;
-            gap: 20px;
+            gap: 16px;
             align-items: start;
         }
         .ad-col {
@@ -495,26 +497,26 @@
         }
         .main-section-header::-webkit-scrollbar { display: none; }
         .main-tab-btn {
-            padding: 15px 20px;
+            padding: 12px 18px;
             background: transparent;
             color: rgba(255, 255, 255, 0.72);
             border: none;
             border-radius: 0;
-            font-size: 0.88rem;
+            font-size: 0.84rem;
             font-weight: 700;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
-            border-right: 1px solid rgba(255, 255, 255, 0.18);
+            border-right: 1px solid rgba(255, 255, 255, 0.12);
             letter-spacing: -0.01em;
             font-family: inherit;
-            min-height: 52px;
+            min-height: 46px;
             flex: 0 0 auto;
             white-space: nowrap;
             text-align: center;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 7px;
+            gap: 6px;
         }
         .main-tab-btn:last-child { border-right: none; }
         .main-tab-btn:hover { background: rgba(255, 255, 255, 0.12); color: white; }
@@ -531,10 +533,10 @@
 
         /* ── Footer ── */
         .site-footer {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #1e293b;
             color: white;
-            padding: 32px 20px 24px;
-            margin-top: 40px;
+            padding: 28px 20px 20px;
+            margin-top: 32px;
             text-align: center;
         }
         .footer-content { width: 100%; }
@@ -572,27 +574,27 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            font-size: 0.88rem;
+            font-size: 0.85rem;
             font-weight: 600;
-            color: #667eea;
-            background: #eef2ff;
-            border: 1.5px solid #818cf8;
-            padding: 8px 18px;
+            color: #2563eb;
+            background: #eff6ff;
+            border: 1.5px solid #93c5fd;
+            padding: 7px 16px;
             border-radius: 8px;
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
-            min-height: 40px;
+            min-height: 38px;
             font-family: inherit;
         }
-        .format-guide-toggle:hover { background: #e0e7ff; color: #4f46e5; border-color: #4f46e5; }
+        .format-guide-toggle:hover { background: #dbeafe; color: #1d4ed8; border-color: #3b82f6; }
         .format-guide-toggle .fg-chevron { font-size: 0.75rem; transition: transform 0.2s; }
         .format-selected-display {
-            margin-top: 8px;
-            padding: 10px 14px;
-            background: #f0f4ff;
-            border: 1.5px solid #c7d2fe;
+            margin-top: 6px;
+            padding: 8px 12px;
+            background: #eff6ff;
+            border: 1.5px solid #bfdbfe;
             border-radius: 8px;
-            font-size: 0.88rem;
+            font-size: 0.85rem;
             color: #1e293b;
             font-weight: 600;
             display: flex;
@@ -617,6 +619,8 @@
             z-index: 500;
             padding: 10px;
             animation: slideUp 0.2s ease-out;
+            max-height: 260px;
+            overflow-y: auto;
         }
         .format-guide-dropdown.open { display: block; }
 
@@ -663,15 +667,15 @@
         }
         .modal-box {
             background: white;
-            border-radius: 18px;
-            padding: 36px 30px 28px;
+            border-radius: 14px;
+            padding: 30px 26px 24px;
             max-width: 440px;
             width: 92%;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
             text-align: center;
             animation: slideUp 0.3s ease-out;
         }
-        .modal-icon { font-size: 2.8rem; color: #667eea; margin-bottom: 14px; }
+        .modal-icon { font-size: 2.4rem; color: #2563eb; margin-bottom: 12px; }
         .modal-title {
             font-size: 1.2rem;
             font-weight: 700;
@@ -690,6 +694,23 @@
             transition: background 0.2s;
         }
         .btn-modal-keep:hover { background: #dde1e7; }
+        .btn-modal-save {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 10px 26px;
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            text-decoration: none;
+            min-height: 42px;
+        }
+        .btn-modal-save:hover { background: #1d4ed8; }
 
         /* ── Page loader overlay ── */
         #page-loader {
@@ -710,12 +731,12 @@
             font-weight: 700;
             color: #1e293b;
         }
-        .loader-title i { color: #667eea; margin-right: 8px; }
+        .loader-title i { color: #2563eb; margin-right: 8px; }
         .loading-dots {
             display: flex;
             gap: 3px;
             font-size: 2.4rem;
-            color: #667eea;
+            color: #2563eb;
             font-weight: 900;
             line-height: 1;
         }
@@ -746,11 +767,11 @@
         }
         .retention-box {
             background: white;
-            border-radius: 18px;
-            padding: 32px 28px 24px;
+            border-radius: 14px;
+            padding: 28px 24px 22px;
             max-width: 400px;
             width: 92%;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
             text-align: center;
             animation: slideUp 0.3s ease-out;
         }
@@ -777,8 +798,8 @@
             gap: 6px;
             margin-bottom: 16px;
         }
-        .tab-btn:hover { background: #e0e7ff; color: #4f46e5; }
-        .tab-btn.active { background: #667eea; color: white; border-color: #667eea; }
+        .tab-btn:hover { background: #dbeafe; color: #1d4ed8; }
+        .tab-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
         .tab-pane { display: none; }
         .tab-pane.active { display: block; }
 
@@ -817,20 +838,20 @@
         .job-badge.failed     { background: #fef2f2; color: #dc2626; }
 
         /* ── Top navigation bar ── */
-        html { scroll-padding-top: 60px; }
-        body { padding-top: 58px; }
+        html { scroll-padding-top: 56px; }
+        body { padding-top: 54px; }
         .top-nav {
             position: fixed;
             top: 0;
             left: 0;
             right: 0;
-            height: 58px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            height: 54px;
+            background: #1e293b;
             display: flex;
             align-items: center;
             justify-content: space-between;
             z-index: 999;
-            box-shadow: 0 2px 16px rgba(102, 126, 234, 0.35);
+            box-shadow: 0 1px 8px rgba(0, 0, 0, 0.15);
             padding: 0 16px;
         }
         .nav-brand {
@@ -918,8 +939,8 @@
             min-height: unset;
             transition: background 0.15s, color 0.15s;
         }
-        .nav-dd-item:hover { background: #eef2ff; color: #4f46e5; }
-        .nav-dd-item i { width: 16px; text-align: center; color: #667eea; flex-shrink: 0; }
+        .nav-dd-item:hover { background: #eff6ff; color: #1d4ed8; }
+        .nav-dd-item i { width: 16px; text-align: center; color: #2563eb; flex-shrink: 0; }
         /* Modal overlays (About / Features) */
         .info-modal-overlay {
             display: none;
@@ -972,11 +993,11 @@
             align-items: center;
             gap: 10px;
         }
-        .info-modal-title i { color: #667eea; }
+        .info-modal-title i { color: #2563eb; }
         .info-section-title {
             font-size: 0.82rem;
             font-weight: 700;
-            color: #667eea;
+            color: #2563eb;
             text-transform: uppercase;
             letter-spacing: 0.06em;
             margin: 16px 0 6px;
@@ -992,7 +1013,7 @@
             color: #374151;
         }
         .info-feature-list li:last-child { border-bottom: none; }
-        .info-feature-list li i { color: #667eea; margin-top: 2px; flex-shrink: 0; }
+        .info-feature-list li i { color: #2563eb; margin-top: 2px; flex-shrink: 0; }
         .info-feature-list li strong { display: block; font-weight: 700; color: #1e293b; }
         .info-feature-list li span { font-size: 0.82rem; color: #64748b; }
         /* Responsive nav */
@@ -1030,13 +1051,13 @@
         .mobile-nav {
             display: none;
             position: fixed;
-            top: 58px;
+            top: 54px;
             left: 0;
             right: 0;
             z-index: 998;
-            background: linear-gradient(160deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 8px 28px rgba(102,126,234,0.45);
-            border-top: 1px solid rgba(255,255,255,0.14);
+            background: #1e293b;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            border-top: 1px solid rgba(255,255,255,0.08);
         }
         .mobile-nav.open { display: block; animation: mobileNavIn 0.2s ease-out; }
         @keyframes mobileNavIn {
@@ -1087,7 +1108,7 @@
             display: none;
             position: fixed;
             inset: 0;
-            top: 58px;
+            top: 54px;
             z-index: 997;
             background: rgba(0,0,0,0.25);
         }
@@ -1451,22 +1472,22 @@
         </div>
     </div>
 
-    <!-- Retention: 1-minute delete-or-exit prompt -->
+    <!-- Retention: 1-minute delete-or-save prompt -->
     <div id="retention-modal" role="dialog" aria-modal="true" aria-labelledby="retention-modal-title">
         <div class="retention-box">
             <div class="modal-icon"><i class="fas fa-clock"></i></div>
             <div class="modal-title" id="retention-modal-title">File ready for action</div>
             <div class="retention-filename" id="retention-filename"></div>
             <p style="font-size:0.88rem; color:#64748b; margin-bottom:20px;">
-                This file has been available for 1&nbsp;minute.<br>Would you like to delete it or exit this prompt?
+                This file has been available for 1&nbsp;minute.<br>Would you like to delete it or save it to your device?
             </p>
             <div class="retention-actions">
                 <button class="btn-danger" id="retention-delete-btn">
                     <i class="fas fa-trash"></i> Delete
                 </button>
-                <button class="btn-modal-keep" id="retention-keep-btn">
-                    <i class="fas fa-times"></i> Exit
-                </button>
+                <a id="retention-save-link" href="#" download="" class="btn-modal-save">
+                    <i class="fas fa-download"></i> Save
+                </a>
             </div>
         </div>
     </div>
@@ -1537,7 +1558,7 @@
                                        placeholder="https://www.youtube.com/watch?v=…  or any supported URL">
                             </div>
                                 <div class="form-group" style="position:relative;">
-                                    <input type="hidden" id="format" name="format" value="bestvideo*+bestaudio*/best">
+                                    <input type="hidden" id="format" name="format" value="bestvideo[height<=1080]+bestaudio/best">
                                     <div style="display:flex; justify-content:center; margin-bottom:6px;">
                                         <button type="button" class="format-guide-toggle" id="format-guide-btn"
                                                 aria-expanded="false" aria-controls="format-guide-dropdown">
@@ -1546,28 +1567,14 @@
                                     </div>
                                     <div class="format-selected-display" id="format-display">
                                         <span class="fsd-label">Selected:</span>
-                                        <span id="format-display-text">Best Quality</span>
+                                        <span id="format-display-text">Full HD (1080p)</span>
                                     </div>
                                     <!-- Format guide dropdown — positioned below the display, full width of form-group -->
                                     <div class="format-guide-dropdown" id="format-guide-dropdown" role="listbox" aria-label="Format Guide">
-                                        <div class="format-option" onclick="pickFormat('bestvideo*+bestaudio*/best', 'Best Quality')" role="option" tabindex="0">
-                                            <div class="format-option-icon" style="background:#eff6ff;color:#3b82f6;"><i class="fas fa-star"></i></div>
-                                            <div class="format-option-text">
-                                                <div class="format-option-title">Best Quality <span class="format-option-tag">Recommended</span></div>
-                                                <div class="format-option-desc">Highest quality available — great for most uses.</div>
-                                            </div>
-                                        </div>
-                                        <div class="format-option" onclick="pickFormat('bestvideo+bestaudio/best', 'Maximum Quality')" role="option" tabindex="0">
-                                            <div class="format-option-icon" style="background:#f0fdf4;color:#16a34a;"><i class="fas fa-gem"></i></div>
-                                            <div class="format-option-text">
-                                                <div class="format-option-title">Maximum Quality</div>
-                                                <div class="format-option-desc">Best video + audio merged (requires ffmpeg).</div>
-                                            </div>
-                                        </div>
                                         <div class="format-option" onclick="pickFormat('bestvideo[height<=1080]+bestaudio/best', 'Full HD (1080p)')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#faf5ff;color:#7c3aed;"><i class="fas fa-tv"></i></div>
                                             <div class="format-option-text">
-                                                <div class="format-option-title">Full HD (1080p)</div>
+                                                <div class="format-option-title">Full HD (1080p) <span class="format-option-tag">Recommended</span></div>
                                                 <div class="format-option-desc">Up to 1080p — sharp on most screens.</div>
                                             </div>
                                         </div>
@@ -1583,13 +1590,6 @@
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Standard (480p)</div>
                                                 <div class="format-option-desc">Smaller file — good for mobile or slow connections.</div>
-                                            </div>
-                                        </div>
-                                        <div class="format-option" onclick="pickFormat('bestaudio/best', 'Audio Only')" role="option" tabindex="0">
-                                            <div class="format-option-icon" style="background:#fef9c3;color:#a16207;"><i class="fas fa-music"></i></div>
-                                            <div class="format-option-text">
-                                                <div class="format-option-title">Audio Only</div>
-                                                <div class="format-option-desc">Sound only — perfect for music, podcasts or talks.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -1621,11 +1621,9 @@
                             <div class="form-group">
                                 <label for="playlist-format"><i class="fas fa-sliders-h"></i> Quality</label>
                                 <select id="playlist-format">
-                                    <option value="bestvideo*+bestaudio*/best">Best Quality</option>
-                                    <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
+                                    <option value="bestvideo[height<=1080]+bestaudio/best" selected>Full HD (1080p)</option>
                                     <option value="bestvideo[height<=720]+bestaudio/best">HD (720p)</option>
                                     <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
-                                    <option value="bestaudio/best">Audio Only</option>
                                 </select>
                             </div>
                             <button class="btn-primary" id="playlist-btn" onclick="startPlaylistDownload()">
@@ -1647,11 +1645,9 @@
                             <div class="form-group">
                                 <label for="batch-format"><i class="fas fa-sliders-h"></i> Quality</label>
                                 <select id="batch-format">
-                                    <option value="bestvideo*+bestaudio*/best">Best Quality</option>
-                                    <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
+                                    <option value="bestvideo[height<=1080]+bestaudio/best" selected>Full HD (1080p)</option>
                                     <option value="bestvideo[height<=720]+bestaudio/best">HD (720p)</option>
                                     <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
-                                    <option value="bestaudio/best">Audio Only</option>
                                 </select>
                             </div>
                             <button class="btn-primary" id="batch-btn" onclick="startBatchDownload()">
@@ -2041,17 +2037,10 @@
             </div>
             <ul class="info-feature-list">
                 <li>
-                    <i class="fas fa-star"></i>
+                    <i class="fas fa-tv"></i>
                     <div>
-                        <strong>Best Quality Download</strong>
-                        <span>Automatically picks the highest available video + audio quality. Great for archiving.</span>
-                    </div>
-                </li>
-                <li>
-                    <i class="fas fa-music"></i>
-                    <div>
-                        <strong>Audio Only (MP3 / WAV)</strong>
-                        <span>Extract just the audio track — perfect for music, podcasts, or talks.</span>
+                        <strong>HD Video Download</strong>
+                        <span>Download videos in Full HD, HD, or Standard quality from YouTube and 1000+ sites.</span>
                     </div>
                 </li>
                 <li>
@@ -2447,6 +2436,9 @@
             document.getElementById('progress-modal').style.display = 'none';
             progressModalVisible = false;
             if (_allDoneTimer) { clearTimeout(_allDoneTimer); _allDoneTimer = null; }
+            // Clear the modal body so no stale cards remain when re-opened
+            document.getElementById('progress-modal-body').innerHTML = '';
+            document.getElementById('progress-modal-title').textContent = 'Download in Progress';
         }
 
         function updateProgressModal() {
@@ -2725,7 +2717,7 @@
                     li.innerHTML = `
                         <div class="file-info">
                             <div class="file-name">
-                                <i class="fas ${fileIcon}" style="color:#667eea; margin-right:7px;"></i>${safeName}
+                                <i class="fas ${fileIcon}" style="color:#2563eb; margin-right:7px;"></i>${safeName}
                             </div>
                             <div class="file-meta">${sizeMB} MB &bull; ${date}</div>
                         </div>
@@ -2866,6 +2858,10 @@
             const modal = document.getElementById('retention-modal');
             document.getElementById('retention-filename').textContent = filename;
             modal.dataset.currentFile = filename;
+            // Set up the save link so user can download to device
+            const saveLink = document.getElementById('retention-save-link');
+            saveLink.href = '/downloads/' + encodeURIComponent(filename);
+            saveLink.download = filename;
             modal.style.display = 'flex';
         }
 
@@ -2898,9 +2894,9 @@
             }
         });
 
-        document.getElementById('retention-keep-btn').addEventListener('click', () => {
+        document.getElementById('retention-save-link').addEventListener('click', () => {
             _closeRetentionModal();
-            showToast('Prompt dismissed', 'info', 2500);
+            showToast('Download started', 'success', 2500);
         });
 
         updateStatsBadge();
