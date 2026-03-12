@@ -860,51 +860,55 @@
             align-items: center;
             gap: 8px;
             color: white;
-            font-size: 1rem;
+            font-size: 1.05rem;
             font-weight: 800;
             letter-spacing: -0.02em;
             text-decoration: none;
-            padding: 6px 10px;
-            border-radius: 8px;
+            padding: 6px 12px;
+            border-radius: 10px;
             white-space: nowrap;
             flex-shrink: 0;
             cursor: pointer;
-            background: transparent;
+            background: rgba(37,99,235,0.18);
             border: none;
             font-family: inherit;
             min-height: unset;
-            transition: background 0.2s;
+            transition: background 0.25s, box-shadow 0.25s;
         }
-        .nav-brand:hover { background: rgba(255,255,255,0.15); }
+        .nav-brand i { color: #60a5fa; }
+        .nav-brand:hover { background: rgba(37,99,235,0.32); box-shadow: 0 0 0 1.5px rgba(96,165,250,0.35); }
         .nav-links {
             display: flex;
             align-items: center;
-            gap: 2px;
+            gap: 4px;
         }
         .nav-item {
             display: flex;
             align-items: center;
             gap: 6px;
-            padding: 7px 13px;
-            border-radius: 8px;
+            padding: 7px 14px;
+            border-radius: 10px;
             color: rgba(255,255,255,0.85);
             font-size: 0.85rem;
             font-weight: 600;
             cursor: pointer;
             border: none;
             background: transparent;
-            transition: background 0.2s, color 0.2s;
+            transition: background 0.25s, color 0.25s, box-shadow 0.25s;
             white-space: nowrap;
             flex-shrink: 0;
             font-family: inherit;
             min-height: unset;
         }
-        .nav-item:hover { background: rgba(255,255,255,0.18); color: white; }
+        .nav-item i { transition: color 0.25s; }
+        .nav-item:hover { background: rgba(96,165,250,0.18); color: white; }
+        .nav-item:hover i { color: #60a5fa; }
         .nav-item.active {
-            background: rgba(255,255,255,0.22);
+            background: rgba(37,99,235,0.25);
             color: white;
-            box-shadow: 0 0 0 1.5px rgba(255,255,255,0.45);
+            box-shadow: 0 0 0 1.5px rgba(96,165,250,0.45);
         }
+        .nav-item.active i { color: #93bbfd; }
         /* Services dropdown */
         .nav-dropdown-wrap { position: relative; }
         .nav-chevron { font-size: 0.62rem; margin-left: 1px; transition: transform 0.2s; }
@@ -914,10 +918,10 @@
             top: calc(100% + 8px);
             right: 0;
             background: white;
-            border-radius: 10px;
-            box-shadow: 0 8px 28px rgba(0,0,0,0.15);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.16);
             padding: 6px;
-            min-width: 230px;
+            min-width: 200px;
             z-index: 1200;
             animation: slideUp 0.18s ease-out;
         }
@@ -1458,15 +1462,15 @@
                 <div class="nav-dropdown-menu" id="services-dropdown" role="menu">
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('download-panel'); closeServicesDropdown();">
-                        <i class="fas fa-download" aria-hidden="true"></i> Download Videos
+                        <i class="fas fa-download" aria-hidden="true"></i> Download
                     </button>
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('playlist-panel'); closeServicesDropdown();">
-                        <i class="fas fa-list" aria-hidden="true"></i> Playlist &amp; Bulk Download
+                        <i class="fas fa-list" aria-hidden="true"></i> Playlist
                     </button>
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('editing-panel'); closeServicesDropdown();">
-                        <i class="fas fa-tools" aria-hidden="true"></i> Video Editing &amp; Conversion
+                        <i class="fas fa-tools" aria-hidden="true"></i> Edit &amp; Convert
                     </button>
                 </div>
             </div>
@@ -1503,13 +1507,13 @@
             <div class="mobile-nav-divider"></div>
             <div class="mobile-nav-section-label">Services</div>
             <button class="mobile-nav-item" onclick="showSectionPanel('download-panel'); closeMobileNav();">
-                <i class="fas fa-download"></i> Download Videos
+                <i class="fas fa-download"></i> Download
             </button>
             <button class="mobile-nav-item" onclick="showSectionPanel('playlist-panel'); closeMobileNav();">
-                <i class="fas fa-list"></i> Playlist &amp; Bulk Download
+                <i class="fas fa-list"></i> Playlist
             </button>
             <button class="mobile-nav-item" onclick="showSectionPanel('editing-panel'); closeMobileNav();">
-                <i class="fas fa-tools"></i> Video Editing &amp; Conversion
+                <i class="fas fa-tools"></i> Edit &amp; Convert
             </button>
         </div>
     </nav>
@@ -1631,13 +1635,13 @@
                 <div id="section-download" class="card card-has-dropdown">
                     <div class="card-header main-section-header">
                         <button class="main-tab-btn active" id="main-tab-download" onclick="switchMainSection('download-panel', this)">
-                            <i class="fas fa-link"></i> Download Video
+                            <i class="fas fa-link"></i> Download
                         </button>
                         <button class="main-tab-btn" id="main-tab-playlist" onclick="switchMainSection('playlist-panel', this)">
-                            <i class="fas fa-list"></i> Playlist &amp; Bulk Download
+                            <i class="fas fa-list"></i> Playlist
                         </button>
                         <button class="main-tab-btn" id="main-tab-editing" onclick="switchMainSection('editing-panel', this)">
-                            <i class="fas fa-tools"></i> Video Editing &amp; Conversion
+                            <i class="fas fa-tools"></i> Edit &amp; Convert
                         </button>
                     </div>
                     <!-- Download Video panel (active by default) -->
