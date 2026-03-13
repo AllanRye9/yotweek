@@ -1154,6 +1154,18 @@ def _get_cookie_opts() -> dict:
         return {"cookiefile": COOKIES_FILE}
     return {}
 
+# Bot-detection and login/auth patterns yt-dlp may emit
+_AUTH_PATTERNS = (
+    "sign in to confirm",
+    "confirm you're not a bot",
+    "login required",
+    "this video requires login",
+    "please sign in",
+    "sign in to view",
+    "session has been invalidated",
+    "required to log in",
+)
+
 def _friendly_cookie_error(error_msg: str) -> str:
     """Return a user-friendly message when YouTube bot-detection triggers.
 
@@ -1163,18 +1175,6 @@ def _friendly_cookie_error(error_msg: str) -> str:
     cookies file via the admin panel.
     """
     lower = error_msg.lower()
-
-    # Bot-detection and login/auth patterns yt-dlp may emit
-    _AUTH_PATTERNS = (
-        "sign in to confirm",
-        "confirm you're not a bot",
-        "login required",
-        "this video requires login",
-        "please sign in",
-        "sign in to view",
-        "session has been invalidated",
-        "required to log in",
-    )
 
     is_auth_error = any(p in lower for p in _AUTH_PATTERNS)
 

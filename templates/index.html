@@ -4090,7 +4090,8 @@
                         text.textContent = 'No cookies';
                         if (delBtn) delBtn.style.display = 'none';
                     }
-                } catch (_) {
+                } catch (err) {
+                    console.warn('Cookie status check failed:', err);
                     dot.className  = 'admin-bar-dot warn';
                     text.textContent = 'Status unknown';
                 }
