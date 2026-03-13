@@ -298,6 +298,10 @@ GEOIP_DB_PATH = os.path.join(DATA_DIR, "dbip-city-lite.mmdb")
 GEOIP_DB_REFRESH_SECONDS = 35 * 86400  # Re-download after ~35 days (database is updated monthly)
 _geoip_reader: maxminddb.Reader | None = None
 
+# Optional ipapi.com (ipstack) API key – enables an extra geolocation fallback.
+# Sign up at https://ipapi.com/signup/free for a free key, then set the env var.
+IPAPI_ACCESS_KEY = os.environ.get("IPAPI_ACCESS_KEY", "")
+
 
 def _init_geoip_db():
     """Download the free DB-IP City Lite MMDB database if absent or stale, then open it."""
@@ -783,7 +787,8 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
     Lookup order:
     1. Local GeoIP database (DB-IP City Lite MMDB – most accurate, offline)
     2. ip-api.com / ipinfo.io / ipwhois.app / ipapi.co / api.country.is
-    3. Accept-Language header heuristic (last resort)
+       / reallyfreegeoip.org / freeipapi.com / ipapi.com (ipstack)
+    3. Timezone heuristic via worldtimeapi.org
 
     Args:
         ip: The IP address to geo-locate.
@@ -941,6 +946,24 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
                 country = _ISO2_TO_NAME.get(code, data.get("countryName", code))
                 city = data.get("cityName", "") or city
                 region = data.get("regionName", "") or region
+        except Exception:
+            pass
+
+    # --- Service 8: ipapi.com / ipstack (requires IPAPI_ACCESS_KEY env var) ---
+    if country == "Unknown" and IPAPI_ACCESS_KEY:
+        try:
+            req = urllib.request.Request(
+                f"https://api.ipapi.com/{ip}?access_key={IPAPI_ACCESS_KEY}&output=json",
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            iso = (data.get("country_code") or "").upper()
+            if iso and len(iso) == 2:
+                code = iso
+                country = _ISO2_TO_NAME.get(code, data.get("country_name", code))
+                city = data.get("city", "") or city
+                region = data.get("region_name", "") or region
         except Exception:
             pass
 
