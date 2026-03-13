@@ -984,16 +984,21 @@ def get_ssl_env() -> dict:
     return env
 
 def _get_yt_extractor_args() -> dict:
-    """Build YouTube extractor args with player clients that avoid bot detection.
+    """Build YouTube extractor args letting yt-dlp pick the best player clients.
 
-    Uses the ``android_vr``, ``web``, and ``web_safari`` player clients, which
-    are the default clients supported by yt-dlp 2026.x.  When a cookies file is
-    present these clients combined with real YouTube cookies reliably bypass
-    YouTube's bot-detection checks.
+    Using ``"default"`` delegates the client selection to yt-dlp so it can
+    automatically switch between its unauthenticated defaults (``android_vr``,
+    ``web``, ``web_safari``) and its authenticated defaults (``tv_downgraded``,
+    ``web``, ``web_safari``) depending on whether a cookies file is present.
+
+    Hard-coding specific clients caused YouTube authentication errors because
+    ``android_vr`` does not support cookies and was silently dropped when a
+    cookies file was supplied, removing the high-priority ``tv_downgraded``
+    client that yt-dlp would otherwise use for authenticated sessions.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
-    args: dict = {"player_client": ["android_vr", "web", "web_safari"]}
+    args: dict = {"player_client": ["default"]}
     return {"youtube": args}
 
 
@@ -1052,7 +1057,7 @@ def format_eta(seconds) -> str:
 _CHROME_UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
+    "Chrome/132.0.0.0 Safari/537.36"
 )
 
 
@@ -2767,6 +2772,9 @@ async def start_playlist_download(
             "http_headers":    {"User-Agent": _CHROME_UA},
             "extractor_retries": 5,
             "retries":         5,
+            "sleep_requests":  1,
+            "sleep_interval":  5,
+            "max_sleep_interval": 10,
             "geo_bypass":      True,
             "progress_hooks":  [progress_hook],
             "quiet":           True,
