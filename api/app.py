@@ -1134,7 +1134,7 @@ def get_video_info(url: str) -> dict:
 # DOWNLOAD WORKER
 # =========================================================
 
-def download_worker(download_id, url, output_template, format_spec):
+def download_worker(download_id, url, output_template, format_spec, output_ext=None):
     """Background thread for downloading using the yt-dlp Python API"""
 
     def progress_hook(d):
@@ -1189,6 +1189,10 @@ def download_worker(download_id, url, output_template, format_spec):
         "no_warnings": True,
         **_get_cookie_opts(),
     }
+
+    # Force output container format (e.g. mp4, webm, mkv)
+    if output_ext in _VALID_OUTPUT_EXTS:
+        ydl_opts["merge_output_format"] = output_ext
 
     # Add ffmpeg if available
     ffmpeg_path = shutil.which('ffmpeg')
@@ -1269,9 +1273,10 @@ def download_worker(download_id, url, output_template, format_spec):
 # CONVERSION / EDITING HELPERS
 # =========================================================
 
-_VALID_VIDEO_FORMATS = {"mp4", "webm", "avi"}
+_VALID_VIDEO_FORMATS = {"mp4", "webm", "avi", "mkv"}
 _VALID_AUDIO_FORMATS = {"mp3", "wav"}
 _ALL_CONVERT_FORMATS = _VALID_VIDEO_FORMATS | _VALID_AUDIO_FORMATS
+_VALID_OUTPUT_EXTS   = {"mp4", "webm", "mkv", "avi"}
 
 _VALID_RESOLUTION_RE = re.compile(r"^\d{2,5}x\d{2,5}$")
 _VALID_BITRATE_RE    = re.compile(r"^\d+[kKmMgG]?$")
@@ -1403,9 +1408,12 @@ async def health():
 
 @fastapi_app.post("/start_download")
 @rate_limit()
-async def start_download(request: Request, url: str = Form(None), format: str = Form("best")):
+async def start_download(request: Request, url: str = Form(None), format: str = Form("best"), ext: str = Form("mp4")):
     """Start a download with better error feedback"""
     format_spec = format
+    output_ext  = ext.strip().lower() if ext else "mp4"
+    if output_ext not in _VALID_OUTPUT_EXTS:
+        output_ext = "mp4"
 
     if not url:
         return JSONResponse({"error": "URL is required"}, status_code=400)
@@ -1471,7 +1479,7 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
     # Start download thread
     thread = threading.Thread(
         target=download_worker,
-        args=(download_id, url, output_template, format_spec),
+        args=(download_id, url, output_template, format_spec, output_ext),
         daemon=True,
     )
     thread.start()
@@ -2700,10 +2708,14 @@ async def start_playlist_download(
     request: Request,
     url: str = Form(""),
     format: str = Form("bestvideo*+bestaudio*/best"),
+    ext: str = Form("mp4"),
 ):
     """Download an entire playlist or channel (yt-dlp playlist mode)."""
     url = url.strip()
     format_spec = format
+    output_ext  = ext.strip().lower() if ext else "mp4"
+    if output_ext not in _VALID_OUTPUT_EXTS:
+        output_ext = "mp4"
 
     if not url:
         return JSONResponse({"error": "URL is required"}, status_code=400)
@@ -2781,6 +2793,8 @@ async def start_playlist_download(
             "no_warnings":     True,
             **_get_cookie_opts(),
         }
+        if output_ext in _VALID_OUTPUT_EXTS:
+            ydl_opts["merge_output_format"] = output_ext
         ffmpeg_path = shutil.which("ffmpeg")
         if ffmpeg_path:
             ydl_opts["ffmpeg_location"] = ffmpeg_path
@@ -2847,10 +2861,14 @@ async def start_batch_download(
     request: Request,
     urls: str = Form(""),
     format: str = Form("bestvideo*+bestaudio*/best"),
+    ext: str = Form("mp4"),
 ):
     """Start individual downloads for a newline-separated list of URLs."""
     urls_text   = urls.strip()
     format_spec = format
+    output_ext  = ext.strip().lower() if ext else "mp4"
+    if output_ext not in _VALID_OUTPUT_EXTS:
+        output_ext = "mp4"
 
     url_list = [u.strip() for u in urls_text.splitlines() if u.strip()]
     if not url_list:
@@ -2907,7 +2925,7 @@ async def start_batch_download(
 
         thread = threading.Thread(
             target=download_worker,
-            args=(download_id, url, output_template, format_spec),
+            args=(download_id, url, output_template, format_spec, output_ext),
             daemon=True,
         )
         thread.start()
