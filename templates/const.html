@@ -5,24 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard | YOT Downloader</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
-    <!-- Chart.js served locally as fallback when CDN is unavailable -->
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --primary: #667eea;
-            --primary-dark: #764ba2;
-            --success: #10b981;
+            --primary: #487FFF;
+            --primary-dark: #3b6bdb;
+            --primary-light: #e8f0ff;
+            --success: #22c55e;
             --danger: #ef4444;
             --warning: #f59e0b;
-            --info: #3b82f6;
-            --purple: #7c3aed;
-            --bg: #f0f2f8;
-            --card-bg: #fff;
-            --text: #1e293b;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --shadow: 0 2px 12px rgba(0,0,0,0.08);
+            --info: #06b6d4;
+            --purple: #8b5cf6;
+            --bg: #f5f7fa;
+            --card-bg: #ffffff;
+            --text: #1f2937;
+            --text-muted: #6b7280;
+            --sidebar-bg: #1e293b;
+            --sidebar-hover: #273548;
+            --sidebar-text: #94a3b8;
+            --sidebar-active-bg: rgba(72,127,255,0.12);
+            --sidebar-active-text: #487FFF;
+            --border: #e5e7eb;
+            --shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+            --shadow-lg: 0 4px 16px rgba(0,0,0,0.08);
+            --sidebar-width: 260px;
+            --header-height: 64px;
         }
 
         body {
@@ -33,66 +41,196 @@
             min-height: 100vh;
         }
 
-        /* ── Top nav ── */
-        .topbar {
-            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
-            color: #fff;
-            padding: 0 14px;
+        /* ── Sidebar ── */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: var(--sidebar-width);
+            height: 100vh;
+            background: var(--sidebar-bg);
+            z-index: 1100;
+            display: flex;
+            flex-direction: column;
+            transition: transform 0.3s cubic-bezier(.4,0,.2,1);
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: thin;
+            scrollbar-color: #334155 transparent;
+        }
+        .sidebar::-webkit-scrollbar { width: 4px; }
+        .sidebar::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+        .sidebar-header {
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            min-height: 44px;
-            gap: 8px;
-            flex-wrap: wrap;
+            gap: 10px;
+            padding: 20px 20px 16px;
+            color: #fff;
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            flex-shrink: 0;
+        }
+        .sidebar-header i {
+            font-size: 1.3rem;
+            color: var(--primary);
+        }
+        .sidebar-nav {
+            flex: 1;
+            padding: 12px 12px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .sidebar-menu-label {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            padding: 12px 12px 6px;
+        }
+        .sidebar-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: var(--sidebar-text);
+            font-size: 0.88rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            font-family: inherit;
+            width: 100%;
+            text-align: left;
+            text-decoration: none;
+            transition: background 0.15s, color 0.15s;
+            line-height: 1.4;
+        }
+        .sidebar-item:hover {
+            background: var(--sidebar-hover);
+            color: #e2e8f0;
+        }
+        .sidebar-item.active {
+            background: var(--sidebar-active-bg);
+            color: var(--sidebar-active-text);
+            font-weight: 600;
+        }
+        .sidebar-item i {
+            width: 20px;
+            text-align: center;
+            font-size: 0.92rem;
+            flex-shrink: 0;
+        }
+        .sidebar-badge {
+            margin-left: auto;
+            background: var(--primary);
+            color: #fff;
+            border-radius: 20px;
+            padding: 1px 8px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            min-width: 20px;
+            text-align: center;
+        }
+        .sidebar-footer {
+            padding: 8px 12px 16px;
+            border-top: 1px solid rgba(255,255,255,0.06);
+            margin-top: auto;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .sidebar-footer form { width: 100%; }
+
+        .sidebar-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.4);
+            z-index: 1099;
+            transition: opacity 0.3s;
+        }
+
+        /* ── Main wrapper ── */
+        .main-wrapper {
+            margin-left: var(--sidebar-width);
+            min-height: 100vh;
+            transition: margin-left 0.3s cubic-bezier(.4,0,.2,1);
+        }
+
+        /* ── Header ── */
+        .dash-header {
             position: sticky;
             top: 0;
             z-index: 1000;
-        }
-        .topbar-brand {
+            background: var(--card-bg);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            gap: 6px;
-            font-size: 0.92rem;
-            font-weight: 700;
+            justify-content: space-between;
+            padding: 0 24px;
+            height: var(--header-height);
         }
-        .topbar-brand i { font-size: 0.92rem; opacity: 0.9; }
-        .topbar-right { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-        .back-link {
-            color: rgba(255,255,255,0.85);
-            text-decoration: none;
-            font-size: 0.82rem;
-            font-weight: 600;
-            display: inline-flex;
+        .dash-header-left {
+            display: flex;
             align-items: center;
-            gap: 5px;
-            padding: 4px 10px;
-            border: 1px solid rgba(255,255,255,0.35);
-            border-radius: 6px;
-            transition: background 0.2s;
+            gap: 14px;
         }
-        .back-link:hover { background: rgba(255,255,255,0.15); }
+        .dash-header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .sidebar-toggle {
+            display: none;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            color: var(--text);
+            font-size: 1rem;
+            transition: background 0.15s;
+        }
+        .sidebar-toggle:hover { background: #f3f4f6; }
+        .dash-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text);
+        }
         .live-badge {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            background: rgba(16,185,129,0.2);
-            border: 1px solid rgba(16,185,129,0.5);
-            color: #a7f3d0;
-            padding: 4px 10px;
+            gap: 6px;
+            background: #ecfdf5;
+            border: 1px solid #a7f3d0;
+            color: #059669;
+            padding: 5px 14px;
             border-radius: 20px;
-            font-size: 0.78rem;
+            font-size: 0.8rem;
             font-weight: 600;
         }
         .live-dot {
-            width: 7px;
-            height: 7px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            background: #34d399;
+            background: #22c55e;
             animation: pulse 2s infinite;
         }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.4; }
+        }
+
+        /* ── Content ── */
+        .dash-content {
+            padding: 20px 24px;
+            max-width: 1400px;
         }
 
         /* ── Toast notifications ── */
@@ -111,13 +249,13 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 11px 16px;
-            border-radius: 10px;
+            padding: 12px 18px;
+            border-radius: 12px;
             font-size: 0.88rem;
             font-weight: 600;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+            box-shadow: var(--shadow-lg);
             min-width: 240px;
-            max-width: 360px;
+            max-width: 380px;
             animation: toast-in 0.25s ease;
             color: #fff;
         }
@@ -125,9 +263,9 @@
             from { opacity: 0; transform: translateX(40px); }
             to   { opacity: 1; transform: translateX(0); }
         }
-        .toast.toast-success { background: #10b981; }
-        .toast.toast-error   { background: #ef4444; }
-        .toast.toast-info    { background: #3b82f6; }
+        .toast.toast-success { background: var(--success); }
+        .toast.toast-error   { background: var(--danger); }
+        .toast.toast-info    { background: var(--primary); }
         .toast-close {
             margin-left: auto;
             background: none;
@@ -139,151 +277,117 @@
             padding: 0 2px;
         }
 
-        /* ── Main container ── */
-        .container { max-width: 1400px; margin: 0 auto; padding: 10px 10px; }
-
-        /* ── Stat tiles ── */
+        /* ── Stat cards ── */
         .stat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
-            gap: 6px;
-            margin-bottom: 10px;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 20px;
         }
         .stat-tile {
             background: var(--card-bg);
-            border-radius: 8px;
+            border-radius: 12px;
             box-shadow: var(--shadow);
-            padding: 6px 6px;
-            text-align: center;
-            border-top: 3px solid var(--primary);
-            transition: transform 0.2s;
+            padding: 16px 18px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            border-left: 4px solid var(--primary);
+            transition: transform 0.2s, box-shadow 0.2s;
         }
-        .stat-tile:hover { transform: translateY(-1px); }
-        .stat-tile.green  { border-top-color: var(--success); }
-        .stat-tile.red    { border-top-color: var(--danger); }
-        .stat-tile.purple { border-top-color: var(--purple); }
-        .stat-tile.amber  { border-top-color: var(--warning); }
-        .stat-tile.blue   { border-top-color: var(--info); }
-        .stat-value {
-            font-size: 1.2rem;
-            font-weight: 800;
+        .stat-tile:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        .stat-tile.green  { border-left-color: var(--success); }
+        .stat-tile.red    { border-left-color: var(--danger); }
+        .stat-tile.purple { border-left-color: var(--purple); }
+        .stat-tile.amber  { border-left-color: var(--warning); }
+        .stat-tile.blue   { border-left-color: var(--info); }
+        .stat-icon-circle {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+            background: var(--primary-light);
             color: var(--primary);
-            line-height: 1.1;
+        }
+        .stat-tile.green  .stat-icon-circle { background: #dcfce7; color: var(--success); }
+        .stat-tile.red    .stat-icon-circle { background: #fee2e2; color: var(--danger); }
+        .stat-tile.purple .stat-icon-circle { background: #ede9fe; color: var(--purple); }
+        .stat-tile.amber  .stat-icon-circle { background: #fef3c7; color: var(--warning); }
+        .stat-tile.blue   .stat-icon-circle { background: #cffafe; color: var(--info); }
+        .stat-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+        .stat-value {
+            font-size: 1.35rem;
+            font-weight: 800;
+            color: var(--text);
+            line-height: 1.2;
             font-variant-numeric: tabular-nums;
             transition: transform 0.3s ease;
         }
-        .stat-tile.green  .stat-value { color: var(--success); }
-        .stat-tile.red    .stat-value { color: var(--danger); }
-        .stat-tile.purple .stat-value { color: var(--purple); }
-        .stat-tile.amber  .stat-value { color: var(--warning); }
-        .stat-tile.blue   .stat-value { color: var(--info); }
         .stat-label {
-            font-size: 0.62rem;
+            font-size: 0.72rem;
             color: var(--text-muted);
+            font-weight: 500;
             margin-top: 2px;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .stat-icon {
-            font-size: 0.8rem;
-            margin-bottom: 2px;
-            opacity: 0.7;
-        }
-        .stat-tile.green  .stat-icon { color: var(--success); }
-        .stat-tile.red    .stat-icon { color: var(--danger); }
-        .stat-tile.purple .stat-icon { color: var(--purple); }
-        .stat-tile.amber  .stat-icon { color: var(--warning); }
-        .stat-tile.blue   .stat-icon { color: var(--info); }
-
-        /* ── Tabs ── */
-        .tabs {
-            display: flex;
-            gap: 2px;
-            background: var(--card-bg);
-            border-radius: 8px 8px 0 0;
-            padding: 4px 4px 0;
-            border-bottom: 2px solid var(--border);
-            overflow-x: auto;
-            scrollbar-width: none;
-        }
-        .tabs::-webkit-scrollbar { display: none; }
-        .tab-btn {
-            padding: 6px 12px;
-            border: none;
-            background: transparent;
-            color: var(--text-muted);
-            font-weight: 600;
-            font-size: 0.8rem;
-            cursor: pointer;
-            border-radius: 6px 6px 0 0;
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
             white-space: nowrap;
-            border-bottom: 3px solid transparent;
-            margin-bottom: -2px;
-            transition: color 0.2s, border-color 0.2s;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-        .tab-btn:hover { color: var(--primary); }
-        .tab-btn.active {
-            color: var(--primary);
-            border-bottom-color: var(--primary);
-            background: rgba(102,126,234,0.05);
-        }
-        .tab-btn .badge-count {
-            background: var(--primary);
-            color: #fff;
-            border-radius: 20px;
-            padding: 1px 6px;
-            font-size: 0.7rem;
-            font-weight: 700;
-        }
+
+        /* ── Tab panels ── */
         .tab-panel {
             display: none;
-            background: var(--card-bg);
-            border-radius: 0 0 10px 10px;
-            box-shadow: var(--shadow);
-            padding: 12px 10px;
         }
         .tab-panel.active { display: block; }
 
         /* ── Card within panel ── */
         .inner-card {
+            background: var(--card-bg);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
-            margin-bottom: 0;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
         }
         .inner-card-header {
-            background: #f8fafc;
-            padding: 6px 10px;
-            font-size: 0.78rem;
+            background: #fafbfc;
+            padding: 14px 18px;
+            font-size: 0.88rem;
             font-weight: 700;
             color: var(--text);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 6px;
+            gap: 8px;
             border-bottom: 1px solid var(--border);
         }
-        .inner-card-header span { display: flex; align-items: center; gap: 6px; }
-        .inner-card-body { padding: 10px; overflow-x: auto; }
-        .inner-card.standalone { margin-top: 8px; }
+        .inner-card-header span { display: flex; align-items: center; gap: 8px; }
+        .inner-card-body { padding: 16px; overflow-x: auto; }
+        .inner-card.standalone { margin-top: 0; }
 
         /* ── Refresh button ── */
         .btn-refresh {
-            padding: 4px 10px;
+            padding: 6px 14px;
             background: var(--primary);
             color: white;
             border: none;
-            border-radius: 5px;
-            font-size: 0.78rem;
+            border-radius: 8px;
+            font-size: 0.82rem;
             font-weight: 600;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 4px;
+            gap: 6px;
             transition: opacity 0.2s;
         }
         .btn-refresh:hover { opacity: 0.85; }
@@ -292,19 +396,19 @@
         .data-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 0.76rem;
+            font-size: 0.82rem;
         }
         .data-table th {
-            background: #f1f5f9;
+            background: #f8fafc;
             color: #475569;
             font-weight: 700;
-            padding: 6px 8px;
+            padding: 10px 12px;
             text-align: left;
             border-bottom: 2px solid var(--border);
             white-space: nowrap;
         }
         .data-table td {
-            padding: 5px 8px;
+            padding: 8px 12px;
             border-bottom: 1px solid #f1f5f9;
             vertical-align: middle;
         }
@@ -324,19 +428,19 @@
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .col-url a { color: var(--primary); text-decoration: none; font-size: 0.76rem; }
+        .col-url a { color: var(--primary); text-decoration: none; font-size: 0.82rem; }
         .col-url a:hover { text-decoration: underline; }
-        .col-time { color: var(--text-muted); font-size: 0.74rem; white-space: nowrap; }
-        .col-ip   { color: var(--text-muted); font-size: 0.74rem; font-family: monospace; }
+        .col-time { color: var(--text-muted); font-size: 0.8rem; white-space: nowrap; }
+        .col-ip   { color: var(--text-muted); font-size: 0.8rem; font-family: monospace; }
 
         /* ── Status badge ── */
         .badge {
             display: inline-flex;
             align-items: center;
-            gap: 3px;
-            padding: 2px 8px;
+            gap: 4px;
+            padding: 3px 10px;
             border-radius: 999px;
-            font-size: 0.7rem;
+            font-size: 0.75rem;
             font-weight: 700;
             white-space: nowrap;
         }
@@ -363,17 +467,14 @@
             border-radius: 999px;
         }
 
-        /* ── Flag + country ── */
+        /* ── Flag ── */
         .flag { font-size: 1.1rem; }
 
         /* ── Analytics 2-col layout ── */
         .analytics-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-        }
-        @media (max-width: 760px) {
-            .analytics-grid { grid-template-columns: 1fr; }
+            gap: 16px;
         }
 
         /* ── CSS vertical bar chart ── */
@@ -520,7 +621,7 @@
         }
         .country-count { font-size: 0.73rem; color: var(--text-muted); min-width: 28px; text-align: right; }
 
-        /* ── Grouped country card (donut + histogram) ── */
+        /* ── Grouped country card ── */
         .country-group {
             display: flex;
             gap: 12px;
@@ -599,7 +700,54 @@
             line-height: 1.1;
             flex-shrink: 0;
         }
-        @media (max-width: 760px) {
+
+        /* ── Empty state ── */
+        .empty-state {
+            text-align: center;
+            color: #9ca3af;
+            padding: 32px 16px;
+        }
+        .empty-state i { font-size: 2rem; display: block; margin-bottom: 8px; opacity: 0.4; }
+
+        /* ── Refresh info ── */
+        .refresh-info {
+            font-size: 0.78rem;
+            color: #9ca3af;
+            text-align: right;
+            margin-top: 8px;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 1200px) {
+            .stat-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+            }
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            .sidebar-overlay.open {
+                display: block;
+            }
+            .main-wrapper {
+                margin-left: 0;
+            }
+            .sidebar-toggle {
+                display: flex;
+            }
+            .stat-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+            .stat-tile {
+                padding: 12px 14px;
+            }
+            .stat-value { font-size: 1.1rem; }
+            .analytics-grid { grid-template-columns: 1fr; }
+            .dash-content { padding: 14px 12px; }
+            .dash-header { padding: 0 14px; }
             .country-group {
                 flex-direction: column;
             }
@@ -609,475 +757,353 @@
             .country-group-histogram {
                 width: 100%;
             }
-        }
-
-        /* ── Empty state ── */
-        .empty-state {
-            text-align: center;
-            color: #9ca3af;
-            padding: 24px 16px;
-        }
-        .empty-state i { font-size: 2rem; display: block; margin-bottom: 6px; opacity: 0.4; }
-
-        /* ── Refresh info ── */
-        .refresh-info {
-            font-size: 0.72rem;
-            color: #9ca3af;
-            text-align: right;
-            margin-top: 6px;
-        }
-
-        /* ── Responsive hide ── */
-        @media (max-width: 1024px) {
-            .container { padding: 8px 8px; }
-            .analytics-grid { gap: 6px; }
-        }
-        @media (max-width: 640px) {
-            .hide-xs { display: none !important; }
-            .topbar { padding: 6px 10px; min-height: 40px; }
-            .container { padding: 6px 6px; }
-            .stat-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
-            .stat-tile { padding: 6px 4px; }
-            .stat-value { font-size: 1.05rem; }
-            .stat-label { font-size: 0.58rem; }
-            .stat-icon { font-size: 0.72rem; margin-bottom: 2px; }
-            .tab-btn { padding: 5px 8px; font-size: 0.74rem; flex: 1 1 0%; text-align: center; justify-content: center; }
-            .tab-panel { padding: 8px 6px; }
-            .inner-card-header { padding: 5px 8px; font-size: 0.74rem; }
-            .inner-card-body { padding: 6px; }
             .donut-wrap { flex-wrap: wrap; gap: 8px; justify-content: center; }
             .donut-wrap svg { width: 120px; aspect-ratio: 1 / 1; height: auto; }
             .donut-legend { width: 100%; }
+        }
+        @media (max-width: 480px) {
+            .stat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+            .stat-tile { padding: 10px 12px; gap: 10px; }
+            .stat-icon-circle { width: 36px; height: 36px; font-size: 0.85rem; border-radius: 10px; }
+            .stat-value { font-size: 1rem; }
+            .stat-label { font-size: 0.65rem; }
+            .inner-card-header { padding: 10px 14px; font-size: 0.82rem; }
+            .inner-card-body { padding: 10px; }
+            .dash-title { font-size: 1.05rem; }
+            #toast-container { top: 8px; right: 6px; }
+            .toast { min-width: 180px; max-width: calc(100vw - 12px); font-size: 0.8rem; padding: 8px 12px; }
             .css-chart { height: 140px; }
             .css-bar-col { min-width: 14px; }
             .css-bar-track { max-width: 24px; }
-            #toast-container { top: 8px; right: 6px; }
-            .toast { min-width: 180px; max-width: calc(100vw - 12px); font-size: 0.8rem; padding: 8px 12px; }
-        }
-        @media (max-width: 400px) {
-            .stat-grid { grid-template-columns: 1fr 1fr; }
+            .data-table td, .data-table th { padding: 5px 8px; }
+            .col-title { max-width: 120px; }
+            .country-name { min-width: 90px; font-size: 0.72rem; }
         }
 
-        /* ── Admin topbar mobile hamburger ── */
-        .topbar-hamburger {
-            display: none;
-            background: rgba(255,255,255,0.12);
-            border: 1px solid rgba(255,255,255,0.3);
-            color: #fff;
-            cursor: pointer;
-            padding: 5px 10px;
-            border-radius: 6px;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            font-size: 0.88rem;
-            font-weight: 600;
-            transition: background 0.2s;
-            line-height: 1;
-        }
-        .topbar-hamburger:hover { background: rgba(255,255,255,0.22); }
-
-        /* Admin mobile action menu */
-        .admin-mobile-menu {
-            display: none;
-            position: fixed;
-            top: 44px;
-            left: 0;
-            right: 0;
-            z-index: 9000;
-            background: linear-gradient(160deg, #667eea 0%, #764ba2 100%);
-            box-shadow: 0 8px 28px rgba(102,126,234,0.45);
-            border-top: 1px solid rgba(255,255,255,0.14);
-        }
-        .admin-mobile-menu.open { display: block; animation: adminMenuIn 0.2s ease-out; }
-        @keyframes adminMenuIn {
-            from { opacity: 0; transform: translateY(-8px); }
-            to   { opacity: 1; transform: translateY(0); }
-        }
-        .admin-mobile-menu-inner {
-            padding: 8px 14px 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 3px;
-        }
-        .admin-menu-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 11px 14px;
-            border-radius: 8px;
-            color: rgba(255,255,255,0.92);
-            font-size: 0.9rem;
-            font-weight: 600;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            font-family: inherit;
-            width: 100%;
-            text-align: left;
-            text-decoration: none;
-            transition: background 0.15s;
-            min-height: 44px;
-        }
-        .admin-menu-item:hover,
-        .admin-menu-item:active { background: rgba(255,255,255,0.16); }
-        .admin-menu-item i { width: 20px; text-align: center; font-size: 0.95rem; flex-shrink: 0; }
-        .admin-menu-backdrop {
-            display: none;
-            position: fixed;
-            inset: 0;
-            top: 44px;
-            z-index: 8999;
-            background: rgba(0,0,0,0.25);
-        }
-        .admin-menu-backdrop.open { display: block; }
-
-        /* Hide utility buttons on mobile — they move to hamburger menu */
+        .hide-xs { }
         @media (max-width: 640px) {
-            .topbar-util-btn { display: none !important; }
-            .topbar-hamburger { display: inline-flex; }
+            .hide-xs { display: none !important; }
         }
 
         /* ── Horizontal scroll hint for tables on mobile ── */
         .inner-card-body { -webkit-overflow-scrolling: touch; }
-        @media (max-width: 640px) {
-            .inner-card-body::after {
-                content: '';
-                display: block;
-                height: 0;
-            }
-            .data-table td, .data-table th { padding: 4px 6px; }
-            .col-title { max-width: 120px; }
-            .country-name { min-width: 90px; font-size: 0.72rem; }
-        }
     </style>
 </head>
 <body>
-    <!-- Toast notification container (fixed top-right) -->
+    <!-- Toast notification container -->
     <div id="toast-container" aria-live="polite" aria-atomic="false"></div>
 
-    <!-- Top navigation bar -->
-    <nav class="topbar">
-        <div class="topbar-brand">
+    <!-- Mobile sidebar overlay -->
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+    <!-- Left Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
             <i class="fas fa-shield-alt"></i>
-            Admin Dashboard
+            <span>YOT Admin</span>
         </div>
-        <div class="topbar-right">
-            <div class="live-badge">
-                <span class="live-dot"></span> Live
-            </div>
-            <a href="/admin/db/download" class="back-link topbar-util-btn" title="Download database backup">
-                <i class="fas fa-database"></i> <span class="hide-xs">Backup DB</span>
+        <nav class="sidebar-nav">
+            <div class="sidebar-menu-label">MENU</div>
+            <a class="sidebar-item active" onclick="sidebarNav('downloads', this)">
+                <i class="fas fa-download"></i>
+                <span>Downloads</span>
+                <span class="sidebar-badge" id="sidebar-dl-count">0</span>
             </a>
-            <label class="back-link topbar-util-btn" title="Merge backup database into current data" style="cursor:pointer;">
-                <i class="fas fa-upload"></i> <span class="hide-xs">Restore DB</span>
+            <a class="sidebar-item" onclick="sidebarNav('analytics', this)">
+                <i class="fas fa-chart-bar"></i>
+                <span>Analytics</span>
+            </a>
+            <a class="sidebar-item" onclick="sidebarNav('visitors', this)">
+                <i class="fas fa-users"></i>
+                <span>Visitors</span>
+                <span class="sidebar-badge" id="sidebar-v-count">0</span>
+            </a>
+
+            <div class="sidebar-menu-label" style="margin-top:24px;">ACTIONS</div>
+            <a class="sidebar-item" href="/admin/db/download">
+                <i class="fas fa-database"></i>
+                <span>Backup DB</span>
+            </a>
+            <label class="sidebar-item" style="cursor:pointer;">
+                <i class="fas fa-upload"></i>
+                <span>Restore DB</span>
                 <input type="file" id="db-upload-input" accept=".db,application/x-sqlite3" style="display:none;" onchange="uploadDb(this)">
             </label>
-            <label class="back-link topbar-util-btn" title="Upload YouTube cookies.txt for authentication" style="cursor:pointer;" id="cookie-upload-label">
-                <i class="fas fa-cookie-bite"></i> <span class="hide-xs">Cookies</span>
+            <label class="sidebar-item" style="cursor:pointer;" id="cookie-upload-label">
+                <i class="fas fa-cookie-bite"></i>
+                <span>Upload Cookies</span>
                 <input type="file" id="cookie-upload-input" accept=".txt,text/plain" style="display:none;" onchange="uploadCookies(this)">
             </label>
-            <button class="back-link topbar-util-btn" title="Delete cookies file" id="cookie-delete-btn" onclick="deleteCookies()" style="display:none;background:none;border:none;cursor:pointer;">
-                <i class="fas fa-cookie-bite" style="color:#ef4444;"></i> <span class="hide-xs" style="color:#ef4444;">Remove Cookies</span>
+            <button class="sidebar-item" id="cookie-delete-btn" onclick="deleteCookies()" style="display:none;">
+                <i class="fas fa-cookie-bite" style="color:#ef4444;"></i>
+                <span style="color:#ef4444;">Remove Cookies</span>
             </button>
-            <a href="/" class="back-link" aria-label="Back to site"><i class="fas fa-arrow-left"></i> <span class="hide-xs">Back</span></a>
-            <form action="/admin/logout" method="post" style="display:inline;">
-                <button type="submit" class="back-link" style="background:none;border:none;cursor:pointer;">
-                    <i class="fas fa-sign-out-alt"></i> <span class="hide-xs">Logout</span>
-                </button>
-            </form>
-            <!-- Hamburger for mobile — reveals admin utility actions -->
-            <button class="topbar-hamburger" id="admin-hamburger"
-                    onclick="toggleAdminMenu()"
-                    aria-label="Admin menu"
-                    aria-expanded="false"
-                    aria-controls="admin-mobile-menu">
-                <i class="fas fa-ellipsis-v" id="admin-hamburger-icon"></i>
-                <span class="hide-xs" style="font-size:0.82rem;">More</span>
-            </button>
-        </div>
-    </nav>
-
-    <!-- Admin mobile menu backdrop -->
-    <div class="admin-menu-backdrop" id="admin-menu-backdrop" onclick="closeAdminMenu()"></div>
-
-    <!-- Admin mobile menu panel -->
-    <div class="admin-mobile-menu" id="admin-mobile-menu" role="menu">
-        <div class="admin-mobile-menu-inner">
-            <a href="/admin/db/download" class="admin-menu-item" role="menuitem">
-                <i class="fas fa-database"></i> Backup Database
+        </nav>
+        <div class="sidebar-footer">
+            <a href="/" class="sidebar-item">
+                <i class="fas fa-arrow-left"></i>
+                <span>Back to Site</span>
             </a>
-            <label class="admin-menu-item" role="menuitem" style="cursor:pointer;" onclick="closeAdminMenu();">
-                <i class="fas fa-upload"></i> Restore Database
-                <input type="file" accept=".db,application/x-sqlite3" style="display:none;"
-                       onchange="uploadDb(this)">
-            </label>
-            <label class="admin-menu-item" role="menuitem" style="cursor:pointer;" onclick="closeAdminMenu();">
-                <i class="fas fa-cookie-bite"></i> Upload Cookies
-                <input type="file" accept=".txt,text/plain" style="display:none;"
-                       onchange="uploadCookies(this)">
-            </label>
-            <button class="admin-menu-item cookie-delete-mobile" role="menuitem" onclick="deleteCookies(); closeAdminMenu();" style="display:none;">
-                <i class="fas fa-cookie-bite" style="color:#ef4444;"></i> Remove Cookies
-            </button>
-            <a href="/" class="admin-menu-item" role="menuitem">
-                <i class="fas fa-arrow-left"></i> Back to Site
-            </a>
-            <form action="/admin/logout" method="post" style="width:100%;">
-                <button type="submit" class="admin-menu-item" role="menuitem">
-                    <i class="fas fa-sign-out-alt"></i> Logout
+            <form action="/admin/logout" method="post">
+                <button type="submit" class="sidebar-item">
+                    <i class="fas fa-sign-out-alt"></i>
+                    <span>Logout</span>
                 </button>
             </form>
         </div>
-    </div>
+    </aside>
 
-    <div class="container">
-
-        <!-- Summary stat tiles -->
-        <div class="stat-grid" id="stat-grid">
-            <div class="stat-tile">
-                <div class="stat-icon"><i class="fas fa-download"></i></div>
-                <div class="stat-value" id="s-total">—</div>
-                <div class="stat-label">Total Downloads</div>
+    <!-- Main content area -->
+    <div class="main-wrapper" id="main-wrapper">
+        <!-- Top header -->
+        <header class="dash-header">
+            <div class="dash-header-left">
+                <button class="sidebar-toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <h1 class="dash-title">Dashboard</h1>
             </div>
-            <div class="stat-tile green">
-                <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
-                <div class="stat-value" id="s-completed">—</div>
-                <div class="stat-label">Completed</div>
-            </div>
-            <div class="stat-tile purple">
-                <div class="stat-icon"><i class="fas fa-spinner"></i></div>
-                <div class="stat-value" id="s-active">—</div>
-                <div class="stat-label">In Progress</div>
-            </div>
-            <div class="stat-tile red">
-                <div class="stat-icon"><i class="fas fa-times-circle"></i></div>
-                <div class="stat-value" id="s-failed">—</div>
-                <div class="stat-label">Failed</div>
-            </div>
-            <div class="stat-tile blue">
-                <div class="stat-icon"><i class="fas fa-calendar-day"></i></div>
-                <div class="stat-value" id="s-daily-downloads">—</div>
-                <div class="stat-label">Downloads Today</div>
-            </div>
-            <div class="stat-tile amber">
-                <div class="stat-icon"><i class="fas fa-tachometer-alt"></i></div>
-                <div class="stat-value" id="s-dl-rate">—</div>
-                <div class="stat-label">Rate (dl/day)</div>
-            </div>
-            <div class="stat-tile blue">
-                <div class="stat-icon"><i class="fas fa-users"></i></div>
-                <div class="stat-value" id="s-visitors">—</div>
-                <div class="stat-label">Total Visitors</div>
-            </div>
-            <div class="stat-tile green">
-                <div class="stat-icon"><i class="fas fa-user-clock"></i></div>
-                <div class="stat-value" id="s-daily-visitors">—</div>
-                <div class="stat-label">Visitors Today</div>
-            </div>
-            <div class="stat-tile amber">
-                <div class="stat-icon"><i class="fas fa-globe"></i></div>
-                <div class="stat-value" id="s-countries">—</div>
-                <div class="stat-label">Countries (Total)</div>
-            </div>
-            <div class="stat-tile green">
-                <div class="stat-icon"><i class="fas fa-percentage"></i></div>
-                <div class="stat-value" id="s-success-rate">—</div>
-                <div class="stat-label">Success Rate</div>
-            </div>
-            <div class="stat-tile purple">
-                <div class="stat-icon"><i class="fas fa-file-archive"></i></div>
-                <div class="stat-value" id="s-avg-size">—</div>
-                <div class="stat-label">Avg File Size</div>
-            </div>
-            <div class="stat-tile blue">
-                <div class="stat-icon"><i class="fas fa-redo"></i></div>
-                <div class="stat-value" id="s-repeat-rate">—</div>
-                <div class="stat-label">Repeat Visitors</div>
-            </div>
-        </div>
-
-        <!-- Tabbed interface -->
-        <div class="tabs" role="tablist">
-            <button class="tab-btn active" role="tab" onclick="switchTab('downloads', this)">
-                <i class="fas fa-list-alt"></i> Downloads
-                <span class="badge-count" id="tab-dl-count">0</span>
-            </button>
-            <button class="tab-btn" role="tab" onclick="switchTab('analytics', this)">
-                <i class="fas fa-chart-bar"></i> Analytics
-            </button>
-            <button class="tab-btn" role="tab" onclick="switchTab('visitors', this)">
-                <i class="fas fa-users"></i> Visitors
-                <span class="badge-count" id="tab-v-count">0</span>
-            </button>
-        </div>
-
-        <!-- DOWNLOADS TAB -->
-        <div class="tab-panel active" id="tab-downloads">
-            <div class="inner-card">
-                <div class="inner-card-header">
-                    <span><i class="fas fa-history"></i> Download Records</span>
-                    <button class="btn-refresh" onclick="loadAll(true)">
-                        <i class="fas fa-sync-alt"></i> Refresh
-                    </button>
+            <div class="dash-header-right">
+                <div class="live-badge">
+                    <span class="live-dot"></span> Live
                 </div>
-                <div class="inner-card-body" id="dl-table-wrap">
-                    <div class="empty-state">
-                        <i class="fas fa-hourglass-half"></i>
-                        <p>Loading records…</p>
+            </div>
+        </header>
+
+        <!-- Content -->
+        <div class="dash-content">
+            <!-- Summary stat cards -->
+            <div class="stat-grid" id="stat-grid">
+                <div class="stat-tile">
+                    <div class="stat-icon-circle"><i class="fas fa-download"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-total">&mdash;</div>
+                        <div class="stat-label">Total Downloads</div>
+                    </div>
+                </div>
+                <div class="stat-tile green">
+                    <div class="stat-icon-circle"><i class="fas fa-check-circle"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-completed">&mdash;</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                </div>
+                <div class="stat-tile purple">
+                    <div class="stat-icon-circle"><i class="fas fa-spinner"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-active">&mdash;</div>
+                        <div class="stat-label">In Progress</div>
+                    </div>
+                </div>
+                <div class="stat-tile red">
+                    <div class="stat-icon-circle"><i class="fas fa-times-circle"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-failed">&mdash;</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                </div>
+                <div class="stat-tile blue">
+                    <div class="stat-icon-circle"><i class="fas fa-calendar-day"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-daily-downloads">&mdash;</div>
+                        <div class="stat-label">Downloads Today</div>
+                    </div>
+                </div>
+                <div class="stat-tile amber">
+                    <div class="stat-icon-circle"><i class="fas fa-tachometer-alt"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-dl-rate">&mdash;</div>
+                        <div class="stat-label">Rate (dl/day)</div>
+                    </div>
+                </div>
+                <div class="stat-tile blue">
+                    <div class="stat-icon-circle"><i class="fas fa-users"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-visitors">&mdash;</div>
+                        <div class="stat-label">Total Visitors</div>
+                    </div>
+                </div>
+                <div class="stat-tile green">
+                    <div class="stat-icon-circle"><i class="fas fa-user-clock"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-daily-visitors">&mdash;</div>
+                        <div class="stat-label">Visitors Today</div>
+                    </div>
+                </div>
+                <div class="stat-tile amber">
+                    <div class="stat-icon-circle"><i class="fas fa-globe"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-countries">&mdash;</div>
+                        <div class="stat-label">Countries (Total)</div>
+                    </div>
+                </div>
+                <div class="stat-tile green">
+                    <div class="stat-icon-circle"><i class="fas fa-percentage"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-success-rate">&mdash;</div>
+                        <div class="stat-label">Success Rate</div>
+                    </div>
+                </div>
+                <div class="stat-tile purple">
+                    <div class="stat-icon-circle"><i class="fas fa-file-archive"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-avg-size">&mdash;</div>
+                        <div class="stat-label">Avg File Size</div>
+                    </div>
+                </div>
+                <div class="stat-tile blue">
+                    <div class="stat-icon-circle"><i class="fas fa-redo"></i></div>
+                    <div class="stat-info">
+                        <div class="stat-value" id="s-repeat-rate">&mdash;</div>
+                        <div class="stat-label">Repeat Visitors</div>
                     </div>
                 </div>
             </div>
-            <div class="refresh-info" id="refresh-info"></div>
-        </div>
 
-        <!-- ANALYTICS TAB -->
-        <div class="tab-panel" id="tab-analytics">
-            <div class="analytics-grid">
-                <!-- Daily visits chart -->
+            <!-- DOWNLOADS TAB -->
+            <div class="tab-panel active" id="tab-downloads">
                 <div class="inner-card">
                     <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Visits per Day (last 14 days)</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-daily"></div>
-                </div>
-
-                <!-- Download status distribution -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Download Status Mix</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-status"></div>
-                </div>
-
-                <!-- Browser breakdown -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="21.17" y1="8" x2="12" y2="8"/><line x1="3.95" y1="6.06" x2="8.54" y2="14"/><line x1="10.88" y1="21.94" x2="15.46" y2="14"/></svg>Visitor Browsers</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-browsers"></div>
-                </div>
-
-                <!-- Downloads per day -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Downloads per Day (last 14 days)</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-dl-daily"></div>
-                </div>
-
-                <!-- Peak download hours -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Peak Download Hours</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-peak-hours"></div>
-                </div>
-
-                <!-- Peak visitor hours -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Peak Visitor Hours</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-visitor-hours"></div>
-                </div>
-
-                <!-- OS / Device breakdown -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>OS / Device Breakdown</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-os"></div>
-                </div>
-
-                <!-- Device types -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>Device Types</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-devices"></div>
-                </div>
-
-                <!-- Downloads by day of week -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Downloads by Day of Week</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-dow"></div>
-                </div>
-
-                <!-- Success rate gauge -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Success Rate Overview</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-success-rate"></div>
-                </div>
-
-                <!-- Repeat visitor ratio -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>Visitor Retention</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-repeat-visitors"></div>
-                </div>
-            </div>
-
-            <!-- Country detail list (Visitors) — grouped: donut + histogram -->
-            <div class="inner-card standalone">
-                <div class="inner-card-header">
-                    <span><i class="fas fa-flag"></i> Top Countries Detail (Visitors)</span>
-                </div>
-                <div class="inner-card-body">
-                    <div class="country-group">
-                        <div class="country-group-donut" id="chart-countries"></div>
-                        <div class="country-group-histogram" id="country-list-wrap">
-                            <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Country detail list (Downloads) — grouped: donut + histogram -->
-            <div class="inner-card standalone">
-                <div class="inner-card-header">
-                    <span><i class="fas fa-globe"></i> Top Countries Detail (Downloads)</span>
-                </div>
-                <div class="inner-card-body">
-                    <div class="country-group">
-                        <div class="country-group-donut" id="chart-dl-countries"></div>
-                        <div class="country-group-histogram" id="dl-country-list-wrap">
-                            <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- VISITORS TAB -->
-        <div class="tab-panel" id="tab-visitors">
-            <div class="inner-card">
-                <div class="inner-card-header">
-                    <span><i class="fas fa-user-clock"></i> Recent Admin Page Visits</span>
-                    <div style="display:flex;gap:8px;">
+                        <span><i class="fas fa-history"></i> Download Records</span>
                         <button class="btn-refresh" onclick="loadAll(true)">
                             <i class="fas fa-sync-alt"></i> Refresh
                         </button>
-                        <button class="btn-refresh" style="background:#ef4444;" onclick="clearVisitors()" aria-label="Clear all visitor records">
-                            <i class="fas fa-trash" aria-hidden="true"></i> Clear All
-                        </button>
                     </div>
-                </div>
-                <div class="inner-card-body" id="visitor-table-wrap">
-                    <div class="empty-state">
-                        <i class="fas fa-hourglass-half"></i>
-                        <p>Loading visitors…</p>
+                    <div class="inner-card-body" id="dl-table-wrap">
+                        <div class="empty-state">
+                            <i class="fas fa-hourglass-half"></i>
+                            <p>Loading records&hellip;</p>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-    </div><!-- /.container -->
+            <!-- ANALYTICS TAB -->
+            <div class="tab-panel" id="tab-analytics">
+                <div class="analytics-grid">
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-calendar-alt"></i> Visits per Day (last 14 days)</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-daily"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-chart-pie"></i> Download Status Mix</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-status"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-globe"></i> Visitor Browsers</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-browsers"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-download"></i> Downloads per Day (last 14 days)</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-dl-daily"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-clock"></i> Peak Download Hours</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-peak-hours"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-clock"></i> Peak Visitor Hours</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-visitor-hours"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-desktop"></i> OS / Device Breakdown</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-os"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-mobile-alt"></i> Device Types</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-devices"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-calendar-week"></i> Downloads by Day of Week</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-dow"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-check-double"></i> Success Rate Overview</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-success-rate"></div>
+                    </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-redo"></i> Visitor Retention</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-repeat-visitors"></div>
+                    </div>
+                </div>
+
+                <div class="inner-card standalone">
+                    <div class="inner-card-header">
+                        <span><i class="fas fa-flag"></i> Top Countries Detail (Visitors)</span>
+                    </div>
+                    <div class="inner-card-body">
+                        <div class="country-group">
+                            <div class="country-group-donut" id="chart-countries"></div>
+                            <div class="country-group-histogram" id="country-list-wrap">
+                                <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading&hellip;</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="inner-card standalone">
+                    <div class="inner-card-header">
+                        <span><i class="fas fa-globe"></i> Top Countries Detail (Downloads)</span>
+                    </div>
+                    <div class="inner-card-body">
+                        <div class="country-group">
+                            <div class="country-group-donut" id="chart-dl-countries"></div>
+                            <div class="country-group-histogram" id="dl-country-list-wrap">
+                                <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading&hellip;</p></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- VISITORS TAB -->
+            <div class="tab-panel" id="tab-visitors">
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span><i class="fas fa-user-clock"></i> Recent Admin Page Visits</span>
+                        <div style="display:flex;gap:8px;">
+                            <button class="btn-refresh" onclick="loadAll(true)">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button class="btn-refresh" style="background:#ef4444;" onclick="clearVisitors()" aria-label="Clear all visitor records">
+                                <i class="fas fa-trash" aria-hidden="true"></i> Clear All
+                            </button>
+                        </div>
+                    </div>
+                    <div class="inner-card-body" id="visitor-table-wrap">
+                        <div class="empty-state">
+                            <i class="fas fa-hourglass-half"></i>
+                            <p>Loading visitors&hellip;</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="refresh-info" id="refresh-info"></div>
+        </div>
+    </div>
 
     <script>
         // ── Toast notifications ──────────────────────────────────────
@@ -1098,11 +1124,11 @@
             return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
         function fmtTime(ts) {
-            if (!ts) return '—';
+            if (!ts) return '\u2014';
             return new Date(ts * 1000).toLocaleString();
         }
         function fmtDate(ts) {
-            if (!ts) return '—';
+            if (!ts) return '\u2014';
             return new Date(ts * 1000).toLocaleDateString();
         }
         function badgeHtml(status) {
@@ -1116,14 +1142,11 @@
         }
         function countryFlag(code) {
             if (!code || code.length !== 2) return '';
-            // Convert ISO 3166-1 alpha-2 code to regional indicator symbols (flag emoji).
-            // Regional indicators start at U+1F1E6 ('A'); offset each letter from ASCII 'A' (65).
             return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
         }
 
         // ── Animated stat-value counter ────────────────────────────
         function animateStatValue(el, target) {
-            // If target is not a plain integer, just set it directly
             if (typeof target !== 'number' || !Number.isFinite(target)) {
                 el.textContent = target;
                 return;
@@ -1151,12 +1174,36 @@
             }, 1000 / fps);
         }
 
-        // ── Tab switching ──────────────────────────────────────────
+        // ── Sidebar navigation ─────────────────────────────────────
+        function sidebarNav(name, el) {
+            document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+            if (el) el.classList.add('active');
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.getElementById('tab-' + name).classList.add('active');
+            if (name === 'analytics') renderAnalytics();
+            const titles = { downloads: 'Downloads', analytics: 'Analytics', visitors: 'Visitors' };
+            const titleEl = document.querySelector('.dash-title');
+            if (titleEl) titleEl.textContent = titles[name] || 'Dashboard';
+            if (window.innerWidth <= 768) toggleSidebar();
+        }
+
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('open');
+            overlay.classList.toggle('open');
+        }
+
+        // ── Tab switching (legacy, also updates sidebar) ───────────
         function switchTab(name, btn) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-            btn.classList.add('active');
+            if (btn) btn.classList.add('active');
             document.getElementById('tab-' + name).classList.add('active');
+            // Also update sidebar active state
+            document.querySelectorAll('.sidebar-nav .sidebar-item[onclick]').forEach(item => {
+                item.classList.toggle('active', item.getAttribute('onclick').includes("'" + name + "'"));
+            });
             if (name === 'analytics') renderAnalytics();
         }
 
@@ -1185,7 +1232,6 @@
             renderRepeatVisitorsChart();
         }
 
-        // Helper: build a vertical bar chart (upward-facing) inside `el`
         function cssBarChart(el, items, colorFn) {
             if (!items.length) {
                 el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
@@ -1206,7 +1252,6 @@
                 }).join('') + '</div>';
         }
 
-        // Helper: build an SVG line chart inside `el`
         function svgLineChart(el, items, color, fillColor) {
             if (!items.length) {
                 el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
@@ -1218,7 +1263,6 @@
             const n = items.length;
             const step = n > 1 ? plotW / (n - 1) : 0;
 
-            // Build grid lines and y-axis labels
             const gridSteps = 4;
             let grid = '';
             for (let g = 0; g <= gridSteps; g++) {
@@ -1228,19 +1272,16 @@
                 grid += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#94a3b8">${val}</text>`;
             }
 
-            // Build the polyline points
             const points = items.map((item, i) => {
                 const x = padL + i * step;
                 const y = padT + plotH - (item.value / max) * plotH;
                 return `${x.toFixed(1)},${y.toFixed(1)}`;
             });
 
-            // Area fill under the line
             const firstX = padL, lastX = padL + (n - 1) * step;
             const baseY = padT + plotH;
             const areaPoints = `${firstX},${baseY} ` + points.join(' ') + ` ${lastX},${baseY}`;
 
-            // Dots at each data point
             let dots = '';
             items.forEach((item, i) => {
                 const x = padL + i * step;
@@ -1251,7 +1292,6 @@
                 </circle>`;
             });
 
-            // Build labels (show every Nth to avoid crowding)
             const labelInterval = n <= 8 ? 1 : n <= 16 ? 2 : 3;
             const labels = items.map((item, i) => {
                 if (i % labelInterval !== 0 && i !== n - 1) return '';
@@ -1276,7 +1316,6 @@
             </div>`
         }
 
-        // Helper: build an SVG donut chart inside `el` with animated arcs & count-up
         function svgDonut(el, items, colors) {
             const total = items.reduce((s, i) => s + i.value, 0);
             if (!total) {
@@ -1304,7 +1343,6 @@
                 />`;
                 offset += dash;
             });
-            // Compute a human-readable total label
             const totalLabel = total >= 1000000 ? (total / 1000000).toFixed(1) + 'M'
                              : total >= 1000 ? (total / 1000).toFixed(1) + 'K'
                              : total.toLocaleString();
@@ -1325,13 +1363,11 @@
                 </svg>
                 <div class="donut-legend" style="flex:1;">${legend}</div>
             </div>`;
-            // Animate arcs after paint
             requestAnimationFrame(() => {
                 el.querySelectorAll('circle[data-target-dash]').forEach(c => {
                     c.setAttribute('stroke-dasharray', c.dataset.targetDash + ' ' + c.dataset.targetGap);
                 });
             });
-            // Animate center number count-up
             const centerEl = el.querySelector('.donut-center-num');
             if (centerEl) animateDonutCenter(centerEl, total);
         }
@@ -1585,7 +1621,7 @@
                     </div>
                     <div class="donut-legend-item" style="margin-top:4px;padding-top:4px;border-top:1px solid #e2e8f0;">
                         <span style="color:#475569;font-weight:600;">Avg file size</span>
-                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${esc(analyticsData.avg_file_size_hr || '—')}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${esc(analyticsData.avg_file_size_hr || '\u2014')}</span>
                     </div>
                 </div>
             </div>`;
@@ -1663,12 +1699,12 @@
         function renderDownloads() {
             const wrap = document.getElementById('dl-table-wrap');
 
-            // Dynamic tab badge: "X downloads • Y MB"
             const totalBytes = dlData.reduce((s, d) => s + (d.file_size || 0), 0);
             const dlCountEl = document.getElementById('tab-dl-count');
-            dlCountEl.textContent = dlData.length + ' downloads \u2022 ' + formatBytes(totalBytes);
+            if (dlCountEl) dlCountEl.textContent = dlData.length + ' downloads \u2022 ' + formatBytes(totalBytes);
+            const sidebarDlCount = document.getElementById('sidebar-dl-count');
+            if (sidebarDlCount) sidebarDlCount.textContent = dlData.length;
 
-            // Update stat tiles — use persistent totals from analytics where available
             const total     = analyticsData.total_downloads ?? dlData.length;
             const completed = dlData.filter(d => d.status === 'completed').length;
             const active    = dlData.filter(d => ['queued','downloading'].includes(d.status)).length;
@@ -1677,13 +1713,12 @@
             animateStatValue(document.getElementById('s-completed'), completed);
             animateStatValue(document.getElementById('s-active'), active);
             animateStatValue(document.getElementById('s-failed'), failed);
-            // Deep-insight stat tiles
             document.getElementById('s-success-rate').textContent =
-                analyticsData.success_rate != null ? analyticsData.success_rate + '%' : '—';
+                analyticsData.success_rate != null ? analyticsData.success_rate + '%' : '\u2014';
             document.getElementById('s-avg-size').textContent =
-                analyticsData.avg_file_size_hr || '—';
+                analyticsData.avg_file_size_hr || '\u2014';
             document.getElementById('s-repeat-rate').textContent =
-                analyticsData.repeat_rate != null ? analyticsData.repeat_rate + '%' : '—';
+                analyticsData.repeat_rate != null ? analyticsData.repeat_rate + '%' : '\u2014';
 
             if (!dlData.length) {
                 wrap.innerHTML = `<div class="empty-state"><i class="fas fa-inbox"></i><p>No download records yet</p></div>`;
@@ -1701,10 +1736,10 @@
                 const flag = countryFlag(d.country_code);
                 const countryDisplay = d.country
                     ? `${flag ? flag + '\u00A0' : ''}${esc(d.country)}`
-                    : `<span style="color:#9ca3af;">—</span>`;
+                    : `<span style="color:#9ca3af;">\u2014</span>`;
                 const isActive = ['queued','downloading'].includes(d.status);
                 const deleteBtn = isActive
-                    ? `<button class="btn-refresh" style="background:#9ca3af;padding:4px 8px;font-size:0.75rem;" disabled title="Cancel first" aria-label="Cannot delete — download is active">
+                    ? `<button class="btn-refresh" style="background:#9ca3af;padding:4px 8px;font-size:0.75rem;" disabled title="Cancel first" aria-label="Cannot delete \u2014 download is active">
                            <i class="fas fa-trash" aria-hidden="true"></i>
                        </button>`
                     : `<button class="btn-refresh" style="background:#ef4444;padding:4px 8px;font-size:0.75rem;"
@@ -1712,11 +1747,11 @@
                            <i class="fas fa-trash" aria-hidden="true"></i>
                        </button>`;
                 return `<tr>
-                    <td class="col-title" title="${esc(d.title)}">${esc(d.title || '—')}</td>
-                    <td class="col-url hide-xs"><a href="${esc(d.url || '#')}" target="_blank" rel="noopener">${esc(d.url || '—')}</a></td>
+                    <td class="col-title" title="${esc(d.title)}">${esc(d.title || '\u2014')}</td>
+                    <td class="col-url hide-xs"><a href="${esc(d.url || '#')}" target="_blank" rel="noopener">${esc(d.url || '\u2014')}</a></td>
                     <td>${badgeHtml(d.status)}${prog}</td>
                     <td class="hide-xs">${file}</td>
-                    <td class="col-ip hide-xs">${esc(d.ip || '—')}</td>
+                    <td class="col-ip hide-xs">${esc(d.ip || '\u2014')}</td>
                     <td class="hide-xs">${countryDisplay}</td>
                     <td class="col-time hide-xs">${fmtTime(d.created_at)}</td>
                     <td class="col-time hide-xs">${fmtTime(d.end_time)}</td>
@@ -1779,9 +1814,11 @@
         // ── Visitor table ──────────────────────────────────────────
         function renderVisitors() {
             const wrap = document.getElementById('visitor-table-wrap');
-            document.getElementById('tab-v-count').textContent = visitorData.length;
+            const tabVCount = document.getElementById('tab-v-count');
+            if (tabVCount) tabVCount.textContent = visitorData.length;
+            const sidebarVCount = document.getElementById('sidebar-v-count');
+            if (sidebarVCount) sidebarVCount.textContent = visitorData.length;
 
-            // Update persistent stat tiles from analytics endpoint
             animateStatValue(document.getElementById('s-visitors'),
                 analyticsData.total_site_visitors ?? visitorData.length);
             animateStatValue(document.getElementById('s-daily-visitors'),
@@ -1791,8 +1828,7 @@
             document.getElementById('s-dl-rate').textContent =
                 analyticsData.download_rate_per_day != null
                     ? analyticsData.download_rate_per_day
-                    : '—';
-            // Show total unique countries across visitors + downloads (from analytics endpoint)
+                    : '\u2014';
             animateStatValue(document.getElementById('s-countries'),
                 analyticsData.unique_countries_total ?? 0);
 
@@ -1805,13 +1841,13 @@
                 const flag = countryFlag(v.country_code);
                 const pageLabel = v.page === '/const' ? 'Admin' : v.page === '/' ? 'Site' : esc(v.page || 'Site');
                 return `<tr>
-                    <td class="col-ip">${esc(v.ip || '—')}</td>
-                    <td>${flag ? flag + ' ' : ''}${esc(v.country || '—')}</td>
-                    <td class="hide-xs">${esc(v.browser || '—')}</td>
-                    <td class="hide-xs">${esc(v.device || '—')}</td>
+                    <td class="col-ip">${esc(v.ip || '\u2014')}</td>
+                    <td>${flag ? flag + ' ' : ''}${esc(v.country || '\u2014')}</td>
+                    <td class="hide-xs">${esc(v.browser || '\u2014')}</td>
+                    <td class="hide-xs">${esc(v.device || '\u2014')}</td>
                     <td class="hide-xs">${esc(pageLabel)}</td>
                     <td class="col-time">${fmtTime(v.timestamp)}</td>
-                    <td class="hide-xs" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.78rem;color:#94a3b8;" title="${esc(v.user_agent)}">${esc(v.user_agent || '—')}</td>
+                    <td class="hide-xs" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:0.78rem;color:#94a3b8;" title="${esc(v.user_agent)}">${esc(v.user_agent || '\u2014')}</td>
                 </tr>`;
             }).join('');
 
@@ -1837,7 +1873,6 @@
                     fetch(`/admin/visitors?t=${Date.now()}`),
                     fetch(`/admin/analytics?t=${Date.now()}`)
                 ]);
-                // Redirect to login on 401
                 if (dlRes.status === 401 || vRes.status === 401 || analyticsRes.status === 401) {
                     window.location.href = '/admin/login';
                     return;
@@ -1855,12 +1890,11 @@
             renderDownloads();
             renderVisitors();
 
-            // Re-render analytics if that tab is active
             const analyticsActive = document.getElementById('tab-analytics').classList.contains('active');
             if (analyticsActive) renderAnalytics();
 
             document.getElementById('refresh-info').textContent =
-                `Last refreshed: ${new Date().toLocaleTimeString()} — auto-refreshes every 30 s`;
+                `Last refreshed: ${new Date().toLocaleTimeString()} \u2014 auto-refreshes every 30 s`;
         }
 
         // Initial load + auto-refresh
@@ -1893,7 +1927,7 @@
             }
         }
 
-        // ── Admin mobile menu ──────────────────────────────────────
+        // ── Admin mobile menu (legacy) ─────────────────────────────
         function toggleAdminMenu() {
             const menu     = document.getElementById('admin-mobile-menu');
             const backdrop = document.getElementById('admin-menu-backdrop');
