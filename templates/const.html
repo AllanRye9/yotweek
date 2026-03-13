@@ -380,20 +380,22 @@
         .css-chart {
             display: flex;
             align-items: flex-end;
-            gap: 2px;
-            padding: 6px 2px 0;
+            gap: 4px;
+            padding: 8px 4px 0;
             height: 160px;
-            overflow-x: auto;
-            overflow-y: hidden;
+            overflow: hidden;
+            box-sizing: border-box;
         }
         .css-bar-col {
             display: flex;
             flex-direction: column;
             align-items: center;
             flex: 1 1 0%;
-            min-width: 18px;
+            min-width: 0;
+            max-width: 48px;
             height: 100%;
             justify-content: flex-end;
+            overflow: hidden;
         }
         .css-bar-count {
             font-size: 0.6rem;
@@ -401,9 +403,10 @@
             color: var(--text-muted);
             margin-bottom: 2px;
             white-space: nowrap;
+            flex-shrink: 0;
         }
         .css-bar-track {
-            width: 100%;
+            width: 70%;
             max-width: 28px;
             background: #e2e8f0;
             border-radius: 4px 4px 0 0;
@@ -425,16 +428,48 @@
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 42px;
-            margin-top: 2px;
+            margin-top: 3px;
             line-height: 1.1;
+            flex-shrink: 0;
+        }
+
+        /* ── SVG line chart ── */
+        .line-chart-wrap {
+            position: relative;
+            width: 100%;
+            height: 180px;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        .line-chart-wrap svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .line-chart-labels {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 32px 0 40px;
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            overflow: hidden;
+        }
+        .line-chart-labels span {
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            overflow: hidden;
+            text-align: center;
+            flex: 1 1 0%;
+            min-width: 0;
         }
 
         /* ── SVG donut chart ── */
         .donut-wrap {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 20px;
             flex-wrap: nowrap;
+            padding: 8px 4px;
         }
         .donut-wrap svg {
             flex-shrink: 0;
@@ -444,13 +479,14 @@
         .donut-legend {
             display: flex;
             flex-direction: column;
-            gap: 3px;
+            gap: 5px;
             min-width: 0;
+            flex: 1;
         }
         .donut-legend-item {
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
             font-size: 0.72rem;
         }
         .donut-swatch {
@@ -1068,12 +1104,82 @@
                     const color = typeof colorFn === 'function' ? colorFn(idx) : colorFn;
                     return `<div class="css-bar-col" title="${esc(item.label)}: ${item.value}">
                         <div class="css-bar-count">${item.value > 0 ? item.value : ''}</div>
-                        <div class="css-bar-track" style="height:${pct}%;">
+                        <div class="css-bar-track" style="height:${pct}%;max-height:calc(100% - 24px);">
                             <div class="css-bar-fill" style="height:100%;background:${color};"></div>
                         </div>
                         <div class="css-bar-label">${esc(item.label)}</div>
                     </div>`;
                 }).join('') + '</div>';
+        }
+
+        // Helper: build an SVG line chart inside `el`
+        function svgLineChart(el, items, color, fillColor) {
+            if (!items.length) {
+                el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
+                return;
+            }
+            const max = Math.max(...items.map(i => i.value), 1);
+            const W = 500, H = 160, padL = 36, padR = 12, padT = 18, padB = 4;
+            const plotW = W - padL - padR, plotH = H - padT - padB;
+            const n = items.length;
+            const step = n > 1 ? plotW / (n - 1) : 0;
+
+            // Build grid lines and y-axis labels
+            const gridSteps = 4;
+            let grid = '';
+            for (let g = 0; g <= gridSteps; g++) {
+                const y = padT + (plotH * g / gridSteps);
+                const val = Math.round(max * (1 - g / gridSteps));
+                grid += `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}" stroke="#e2e8f0" stroke-width="1"/>`;
+                grid += `<text x="${padL - 6}" y="${y + 3}" text-anchor="end" font-size="9" fill="#94a3b8">${val}</text>`;
+            }
+
+            // Build the polyline points
+            const points = items.map((item, i) => {
+                const x = padL + i * step;
+                const y = padT + plotH - (item.value / max) * plotH;
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            });
+
+            // Area fill under the line
+            const firstX = padL, lastX = padL + (n - 1) * step;
+            const baseY = padT + plotH;
+            const areaPoints = `${firstX},${baseY} ` + points.join(' ') + ` ${lastX},${baseY}`;
+
+            // Dots at each data point
+            let dots = '';
+            items.forEach((item, i) => {
+                const x = padL + i * step;
+                const y = padT + plotH - (item.value / max) * plotH;
+                dots += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}" stroke="#fff" stroke-width="1.5" opacity="0">
+                    <animate attributeName="opacity" from="0" to="1" dur="0.4s" begin="${(0.3 + i * 0.04).toFixed(2)}s" fill="freeze"/>
+                </circle>`;
+                dots += `<title>${esc(item.label)}: ${item.value}</title>`;
+            });
+
+            // Build labels (show every Nth to avoid crowding)
+            const labelInterval = n <= 8 ? 1 : n <= 16 ? 2 : 3;
+            const labels = items.map((item, i) => {
+                if (i % labelInterval !== 0 && i !== n - 1) return '';
+                return `<span>${esc(item.label)}</span>`;
+            }).filter(Boolean).join('');
+
+            el.innerHTML = `<div class="line-chart-wrap">
+                <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+                    ${grid}
+                    <polygon points="${areaPoints}" fill="${fillColor || color}" opacity="0.1">
+                        <animate attributeName="opacity" from="0" to="0.1" dur="0.6s" fill="freeze"/>
+                    </polygon>
+                    <polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="2.5"
+                        stroke-linecap="round" stroke-linejoin="round"
+                        stroke-dasharray="2000" stroke-dashoffset="2000">
+                        <animate attributeName="stroke-dashoffset" from="2000" to="0" dur="1s"
+                            calcMode="spline" keySplines="0.4 0 0.2 1" fill="freeze"/>
+                    </polyline>
+                    ${dots}
+                </svg>
+                <div class="line-chart-labels">${labels}</div>
+            </div>`
         }
 
         // Helper: build an SVG donut chart inside `el` with animated arcs & count-up
@@ -1172,7 +1278,7 @@
                 const lbl = dt.toLocaleDateString('en-US', {month:'short', day:'numeric'});
                 items.push({ label: lbl, value: counts[lbl] || 0 });
             }
-            cssBarChart(document.getElementById('chart-daily'), items, '#667eea');
+            svgLineChart(document.getElementById('chart-daily'), items, '#667eea');
         }
 
         function renderCountryChart() {
@@ -1247,7 +1353,7 @@
                 const lbl = dt.toLocaleDateString('en-US', {month:'short', day:'numeric'});
                 items.push({ label: lbl, value: counts[lbl] || 0 });
             }
-            cssBarChart(document.getElementById('chart-dl-daily'), items, '#10b981');
+            svgLineChart(document.getElementById('chart-dl-daily'), items, '#10b981');
         }
 
         function renderDlCountryChart() {
@@ -1296,7 +1402,7 @@
                 label: `${String(i).padStart(2,'0')}:00`,
                 value: v
             }));
-            cssBarChart(document.getElementById('chart-peak-hours'), items, '#667eea');
+            svgLineChart(document.getElementById('chart-peak-hours'), items, '#667eea');
         }
 
         function renderVisitorHoursChart() {
@@ -1305,7 +1411,7 @@
                 label: `${String(i).padStart(2,'0')}:00`,
                 value: v
             }));
-            cssBarChart(document.getElementById('chart-visitor-hours'), items, '#3b82f6');
+            svgLineChart(document.getElementById('chart-visitor-hours'), items, '#3b82f6');
         }
 
         function renderOsChart() {

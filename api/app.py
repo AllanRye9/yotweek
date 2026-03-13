@@ -929,12 +929,12 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
         except Exception:
             pass
 
-    # --- Last resort: Accept-Language header heuristic ---
-    if country == "Unknown" and accept_language:
-        lang_country, lang_code = _country_from_accept_language(accept_language)
-        if lang_country:
-            country = lang_country
-            code = lang_code
+    # Accept-Language header is NOT used for country detection because the
+    # browser language region subtag (e.g. en-US, en-GB) reflects locale
+    # preference, not geographic location.  A user in the United Arab
+    # Emirates with an English browser would be misidentified as "United
+    # States" or "United Kingdom".  When all geo-IP services fail it is
+    # more accurate to report "Unknown" than to guess incorrectly.
 
     # Final normalisation: validate the ISO code and ensure the country name
     # matches our canonical dictionary so every record uses the exact same
