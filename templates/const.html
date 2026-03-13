@@ -169,6 +169,8 @@
             font-weight: 800;
             color: var(--primary);
             line-height: 1;
+            font-variant-numeric: tabular-nums;
+            transition: transform 0.3s ease;
         }
         .stat-tile.green  .stat-value { color: var(--success); }
         .stat-tile.red    .stat-value { color: var(--danger); }
@@ -735,6 +737,21 @@
                 <div class="stat-value" id="s-countries">—</div>
                 <div class="stat-label">Countries (Total)</div>
             </div>
+            <div class="stat-tile green">
+                <div class="stat-icon"><i class="fas fa-percentage"></i></div>
+                <div class="stat-value" id="s-success-rate">—</div>
+                <div class="stat-label">Success Rate</div>
+            </div>
+            <div class="stat-tile purple">
+                <div class="stat-icon"><i class="fas fa-file-archive"></i></div>
+                <div class="stat-value" id="s-avg-size">—</div>
+                <div class="stat-label">Avg File Size</div>
+            </div>
+            <div class="stat-tile blue">
+                <div class="stat-icon"><i class="fas fa-redo"></i></div>
+                <div class="stat-value" id="s-repeat-rate">—</div>
+                <div class="stat-label">Repeat Visitors</div>
+            </div>
         </div>
 
         <!-- Tabbed interface -->
@@ -820,6 +837,54 @@
                         <span>&#127760; Downloads by Country</span>
                     </div>
                     <div class="inner-card-body" id="chart-dl-countries"></div>
+                </div>
+
+                <!-- Peak download hours -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#9200; Peak Download Hours</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-peak-hours"></div>
+                </div>
+
+                <!-- Peak visitor hours -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128337; Peak Visitor Hours</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-visitor-hours"></div>
+                </div>
+
+                <!-- OS / Device breakdown -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128187; OS / Device Breakdown</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-os"></div>
+                </div>
+
+                <!-- Downloads by day of week -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128197; Downloads by Day of Week</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-dow"></div>
+                </div>
+
+                <!-- Success rate gauge -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#9989; Success Rate Overview</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-success-rate"></div>
+                </div>
+
+                <!-- Repeat visitor ratio -->
+                <div class="inner-card">
+                    <div class="inner-card-header">
+                        <span>&#128257; Visitor Retention</span>
+                    </div>
+                    <div class="inner-card-body" id="chart-repeat-visitors"></div>
                 </div>
             </div>
 
@@ -911,6 +976,36 @@
             return String.fromCodePoint(...[...code.toUpperCase()].map(c => 0x1F1E6 - 65 + c.charCodeAt(0)));
         }
 
+        // ── Animated stat-value counter ────────────────────────────
+        function animateStatValue(el, target) {
+            // If target is not a plain integer, just set it directly
+            if (typeof target !== 'number' || !Number.isFinite(target)) {
+                el.textContent = target;
+                return;
+            }
+            if (el._statTimer) clearInterval(el._statTimer);
+            const current = parseInt(el.textContent.replace(/,/g, '')) || 0;
+            if (current === target) return;
+            const diff = target - current;
+            const duration = 900;
+            const fps = 60;
+            const frames = Math.round(duration / (1000 / fps));
+            let f = 0;
+            el._statTimer = setInterval(() => {
+                f++;
+                const t = f / frames;
+                const ease = 1 - Math.pow(1 - t, 3);
+                el.textContent = Math.round(current + diff * ease).toLocaleString();
+                if (f >= frames) {
+                    el.textContent = target.toLocaleString();
+                    clearInterval(el._statTimer);
+                    el._statTimer = null;
+                    el.style.transform = 'scale(1.15)';
+                    setTimeout(() => { el.style.transform = 'scale(1)'; }, 200);
+                }
+            }, 1000 / fps);
+        }
+
         // ── Tab switching ──────────────────────────────────────────
         function switchTab(name, btn) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -936,6 +1031,12 @@
             renderDlDailyChart();
             renderDlCountryChart();
             renderDlCountryList();
+            renderPeakHoursChart();
+            renderVisitorHoursChart();
+            renderOsChart();
+            renderDowChart();
+            renderSuccessRateChart();
+            renderRepeatVisitorsChart();
         }
 
         // Helper: build a CSS horizontal bar chart inside `el`
@@ -1134,6 +1235,155 @@
             }).join('');
         }
 
+        // ── Deep-insight charts ────────────────────────────────────
+
+        function renderPeakHoursChart() {
+            const hours = analyticsData.peak_hours || new Array(24).fill(0);
+            const items = hours.map((v, i) => ({
+                label: `${String(i).padStart(2,'0')}:00`,
+                value: v
+            }));
+            cssBarChart(document.getElementById('chart-peak-hours'), items, '#667eea');
+        }
+
+        function renderVisitorHoursChart() {
+            const hours = analyticsData.visitor_hours || new Array(24).fill(0);
+            const items = hours.map((v, i) => ({
+                label: `${String(i).padStart(2,'0')}:00`,
+                value: v
+            }));
+            cssBarChart(document.getElementById('chart-visitor-hours'), items, '#3b82f6');
+        }
+
+        function renderOsChart() {
+            const data = analyticsData.os_breakdown || [];
+            const items = data.map(d => ({ label: d.os, value: d.count }));
+            svgDonut(document.getElementById('chart-os'), items,
+                ['#3b82f6','#10b981','#f59e0b','#a855f7','#ef4444','#64748b','#f97316','#22d3ee']);
+        }
+
+        function renderDowChart() {
+            const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+            const data = analyticsData.dow_downloads || new Array(7).fill(0);
+            const items = days.map((d, i) => ({ label: d, value: data[i] || 0 }));
+            cssBarChart(document.getElementById('chart-dow'), items,
+                idx => ['#667eea','#10b981','#f59e0b','#3b82f6','#a855f7','#f97316','#ef4444'][idx % 7]);
+        }
+
+        function renderSuccessRateChart() {
+            const el = document.getElementById('chart-success-rate');
+            const rate = analyticsData.success_rate ?? 0;
+            const completed = analyticsData.completed_count ?? 0;
+            const failed = analyticsData.failed_count ?? 0;
+            const cancelled = analyticsData.cancelled_count ?? 0;
+            const total = completed + failed + cancelled;
+            if (!total) {
+                el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
+                return;
+            }
+            const r = 60, cx = 70, cy = 70, stroke = 28;
+            const circ = 2 * Math.PI * r;
+            const fill = (rate / 100) * circ;
+            const gap = circ - fill;
+            el.innerHTML = `<div class="donut-wrap">
+                <svg width="140" height="140" viewBox="0 0 140 140">
+                    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="${stroke}"/>
+                    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+                        stroke="${rate >= 80 ? '#10b981' : rate >= 50 ? '#f59e0b' : '#ef4444'}"
+                        stroke-width="${stroke}"
+                        stroke-dasharray="${fill.toFixed(2)} ${gap.toFixed(2)}"
+                        stroke-dashoffset="0"
+                        transform="rotate(-90 ${cx} ${cy})"
+                        style="transition: stroke-dasharray 0.8s ease;"/>
+                    <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+                          font-size="20" font-weight="800" fill="#1e293b">${rate}%</text>
+                    <text x="${cx}" y="${cy + 18}" text-anchor="middle"
+                          font-size="9" fill="#94a3b8">success</text>
+                </svg>
+                <div class="donut-legend" style="flex:1;">
+                    <div class="donut-legend-item">
+                        <div class="donut-swatch" style="background:#10b981;"></div>
+                        <span style="color:#475569;">Completed</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${completed}</span>
+                    </div>
+                    <div class="donut-legend-item">
+                        <div class="donut-swatch" style="background:#ef4444;"></div>
+                        <span style="color:#475569;">Failed</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${failed}</span>
+                    </div>
+                    <div class="donut-legend-item">
+                        <div class="donut-swatch" style="background:#9ca3af;"></div>
+                        <span style="color:#475569;">Cancelled</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${cancelled}</span>
+                    </div>
+                    <div class="donut-legend-item" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;">
+                        <span style="color:#475569;font-weight:600;">Avg file size</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${esc(analyticsData.avg_file_size_hr || '—')}</span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        function renderRepeatVisitorsChart() {
+            const el = document.getElementById('chart-repeat-visitors');
+            const unique = analyticsData.unique_visitors ?? 0;
+            const repeat = analyticsData.repeat_visitors ?? 0;
+            const rate = analyticsData.repeat_rate ?? 0;
+            const newV = unique - repeat;
+            if (!unique) {
+                el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
+                return;
+            }
+            const items = [
+                { label: 'New Visitors', value: newV > 0 ? newV : 0 },
+                { label: 'Returning', value: repeat }
+            ];
+            const colors = ['#3b82f6', '#10b981'];
+            const total = items.reduce((s, i) => s + i.value, 0);
+            const r = 60, cx = 70, cy = 70, stroke_w = 28;
+            const circ = 2 * Math.PI * r;
+            let offset = 0;
+            let arcs = '';
+            items.forEach((item, i) => {
+                const frac = item.value / total;
+                const dash = frac * circ;
+                const g = circ - dash;
+                arcs += `<circle cx="${cx}" cy="${cy}" r="${r}"
+                    fill="none" stroke="${colors[i]}"
+                    stroke-width="${stroke_w}"
+                    stroke-dasharray="${dash.toFixed(2)} ${g.toFixed(2)}"
+                    stroke-dashoffset="${(-offset).toFixed(2)}"
+                    transform="rotate(-90 ${cx} ${cy})"
+                />`;
+                offset += dash;
+            });
+            el.innerHTML = `<div class="donut-wrap">
+                <svg width="140" height="140" viewBox="0 0 140 140">
+                    ${arcs}
+                    <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
+                          font-size="18" font-weight="800" fill="#1e293b">${rate}%</text>
+                    <text x="${cx}" y="${cy + 18}" text-anchor="middle"
+                          font-size="9" fill="#94a3b8">returning</text>
+                </svg>
+                <div class="donut-legend" style="flex:1;">
+                    <div class="donut-legend-item">
+                        <div class="donut-swatch" style="background:#3b82f6;"></div>
+                        <span style="color:#475569;">New Visitors</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${newV > 0 ? newV : 0}</span>
+                    </div>
+                    <div class="donut-legend-item">
+                        <div class="donut-swatch" style="background:#10b981;"></div>
+                        <span style="color:#475569;">Returning</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${repeat}</span>
+                    </div>
+                    <div class="donut-legend-item" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;">
+                        <span style="color:#475569;font-weight:600;">Unique IPs</span>
+                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${unique}</span>
+                    </div>
+                </div>
+            </div>`;
+        }
+
         // ── Download table ─────────────────────────────────────────
         function renderDownloads() {
             const wrap = document.getElementById('dl-table-wrap');
@@ -1144,10 +1394,17 @@
             const completed = dlData.filter(d => d.status === 'completed').length;
             const active    = dlData.filter(d => ['queued','downloading'].includes(d.status)).length;
             const failed    = dlData.filter(d => ['failed','cancelled'].includes(d.status)).length;
-            document.getElementById('s-total').textContent     = total;
-            document.getElementById('s-completed').textContent = completed;
-            document.getElementById('s-active').textContent    = active;
-            document.getElementById('s-failed').textContent    = failed;
+            animateStatValue(document.getElementById('s-total'), total);
+            animateStatValue(document.getElementById('s-completed'), completed);
+            animateStatValue(document.getElementById('s-active'), active);
+            animateStatValue(document.getElementById('s-failed'), failed);
+            // Deep-insight stat tiles
+            document.getElementById('s-success-rate').textContent =
+                analyticsData.success_rate != null ? analyticsData.success_rate + '%' : '—';
+            document.getElementById('s-avg-size').textContent =
+                analyticsData.avg_file_size_hr || '—';
+            document.getElementById('s-repeat-rate').textContent =
+                analyticsData.repeat_rate != null ? analyticsData.repeat_rate + '%' : '—';
 
             if (!dlData.length) {
                 wrap.innerHTML = `<div class="empty-state"><i class="fas fa-inbox"></i><p>No download records yet</p></div>`;
@@ -1246,18 +1503,19 @@
             document.getElementById('tab-v-count').textContent = visitorData.length;
 
             // Update persistent stat tiles from analytics endpoint
-            document.getElementById('s-visitors').textContent =
-                analyticsData.total_site_visitors ?? visitorData.length;
-            document.getElementById('s-daily-visitors').textContent =
-                analyticsData.daily_site_visitors ?? '—';
-            document.getElementById('s-daily-downloads').textContent =
-                analyticsData.daily_downloads ?? '—';
+            animateStatValue(document.getElementById('s-visitors'),
+                analyticsData.total_site_visitors ?? visitorData.length);
+            animateStatValue(document.getElementById('s-daily-visitors'),
+                analyticsData.daily_site_visitors ?? 0);
+            animateStatValue(document.getElementById('s-daily-downloads'),
+                analyticsData.daily_downloads ?? 0);
             document.getElementById('s-dl-rate').textContent =
                 analyticsData.download_rate_per_day != null
                     ? analyticsData.download_rate_per_day
                     : '—';
             // Show total unique countries across visitors + downloads (from analytics endpoint)
-            document.getElementById('s-countries').textContent = analyticsData.unique_countries_total ?? '—';
+            animateStatValue(document.getElementById('s-countries'),
+                analyticsData.unique_countries_total ?? 0);
 
             if (!visitorData.length) {
                 wrap.innerHTML = `<div class="empty-state"><i class="fas fa-users"></i><p>No visitor records yet</p></div>`;
