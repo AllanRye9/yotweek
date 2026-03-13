@@ -188,7 +188,23 @@
         }
 
         @media (max-width: 600px) {
-            .hero { display: none; }
+            /* Compact hero bar — still visible on mobile */
+            .hero {
+                padding: 5px 10px;
+                row-gap: 4px;
+                min-height: 40px;
+            }
+            .hero-icon { width: 26px; height: 26px; font-size: 0.78rem; border-radius: 6px; }
+            .hero-title { font-size: 0.88rem; }
+            .hero-subtitle { display: none; }
+            .hero-center { display: none; } /* session counters hidden — badge shows them */
+            .hero-right { gap: 8px; }
+            .hero-stat-item { gap: 3px; font-size: 0.72rem; }
+            .hero-stat-count { font-size: 0.82rem; min-width: 14px; }
+            .hero-stat-label { font-size: 0.62rem; }
+            .hero-admin-link { font-size: 0.72rem; padding: 4px 7px; }
+            /* Hide floating stats-badge on mobile — hero already shows global stats */
+            .stats-badge { display: none; }
         }
 
         /* ── Card ── */
@@ -465,6 +481,19 @@
             color: #64748b;
             line-height: 1.4;
         }
+        .format-section-label {
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: #94a3b8;
+            padding: 4px 10px 2px;
+        }
+        .format-ext-option.active-ext {
+            border-color: #2563eb;
+            background: #eff6ff;
+        }
+        .fsd-sep { color: #94a3b8; margin: 0 4px; }
         .tip-box {
             background: #eff6ff;
             border-left: 4px solid #3b82f6;
@@ -505,15 +534,16 @@
             padding: 16px 8px;
             min-height: 220px;
             gap: 8px;
+            -webkit-backdrop-filter: blur(2px);
             backdrop-filter: blur(2px);
         }
         .ad-placeholder i { font-size: 1.6rem; opacity: 0.4; }
         .ad-placeholder--compact { min-height: 140px; }
 
         /* ── card variant: allow dropdown overflow ── */
-        /* overflow-x: clip prevents horizontal page overflow without creating a
-           scroll context, while overflow-y: visible keeps absolute dropdowns visible */
-        .card-has-dropdown { overflow-x: clip; overflow-y: visible; }
+        /* overflow: visible lets absolute-positioned dropdowns appear outside the card;
+           use it instead of overflow-x: clip (unsupported in Safari < 16) */
+        .card-has-dropdown { overflow: visible; }
 
         /* ── Main section tab navigation (Download / Playlist / Editing) ── */
         .main-section-header {
@@ -697,7 +727,7 @@
         .modal-overlay {
             display: none;
             position: fixed;
-            inset: 0;
+            top: 0; right: 0; bottom: 0; left: 0;
             background: rgba(0, 0, 0, 0.55);
             z-index: 3000;
             align-items: center;
@@ -753,7 +783,7 @@
         /* ── Page loader overlay ── */
         #page-loader {
             position: fixed;
-            inset: 0;
+            top: 0; right: 0; bottom: 0; left: 0;
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             z-index: 9999;
             display: flex;
@@ -796,7 +826,7 @@
         /* ── Retention (keep-or-delete) modal ── */
         #retention-modal {
             position: fixed;
-            inset: 0;
+            top: 0; right: 0; bottom: 0; left: 0;
             background: rgba(0, 0, 0, 0.55);
             z-index: 5000;
             display: none;
@@ -987,7 +1017,7 @@
         .info-modal-overlay {
             display: none;
             position: fixed;
-            inset: 0;
+            top: 0; right: 0; bottom: 0; left: 0;
             background: rgba(0,0,0,0.52);
             z-index: 4000;
             align-items: center;
@@ -1149,8 +1179,7 @@
         .mobile-nav-backdrop {
             display: none;
             position: fixed;
-            inset: 0;
-            top: 54px;
+            top: 54px; right: 0; bottom: 0; left: 0;
             z-index: 997;
             background: rgba(0,0,0,0.25);
         }
@@ -1300,7 +1329,7 @@
         /* ── In-browser video/audio player modal ── */
         #player-modal {
             position: fixed;
-            inset: 0;
+            top: 0; right: 0; bottom: 0; left: 0;
             background: rgba(0, 0, 0, 0.82);
             z-index: 6000;
             display: none;
@@ -1656,6 +1685,7 @@
                             </div>
                                 <div class="form-group" style="position:relative;">
                                     <input type="hidden" id="format" name="format" value="bestvideo[height<=720]+bestaudio/best">
+                                    <input type="hidden" id="ext" name="ext" value="mp4">
                                     <div style="display:flex; justify-content:center; margin-bottom:6px;">
                                         <button type="button" class="format-guide-toggle" id="format-guide-btn"
                                                 aria-expanded="false" aria-controls="format-guide-dropdown">
@@ -1665,9 +1695,13 @@
                                     <div class="format-selected-display" id="format-display">
                                         <span class="fsd-label">Selected:</span>
                                         <span id="format-display-text">HD (720p)</span>
+                                        <span class="fsd-sep">·</span>
+                                        <span id="ext-display-text" style="color:#2563eb;">MP4</span>
                                     </div>
                                     <!-- Format guide dropdown — positioned below the display, full width of form-group -->
                                     <div class="format-guide-dropdown" id="format-guide-dropdown" role="listbox" aria-label="Format Guide">
+                                        <!-- Quality section -->
+                                        <div class="format-section-label">Quality</div>
                                         <div class="format-option" onclick="pickFormat('bestvideo[height<=720]+bestaudio/best', 'HD (720p)')" role="option" tabindex="0">
                                             <div class="format-option-icon" style="background:#fff7ed;color:#c2410c;"><i class="fas fa-film"></i></div>
                                             <div class="format-option-text">
@@ -1687,6 +1721,36 @@
                                             <div class="format-option-text">
                                                 <div class="format-option-title">Full HD (1080p)</div>
                                                 <div class="format-option-desc">Up to 1080p — sharp on most screens.</div>
+                                            </div>
+                                        </div>
+                                        <!-- File type section -->
+                                        <div class="format-section-label" style="margin-top:8px;">File Format</div>
+                                        <div class="format-option format-ext-option active-ext" id="ext-opt-mp4" onclick="pickExt('mp4','MP4')" role="option" tabindex="0">
+                                            <div class="format-option-icon" style="background:#eff6ff;color:#2563eb;"><i class="fas fa-file-video"></i></div>
+                                            <div class="format-option-text">
+                                                <div class="format-option-title">.mp4 <span class="format-option-tag">Default</span></div>
+                                                <div class="format-option-desc">Universal — plays on all devices and browsers.</div>
+                                            </div>
+                                        </div>
+                                        <div class="format-option format-ext-option" id="ext-opt-webm" onclick="pickExt('webm','WebM')" role="option" tabindex="0">
+                                            <div class="format-option-icon" style="background:#f0fdf4;color:#15803d;"><i class="fas fa-file-video"></i></div>
+                                            <div class="format-option-text">
+                                                <div class="format-option-title">.webm</div>
+                                                <div class="format-option-desc">Open format — smaller size, best for web streaming.</div>
+                                            </div>
+                                        </div>
+                                        <div class="format-option format-ext-option" id="ext-opt-mkv" onclick="pickExt('mkv','MKV')" role="option" tabindex="0">
+                                            <div class="format-option-icon" style="background:#faf5ff;color:#7c3aed;"><i class="fas fa-file-video"></i></div>
+                                            <div class="format-option-text">
+                                                <div class="format-option-title">.mkv</div>
+                                                <div class="format-option-desc">Flexible container — preserves all tracks and subtitles.</div>
+                                            </div>
+                                        </div>
+                                        <div class="format-option format-ext-option" id="ext-opt-avi" onclick="pickExt('avi','AVI')" role="option" tabindex="0">
+                                            <div class="format-option-icon" style="background:#fff7ed;color:#c2410c;"><i class="fas fa-file-video"></i></div>
+                                            <div class="format-option-text">
+                                                <div class="format-option-title">.avi</div>
+                                                <div class="format-option-desc">Legacy format — wide compatibility with older software.</div>
                                             </div>
                                         </div>
                                     </div>
@@ -1723,6 +1787,15 @@
                                     <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label for="playlist-ext"><i class="fas fa-file-video"></i> File Format</label>
+                                <select id="playlist-ext">
+                                    <option value="mp4" selected>.mp4 — Universal (recommended)</option>
+                                    <option value="webm">.webm — Open format</option>
+                                    <option value="mkv">.mkv — Flexible container</option>
+                                    <option value="avi">.avi — Legacy compatibility</option>
+                                </select>
+                            </div>
                             <button class="btn-primary" id="playlist-btn" onclick="startPlaylistDownload()">
                                 <i class="fas fa-cloud-download-alt"></i> Download Playlist
                             </button>
@@ -1752,6 +1825,15 @@
                                     <option value="bestvideo[height<=720]+bestaudio/best" selected>HD (720p) — Recommended</option>
                                     <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
                                     <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="batch-ext"><i class="fas fa-file-video"></i> File Format</label>
+                                <select id="batch-ext">
+                                    <option value="mp4" selected>.mp4 — Universal (recommended)</option>
+                                    <option value="webm">.webm — Open format</option>
+                                    <option value="mkv">.mkv — Flexible container</option>
+                                    <option value="avi">.avi — Legacy compatibility</option>
                                 </select>
                             </div>
                             <button class="btn-primary" id="batch-btn" onclick="startBatchDownload()">
@@ -2370,6 +2452,16 @@
             if (firstEmpty) firstEmpty.focus();
         }
 
+        function pickExt(ext, label) {
+            document.getElementById('ext').value = ext;
+            document.getElementById('ext-display-text').textContent = label;
+            // Highlight the selected extension option
+            document.querySelectorAll('.format-ext-option').forEach(el => el.classList.remove('active-ext'));
+            const selected = document.getElementById('ext-opt-' + ext);
+            if (selected) selected.classList.add('active-ext');
+            closeFormatDropdown();
+        }
+
         function closeFormatDropdown() {
             const btn = document.getElementById('format-guide-btn');
             const dd  = document.getElementById('format-guide-dropdown');
@@ -2755,6 +2847,7 @@
 
             const urls   = getUrlValues();
             const format = document.getElementById('format').value.trim() || 'best';
+            const ext    = document.getElementById('ext').value.trim() || 'mp4';
             const btn    = document.getElementById('download-btn');
 
             if (urls.length === 0) {
@@ -2771,6 +2864,7 @@
                     const fd = new FormData();
                     fd.append('url',     urls[0]);
                     fd.append('format',  format);
+                    fd.append('ext',     ext);
 
                     const res  = await fetch('/start_download', { method: 'POST', body: fd });
                     const data = await res.json();
@@ -2802,6 +2896,7 @@
                     const fd = new FormData();
                     fd.append('urls',   urls.join('\n'));
                     fd.append('format', format);
+                    fd.append('ext',    ext);
 
                     const res  = await fetch('/start_batch_download', { method: 'POST', body: fd });
                     const data = await res.json();
@@ -3424,6 +3519,7 @@
                 const fd = new FormData();
                 fd.append('url',    url);
                 fd.append('format', document.getElementById('playlist-format').value);
+                fd.append('ext',    document.getElementById('playlist-ext').value || 'mp4');
                 const res  = await fetch('/start_playlist_download', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (!res.ok || data.error) throw new Error(data.error || 'Failed to start');
@@ -3454,6 +3550,7 @@
                 const fd = new FormData();
                 fd.append('urls',   urlValues.join('\n'));
                 fd.append('format', document.getElementById('batch-format').value);
+                fd.append('ext',    document.getElementById('batch-ext').value || 'mp4');
                 const res  = await fetch('/start_batch_download', { method: 'POST', body: fd });
                 const data = await res.json();
                 if (!res.ok || data.error) throw new Error(data.error || 'Failed to start');
