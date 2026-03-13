@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="google-adsense-account" content="ca-pub-9756287260068717">
     <title>YOT Downloader</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Cpath d='M16 6v12m0 0l-5-5m5 5l5-5M8 24h16' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -128,6 +129,13 @@
             color: #1e293b;
             letter-spacing: -0.01em;
             line-height: 1.2;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .hero-title-icon {
+            flex-shrink: 0;
+            vertical-align: middle;
         }
         .hero-subtitle {
             color: #64748b;
@@ -152,6 +160,78 @@
             transition: background 0.2s;
         }
         .hero-admin-link:hover { background: rgba(37, 99, 235, 0.08); }
+
+        /* Admin quick-actions bar on home page */
+        .admin-bar {
+            width: 100%;
+            padding: 6px 18px;
+            background: #f0f6ff;
+            border-bottom: 1px solid #bfdbfe;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.78rem;
+            color: #1e40af;
+        }
+        .admin-bar-label {
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            white-space: nowrap;
+        }
+        .admin-bar-label svg { flex-shrink: 0; }
+        .admin-bar-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .admin-bar-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border: 1px solid #93c5fd;
+            border-radius: 5px;
+            background: white;
+            color: #1e40af;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+            text-decoration: none;
+        }
+        .admin-bar-btn:hover {
+            background: #dbeafe;
+            border-color: #60a5fa;
+        }
+        .admin-bar-status {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.72rem;
+            color: #64748b;
+        }
+        .admin-bar-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .admin-bar-dot.ok   { background: #22c55e; }
+        .admin-bar-dot.warn { background: #f59e0b; }
+        .admin-bar-dot.none { background: #ef4444; }
+
+        @media (max-width: 600px) {
+            .admin-bar {
+                padding: 5px 10px;
+                gap: 6px;
+                font-size: 0.7rem;
+            }
+            .admin-bar-status { display: none; }
+        }
 
         /* Hero layout groups (replaces inline styles for responsive control) */
         .hero-left  { display: flex; align-items: center; gap: 10px; }
@@ -188,6 +268,7 @@
             }
             .hero-icon { width: 26px; height: 26px; font-size: 0.78rem; border-radius: 6px; }
             .hero-title { font-size: 0.88rem; }
+            .hero-title-icon { width: 16px; height: 16px; }
             .hero-subtitle { display: none; }
             .hero-center { display: none; } /* session counters hidden — badge shows them */
             .hero-right { gap: 8px; }
@@ -1665,10 +1746,13 @@
     <header class="hero">
         <div class="hero-left">
             <div class="hero-icon" aria-hidden="true">
-                <i class="fas fa-download"></i>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0l-5-5m5 5l5-5M5 19h14"/></svg>
             </div>
             <div>
-                <h1 class="hero-title">YOT Downloader</h1>
+                <h1 class="hero-title">
+                    <svg class="hero-title-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#2563eb"/><path d="M16 6v12m0 0l-5-5m5 5l5-5M8 24h16" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
+                    YOT Downloader
+                </h1>
                 <p class="hero-subtitle">
                     <span id="conn-dot"></span>
                     Powered by yt-dlp &mdash; download videos from YouTube and 1000+ sites
@@ -1698,6 +1782,29 @@
             {% endif %}
         </div>
     </header>
+
+    {% if is_admin %}
+    <div class="admin-bar" id="admin-bar">
+        <div class="admin-bar-label">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            Admin
+        </div>
+        <div class="admin-bar-actions">
+            <a href="/const" class="admin-bar-btn"><i class="fas fa-tachometer-alt"></i> Dashboard</a>
+            <label class="admin-bar-btn" style="margin:0;">
+                <i class="fas fa-cookie-bite"></i> Upload Cookies
+                <input type="file" id="home-cookie-upload" accept=".txt,text/plain" style="display:none;" onchange="homeUploadCookies(this)">
+            </label>
+            <button class="admin-bar-btn" id="home-cookie-delete-btn" style="display:none;color:#ef4444;border-color:#fca5a5;" onclick="homeDeleteCookies()">
+                <i class="fas fa-trash-alt"></i> Remove Cookies
+            </button>
+        </div>
+        <div class="admin-bar-status" id="admin-cookie-status">
+            <span class="admin-bar-dot none" id="admin-cookie-dot"></span>
+            <span id="admin-cookie-text">Checking cookies…</span>
+        </div>
+    </div>
+    {% endif %}
 
     <div class="container">
 
@@ -3960,6 +4067,68 @@
                 status.innerHTML = `<span style="color:#ef4444;">Failed: ${escHtml(e.message)}</span>`;
             }
         }
+
+        // ─── Admin bar: cookie management (home page) ─────────────
+        {% if is_admin %}
+        (function initAdminBar() {
+            const dot   = document.getElementById('admin-cookie-dot');
+            const text  = document.getElementById('admin-cookie-text');
+            const delBtn = document.getElementById('home-cookie-delete-btn');
+            if (!dot || !text) return;
+
+            async function refreshCookieStatus() {
+                try {
+                    const res = await fetch('/admin/cookies/status');
+                    if (!res.ok) return;
+                    const data = await res.json();
+                    if (data.has_cookies) {
+                        dot.className  = 'admin-bar-dot ok';
+                        text.textContent = 'Cookies active';
+                        if (delBtn) delBtn.style.display = '';
+                    } else {
+                        dot.className  = 'admin-bar-dot none';
+                        text.textContent = 'No cookies';
+                        if (delBtn) delBtn.style.display = 'none';
+                    }
+                } catch (err) {
+                    console.warn('Cookie status check failed:', err);
+                    dot.className  = 'admin-bar-dot warn';
+                    text.textContent = 'Status unknown';
+                }
+            }
+            refreshCookieStatus();
+            // Refresh every 30 seconds
+            setInterval(refreshCookieStatus, 30000);
+
+            window.homeUploadCookies = async function(input) {
+                if (!input.files.length) return;
+                const fd = new FormData();
+                fd.append('cookie_file', input.files[0]);
+                try {
+                    const res = await fetch('/admin/cookies/upload', { method: 'POST', body: fd });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Upload failed');
+                    showToast('✅ Cookies uploaded successfully', 'success');
+                    refreshCookieStatus();
+                } catch (e) {
+                    showToast('❌ Cookie upload failed: ' + e.message, 'error', 6000);
+                }
+                input.value = '';
+            };
+
+            window.homeDeleteCookies = async function() {
+                try {
+                    const res = await fetch('/admin/cookies', { method: 'DELETE' });
+                    const data = await res.json();
+                    if (!res.ok || data.error) throw new Error(data.error || 'Delete failed');
+                    showToast('🗑️ Cookies removed', 'info');
+                    refreshCookieStatus();
+                } catch (e) {
+                    showToast('❌ Failed to remove cookies: ' + e.message, 'error', 6000);
+                }
+            };
+        })();
+        {% endif %}
     </script>
 </body>
 </html>

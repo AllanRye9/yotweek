@@ -1154,27 +1154,60 @@ def _get_cookie_opts() -> dict:
         return {"cookiefile": COOKIES_FILE}
     return {}
 
+# Bot-detection and login/auth patterns yt-dlp may emit
+_AUTH_PATTERNS = (
+    "sign in to confirm",
+    "confirm you're not a bot",
+    "login required",
+    "this video requires login",
+    "please sign in",
+    "sign in to view",
+    "session has been invalidated",
+    "required to log in",
+)
+
 def _friendly_cookie_error(error_msg: str) -> str:
     """Return a user-friendly message when YouTube bot-detection triggers.
 
     Detects the ``Sign in to confirm you're not a bot`` error emitted by
-    yt-dlp and replaces it with actionable guidance so the user knows they
-    need to upload a cookies file via the admin panel.
+    yt-dlp (and related authentication / login-required errors) and replaces
+    them with actionable guidance so the user knows they need to upload a
+    cookies file via the admin panel.
     """
     lower = error_msg.lower()
-    if "sign in to confirm" in lower or "confirm you're not a bot" in lower:
+
+    is_auth_error = any(p in lower for p in _AUTH_PATTERNS)
+
+    # Also catch cookie-specific failures (expired / invalid / missing cookies)
+    if not is_auth_error and "cookie" in lower:
+        is_auth_error = any(w in lower for w in ("invalid", "expired", "missing", "rejected"))
+
+    if is_auth_error:
         if os.path.isfile(COOKIES_FILE):
             return (
                 "YouTube bot detection triggered. Your cookies file may be "
                 "expired or invalid. Please upload a fresh cookies.txt file "
-                "via the Admin panel (Admin → Cookies)."
+                "via the Admin panel (Admin \u2192 Cookies)."
             )
         return (
             "YouTube requires authentication. Please upload a cookies.txt "
-            "file via the Admin panel (Admin → Cookies) to bypass bot "
+            "file via the Admin panel (Admin \u2192 Cookies) to bypass bot "
             "detection. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ"
             "#how-do-i-pass-cookies-to-yt-dlp for how to export cookies."
         )
+
+    # Private / age-restricted videos
+    if "private video" in lower:
+        return (
+            "This video is private. It can only be downloaded with "
+            "cookies from an account that has access."
+        )
+    if "age" in lower and ("restricted" in lower or "gate" in lower):
+        return (
+            "This video is age-restricted. Please upload a cookies.txt "
+            "file from a logged-in account via Admin \u2192 Cookies."
+        )
+
     return error_msg
 
 
