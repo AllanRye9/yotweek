@@ -269,6 +269,7 @@
         }
         .inner-card-header span { display: flex; align-items: center; gap: 6px; }
         .inner-card-body { padding: 10px; overflow-x: auto; }
+        .inner-card.standalone { margin-top: 8px; }
 
         /* ── Refresh button ── */
         .btn-refresh {
@@ -518,7 +519,7 @@
             .inner-card-header { padding: 5px 8px; font-size: 0.74rem; }
             .inner-card-body { padding: 6px; }
             .donut-wrap { flex-wrap: wrap; gap: 8px; justify-content: center; }
-            .donut-wrap svg { width: 120px; height: 120px; }
+            .donut-wrap svg { width: 120px; aspect-ratio: 1 / 1; height: auto; }
             .donut-legend { width: 100%; }
             .css-chart { height: 140px; }
             .css-bar-col { min-width: 14px; }
@@ -904,7 +905,7 @@
             </div>
 
             <!-- Country detail list -->
-            <div class="inner-card" style="margin-top:8px;">
+            <div class="inner-card standalone">
                 <div class="inner-card-header">
                     <span><i class="fas fa-flag"></i> Top Countries Detail (Visitors)</span>
                 </div>
@@ -914,7 +915,7 @@
             </div>
 
             <!-- Downloads country detail list -->
-            <div class="inner-card" style="margin-top:8px;">
+            <div class="inner-card standalone">
                 <div class="inner-card-header">
                     <span><i class="fas fa-globe"></i> Top Countries Detail (Downloads)</span>
                 </div>
