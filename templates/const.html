@@ -145,7 +145,7 @@
         /* ── Stat tiles ── */
         .stat-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(95px, 1fr));
             gap: 6px;
             margin-bottom: 10px;
         }
@@ -153,7 +153,7 @@
             background: var(--card-bg);
             border-radius: 8px;
             box-shadow: var(--shadow);
-            padding: 8px 8px;
+            padding: 6px 6px;
             text-align: center;
             border-top: 3px solid var(--primary);
             transition: transform 0.2s;
@@ -165,10 +165,10 @@
         .stat-tile.amber  { border-top-color: var(--warning); }
         .stat-tile.blue   { border-top-color: var(--info); }
         .stat-value {
-            font-size: 1.25rem;
+            font-size: 1.2rem;
             font-weight: 800;
             color: var(--primary);
-            line-height: 1;
+            line-height: 1.1;
             font-variant-numeric: tabular-nums;
             transition: transform 0.3s ease;
         }
@@ -178,16 +178,16 @@
         .stat-tile.amber  .stat-value { color: var(--warning); }
         .stat-tile.blue   .stat-value { color: var(--info); }
         .stat-label {
-            font-size: 0.65rem;
+            font-size: 0.62rem;
             color: var(--text-muted);
             margin-top: 2px;
             font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
         }
         .stat-icon {
-            font-size: 0.85rem;
-            margin-bottom: 3px;
+            font-size: 0.8rem;
+            margin-bottom: 2px;
             opacity: 0.7;
         }
         .stat-tile.green  .stat-icon { color: var(--success); }
@@ -253,12 +253,12 @@
             border: 1px solid var(--border);
             border-radius: 8px;
             overflow: hidden;
-            margin-bottom: 8px;
+            margin-bottom: 0;
         }
         .inner-card-header {
             background: #f8fafc;
-            padding: 7px 10px;
-            font-size: 0.8rem;
+            padding: 6px 10px;
+            font-size: 0.78rem;
             font-weight: 700;
             color: var(--text);
             display: flex;
@@ -268,7 +268,8 @@
             border-bottom: 1px solid var(--border);
         }
         .inner-card-header span { display: flex; align-items: center; gap: 6px; }
-        .inner-card-body { padding: 8px; overflow-x: auto; }
+        .inner-card-body { padding: 10px; overflow-x: auto; }
+        .inner-card.standalone { margin-top: 8px; }
 
         /* ── Refresh button ── */
         .btn-refresh {
@@ -369,7 +370,7 @@
         .analytics-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 10px;
+            gap: 8px;
         }
         @media (max-width: 760px) {
             .analytics-grid { grid-template-columns: 1fr; }
@@ -379,9 +380,9 @@
         .css-chart {
             display: flex;
             align-items: flex-end;
-            gap: 3px;
-            padding: 8px 0 0;
-            height: 180px;
+            gap: 2px;
+            padding: 6px 2px 0;
+            height: 160px;
             overflow-x: auto;
             overflow-y: hidden;
         }
@@ -390,12 +391,12 @@
             flex-direction: column;
             align-items: center;
             flex: 1 1 0%;
-            min-width: 22px;
+            min-width: 18px;
             height: 100%;
             justify-content: flex-end;
         }
         .css-bar-count {
-            font-size: 0.62rem;
+            font-size: 0.6rem;
             font-weight: 700;
             color: var(--text-muted);
             margin-bottom: 2px;
@@ -403,7 +404,7 @@
         }
         .css-bar-track {
             width: 100%;
-            max-width: 32px;
+            max-width: 28px;
             background: #e2e8f0;
             border-radius: 4px 4px 0 0;
             position: relative;
@@ -417,14 +418,14 @@
             min-height: 2px;
         }
         .css-bar-label {
-            font-size: 0.58rem;
+            font-size: 0.55rem;
             color: var(--text-muted);
             text-align: center;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            max-width: 48px;
-            margin-top: 3px;
+            max-width: 42px;
+            margin-top: 2px;
             line-height: 1.1;
         }
 
@@ -432,23 +433,29 @@
         .donut-wrap {
             display: flex;
             align-items: center;
-            gap: 14px;
-            flex-wrap: wrap;
+            gap: 12px;
+            flex-wrap: nowrap;
+        }
+        .donut-wrap svg {
+            flex-shrink: 0;
+            aspect-ratio: 1 / 1;
+            display: block;
         }
         .donut-legend {
             display: flex;
             flex-direction: column;
             gap: 3px;
+            min-width: 0;
         }
         .donut-legend-item {
             display: flex;
             align-items: center;
             gap: 5px;
-            font-size: 0.74rem;
+            font-size: 0.72rem;
         }
         .donut-swatch {
-            width: 12px;
-            height: 12px;
+            width: 10px;
+            height: 10px;
             border-radius: 3px;
             flex-shrink: 0;
         }
@@ -457,12 +464,12 @@
         .country-bar {
             display: flex;
             align-items: center;
-            padding: 4px 0;
+            padding: 3px 0;
             gap: 8px;
             border-bottom: 1px solid #f1f5f9;
         }
         .country-bar:last-child { border-bottom: none; }
-        .country-name { min-width: 110px; font-size: 0.78rem; font-weight: 600; }
+        .country-name { min-width: 100px; font-size: 0.75rem; font-weight: 600; }
         .country-track {
             flex: 1;
             background: #e2e8f0;
@@ -475,7 +482,7 @@
             background: linear-gradient(90deg, var(--primary), var(--primary-dark));
             border-radius: 999px;
         }
-        .country-count { font-size: 0.76rem; color: var(--text-muted); min-width: 28px; text-align: right; }
+        .country-count { font-size: 0.73rem; color: var(--text-muted); min-width: 28px; text-align: right; }
 
         /* ── Empty state ── */
         .empty-state {
@@ -496,21 +503,27 @@
         /* ── Responsive hide ── */
         @media (max-width: 1024px) {
             .container { padding: 8px 8px; }
-            .analytics-grid { gap: 8px; }
+            .analytics-grid { gap: 6px; }
         }
         @media (max-width: 640px) {
             .hide-xs { display: none !important; }
             .topbar { padding: 6px 10px; min-height: 40px; }
             .container { padding: 6px 6px; }
             .stat-grid { grid-template-columns: repeat(3, 1fr); gap: 4px; }
-            .stat-tile { padding: 8px 6px; }
-            .stat-value { font-size: 1.1rem; }
-            .stat-label { font-size: 0.6rem; }
-            .stat-icon { font-size: 0.75rem; margin-bottom: 2px; }
+            .stat-tile { padding: 6px 4px; }
+            .stat-value { font-size: 1.05rem; }
+            .stat-label { font-size: 0.58rem; }
+            .stat-icon { font-size: 0.72rem; margin-bottom: 2px; }
             .tab-btn { padding: 5px 8px; font-size: 0.74rem; flex: 1 1 0%; text-align: center; justify-content: center; }
             .tab-panel { padding: 8px 6px; }
-            .inner-card-header { padding: 6px 8px; font-size: 0.76rem; }
+            .inner-card-header { padding: 5px 8px; font-size: 0.74rem; }
             .inner-card-body { padding: 6px; }
+            .donut-wrap { flex-wrap: wrap; gap: 8px; justify-content: center; }
+            .donut-wrap svg { width: 120px; aspect-ratio: 1 / 1; height: auto; }
+            .donut-legend { width: 100%; }
+            .css-chart { height: 140px; }
+            .css-bar-col { min-width: 14px; }
+            .css-bar-track { max-width: 24px; }
             #toast-container { top: 8px; right: 6px; }
             .toast { min-width: 180px; max-width: calc(100vw - 12px); font-size: 0.8rem; padding: 8px 12px; }
         }
@@ -892,7 +905,7 @@
             </div>
 
             <!-- Country detail list -->
-            <div class="inner-card">
+            <div class="inner-card standalone">
                 <div class="inner-card-header">
                     <span><i class="fas fa-flag"></i> Top Countries Detail (Visitors)</span>
                 </div>
@@ -902,7 +915,7 @@
             </div>
 
             <!-- Downloads country detail list -->
-            <div class="inner-card">
+            <div class="inner-card standalone">
                 <div class="inner-card-header">
                     <span><i class="fas fa-globe"></i> Top Countries Detail (Downloads)</span>
                 </div>
@@ -1070,7 +1083,7 @@
                 el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
                 return;
             }
-            const r = 60, cx = 70, cy = 70, stroke = 28;
+            const r = 54, cx = 64, cy = 64, stroke = 24;
             const circ = 2 * Math.PI * r;
             let offset = 0;
             let arcs = '';
@@ -1099,16 +1112,16 @@
                 `<div class="donut-legend-item">
                     <div class="donut-swatch" style="background:${colors[i % colors.length]};"></div>
                     <span style="color:#475569;">${esc(item.label)}</span>
-                    <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${item.value.toLocaleString()}</span>
+                    <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${item.value.toLocaleString()}</span>
                 </div>`
             ).join('');
             el.innerHTML = `<div class="donut-wrap">
-                <svg width="140" height="140" viewBox="0 0 140 140">
+                <svg width="128" height="128" viewBox="0 0 128 128">
                     ${arcs}
                     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-                          font-size="18" font-weight="800" fill="#1e293b" class="donut-center-num" data-target="${total}">0</text>
-                    <text x="${cx}" y="${cy + 18}" text-anchor="middle"
-                          font-size="9" fill="#94a3b8">total</text>
+                          font-size="16" font-weight="800" fill="#1e293b" class="donut-center-num" data-target="${total}">0</text>
+                    <text x="${cx}" y="${cy + 16}" text-anchor="middle"
+                          font-size="8" fill="#94a3b8">total</text>
                 </svg>
                 <div class="donut-legend" style="flex:1;">${legend}</div>
             </div>`;
@@ -1321,12 +1334,12 @@
                 el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No data yet</p></div>';
                 return;
             }
-            const r = 60, cx = 70, cy = 70, stroke = 28;
+            const r = 54, cx = 64, cy = 64, stroke = 24;
             const circ = 2 * Math.PI * r;
             const fill = (rate / 100) * circ;
             const gap = circ - fill;
             el.innerHTML = `<div class="donut-wrap">
-                <svg width="140" height="140" viewBox="0 0 140 140">
+                <svg width="128" height="128" viewBox="0 0 128 128">
                     <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="#e2e8f0" stroke-width="${stroke}"/>
                     <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
                         stroke="${rate >= 80 ? '#10b981' : rate >= 50 ? '#f59e0b' : '#ef4444'}"
@@ -1336,29 +1349,29 @@
                         transform="rotate(-90 ${cx} ${cy})"
                         style="transition: stroke-dasharray 0.8s ease;"/>
                     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-                          font-size="20" font-weight="800" fill="#1e293b">${rate}%</text>
-                    <text x="${cx}" y="${cy + 18}" text-anchor="middle"
-                          font-size="9" fill="#94a3b8">success</text>
+                          font-size="18" font-weight="800" fill="#1e293b">${rate}%</text>
+                    <text x="${cx}" y="${cy + 16}" text-anchor="middle"
+                          font-size="8" fill="#94a3b8">success</text>
                 </svg>
                 <div class="donut-legend" style="flex:1;">
                     <div class="donut-legend-item">
                         <div class="donut-swatch" style="background:#10b981;"></div>
                         <span style="color:#475569;">Completed</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${completed}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${completed}</span>
                     </div>
                     <div class="donut-legend-item">
                         <div class="donut-swatch" style="background:#ef4444;"></div>
                         <span style="color:#475569;">Failed</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${failed}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${failed}</span>
                     </div>
                     <div class="donut-legend-item">
                         <div class="donut-swatch" style="background:#9ca3af;"></div>
                         <span style="color:#475569;">Cancelled</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${cancelled}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${cancelled}</span>
                     </div>
-                    <div class="donut-legend-item" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;">
+                    <div class="donut-legend-item" style="margin-top:4px;padding-top:4px;border-top:1px solid #e2e8f0;">
                         <span style="color:#475569;font-weight:600;">Avg file size</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${esc(analyticsData.avg_file_size_hr || '—')}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${esc(analyticsData.avg_file_size_hr || '—')}</span>
                     </div>
                 </div>
             </div>`;
@@ -1380,7 +1393,7 @@
             ];
             const colors = ['#3b82f6', '#10b981'];
             const total = items.reduce((s, i) => s + i.value, 0);
-            const r = 60, cx = 70, cy = 70, stroke_w = 28;
+            const r = 54, cx = 64, cy = 64, stroke_w = 24;
             const circ = 2 * Math.PI * r;
             let offset = 0;
             let arcs = '';
@@ -1398,27 +1411,27 @@
                 offset += dash;
             });
             el.innerHTML = `<div class="donut-wrap">
-                <svg width="140" height="140" viewBox="0 0 140 140">
+                <svg width="128" height="128" viewBox="0 0 128 128">
                     ${arcs}
                     <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="central"
-                          font-size="18" font-weight="800" fill="#1e293b">${rate}%</text>
-                    <text x="${cx}" y="${cy + 18}" text-anchor="middle"
-                          font-size="9" fill="#94a3b8">returning</text>
+                          font-size="16" font-weight="800" fill="#1e293b">${rate}%</text>
+                    <text x="${cx}" y="${cy + 16}" text-anchor="middle"
+                          font-size="8" fill="#94a3b8">returning</text>
                 </svg>
                 <div class="donut-legend" style="flex:1;">
                     <div class="donut-legend-item">
                         <div class="donut-swatch" style="background:#3b82f6;"></div>
                         <span style="color:#475569;">New Visitors</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${newV > 0 ? newV : 0}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${newV > 0 ? newV : 0}</span>
                     </div>
                     <div class="donut-legend-item">
                         <div class="donut-swatch" style="background:#10b981;"></div>
                         <span style="color:#475569;">Returning</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${repeat}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${repeat}</span>
                     </div>
-                    <div class="donut-legend-item" style="margin-top:6px;padding-top:6px;border-top:1px solid #e2e8f0;">
+                    <div class="donut-legend-item" style="margin-top:4px;padding-top:4px;border-top:1px solid #e2e8f0;">
                         <span style="color:#475569;font-weight:600;">Unique IPs</span>
-                        <span style="color:#94a3b8;font-size:0.75rem;margin-left:auto;padding-left:8px;">${unique}</span>
+                        <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${unique}</span>
                     </div>
                 </div>
             </div>`;
