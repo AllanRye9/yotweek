@@ -520,6 +520,97 @@
         }
         .country-count { font-size: 0.73rem; color: var(--text-muted); min-width: 28px; text-align: right; }
 
+        /* ── Grouped country card (donut + histogram) ── */
+        .country-group {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+        .country-group-donut {
+            flex: 0 0 auto;
+            min-width: 0;
+        }
+        .country-group-donut .donut-wrap {
+            gap: 10px;
+            padding: 4px 0;
+        }
+        .country-group-donut .donut-wrap svg {
+            width: 100px;
+            height: 100px;
+        }
+        .country-group-donut .donut-legend {
+            gap: 3px;
+        }
+        .country-group-donut .donut-legend-item {
+            font-size: 0.68rem;
+            gap: 4px;
+        }
+        .country-group-donut .donut-swatch {
+            width: 8px;
+            height: 8px;
+        }
+        .country-group-histogram {
+            flex: 1;
+            min-width: 0;
+        }
+        .country-histogram {
+            display: flex;
+            align-items: flex-end;
+            gap: 3px;
+            height: 130px;
+            padding: 4px 2px 0;
+            box-sizing: border-box;
+        }
+        .country-hist-col {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1 1 0%;
+            min-width: 0;
+            height: 100%;
+            justify-content: flex-end;
+            overflow: hidden;
+        }
+        .country-hist-count {
+            font-size: 0.58rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            margin-bottom: 1px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .country-hist-bar {
+            width: 80%;
+            max-width: 32px;
+            border-radius: 3px 3px 0 0;
+            transition: height 0.6s cubic-bezier(.4,0,.2,1);
+            min-height: 2px;
+            flex-shrink: 0;
+        }
+        .country-hist-label {
+            font-size: 0.5rem;
+            color: var(--text-muted);
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 44px;
+            margin-top: 2px;
+            line-height: 1.1;
+            flex-shrink: 0;
+        }
+        @media (max-width: 760px) {
+            .country-group {
+                flex-direction: column;
+            }
+            .country-group-donut {
+                width: 100%;
+            }
+            .country-group-histogram {
+                width: 100%;
+            }
+        }
+
         /* ── Empty state ── */
         .empty-state {
             text-align: center;
@@ -851,14 +942,6 @@
                     <div class="inner-card-body" id="chart-daily"></div>
                 </div>
 
-                <!-- Visitor countries chart -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>Visitors by Country</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-countries"></div>
-                </div>
-
                 <!-- Download status distribution -->
                 <div class="inner-card">
                     <div class="inner-card-header">
@@ -881,14 +964,6 @@
                         <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Downloads per Day (last 14 days)</span>
                     </div>
                     <div class="inner-card-body" id="chart-dl-daily"></div>
-                </div>
-
-                <!-- Downloads by country -->
-                <div class="inner-card">
-                    <div class="inner-card-header">
-                        <span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10A15.3 15.3 0 0 1 12 2z"/></svg>Downloads by Country</span>
-                    </div>
-                    <div class="inner-card-body" id="chart-dl-countries"></div>
                 </div>
 
                 <!-- Peak download hours -->
@@ -948,23 +1023,33 @@
                 </div>
             </div>
 
-            <!-- Country detail list -->
+            <!-- Country detail list (Visitors) — grouped: donut + histogram -->
             <div class="inner-card standalone">
                 <div class="inner-card-header">
                     <span><i class="fas fa-flag"></i> Top Countries Detail (Visitors)</span>
                 </div>
-                <div class="inner-card-body" id="country-list-wrap">
-                    <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
+                <div class="inner-card-body">
+                    <div class="country-group">
+                        <div class="country-group-donut" id="chart-countries"></div>
+                        <div class="country-group-histogram" id="country-list-wrap">
+                            <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <!-- Downloads country detail list -->
+            <!-- Country detail list (Downloads) — grouped: donut + histogram -->
             <div class="inner-card standalone">
                 <div class="inner-card-header">
                     <span><i class="fas fa-globe"></i> Top Countries Detail (Downloads)</span>
                 </div>
-                <div class="inner-card-body" id="dl-country-list-wrap">
-                    <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
+                <div class="inner-card-body">
+                    <div class="country-group">
+                        <div class="country-group-donut" id="chart-dl-countries"></div>
+                        <div class="country-group-histogram" id="dl-country-list-wrap">
+                            <div class="empty-state"><i class="fas fa-hourglass-half"></i><p>Loading…</p></div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1335,17 +1420,20 @@
                 wrap.innerHTML = '<div class="empty-state">&#127760;<p>No visitor data yet</p></div>';
                 return;
             }
-            const max = sorted[0][1];
-            wrap.innerHTML = sorted.map(([key, cnt]) => {
-                const [country, code] = key.split('||');
-                const flag = countryFlag(code);
-                const pct = Math.round(cnt / max * 100);
-                return `<div class="country-bar">
-                    <div class="country-name">${flag ? flag + ' ' : ''}${esc(country)}</div>
-                    <div class="country-track"><div class="country-fill" style="width:${pct}%"></div></div>
-                    <div class="country-count">${cnt}</div>
-                </div>`;
-            }).join('');
+            const max = Math.max(...sorted.map(e => e[1]), 1);
+            wrap.innerHTML = '<div class="country-histogram">' +
+                sorted.map(([key, cnt], idx) => {
+                    const [country, code] = key.split('||');
+                    const flag = countryFlag(code);
+                    const pct = Math.max(Math.round(cnt / max * 100), cnt > 0 ? 4 : 0);
+                    const color = PALETTE[idx % PALETTE.length];
+                    const label = flag ? flag : esc(country).slice(0, 5);
+                    return `<div class="country-hist-col" title="${esc(country)}: ${cnt}">
+                        <div class="country-hist-count">${cnt}</div>
+                        <div class="country-hist-bar" style="height:${pct}%;max-height:calc(100% - 24px);background:${color};"></div>
+                        <div class="country-hist-label">${label}</div>
+                    </div>`;
+                }).join('') + '</div>';
         }
 
         function renderDlDailyChart() {
@@ -1390,17 +1478,21 @@
                 wrap.innerHTML = '<div class="empty-state">&#127760;<p>No download data yet</p></div>';
                 return;
             }
-            const max = sorted[0][1];
-            wrap.innerHTML = sorted.map(([key, cnt]) => {
-                const [country, code] = key.split('||');
-                const flag = countryFlag(code);
-                const pct = Math.round(cnt / max * 100);
-                return `<div class="country-bar">
-                    <div class="country-name">${flag ? flag + ' ' : ''}${esc(country)}</div>
-                    <div class="country-track"><div class="country-fill" style="width:${pct}%;background:linear-gradient(90deg,#10b981,#059669);"></div></div>
-                    <div class="country-count">${cnt}</div>
-                </div>`;
-            }).join('');
+            const DL_PALETTE = ['#10b981','#667eea','#f59e0b','#ef4444','#7c3aed','#3b82f6','#f97316','#a855f7'];
+            const max = Math.max(...sorted.map(e => e[1]), 1);
+            wrap.innerHTML = '<div class="country-histogram">' +
+                sorted.map(([key, cnt], idx) => {
+                    const [country, code] = key.split('||');
+                    const flag = countryFlag(code);
+                    const pct = Math.max(Math.round(cnt / max * 100), cnt > 0 ? 4 : 0);
+                    const color = DL_PALETTE[idx % DL_PALETTE.length];
+                    const label = flag ? flag : esc(country).slice(0, 5);
+                    return `<div class="country-hist-col" title="${esc(country)}: ${cnt}">
+                        <div class="country-hist-count">${cnt}</div>
+                        <div class="country-hist-bar" style="height:${pct}%;max-height:calc(100% - 24px);background:${color};"></div>
+                        <div class="country-hist-label">${label}</div>
+                    </div>`;
+                }).join('') + '</div>';
         }
 
         // ── Deep-insight charts ────────────────────────────────────
