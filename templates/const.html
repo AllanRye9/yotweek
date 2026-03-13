@@ -64,38 +64,56 @@
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 20px 20px 16px;
+            padding: 14px 16px 12px;
             color: #fff;
-            font-size: 1.15rem;
+            font-size: 1.05rem;
             font-weight: 700;
             letter-spacing: 0.02em;
             border-bottom: 1px solid rgba(255,255,255,0.06);
             flex-shrink: 0;
         }
         .sidebar-header i {
-            font-size: 1.3rem;
+            font-size: 1.15rem;
             color: var(--primary);
+        }
+        .sidebar-close-btn {
+            margin-left: auto;
+            background: none;
+            border: none;
+            color: #94a3b8;
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 4px;
+            border-radius: 6px;
+            transition: background 0.15s, color 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .sidebar-close-btn:hover {
+            background: rgba(255,255,255,0.1);
+            color: #e2e8f0;
         }
         .sidebar-nav {
             flex: 1;
-            padding: 12px 12px 8px;
+            padding: 8px 10px 6px;
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 1px;
         }
         .sidebar-menu-label {
-            font-size: 0.68rem;
+            font-size: 0.65rem;
             font-weight: 700;
             color: #475569;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            padding: 12px 12px 6px;
+            padding: 10px 12px 4px;
         }
         .sidebar-item {
             display: flex;
             align-items: center;
-            gap: 10px;
-            padding: 10px 14px;
+            gap: 8px;
+            padding: 8px 12px;
             border-radius: 8px;
             color: var(--sidebar-text);
             font-size: 0.88rem;
@@ -137,13 +155,13 @@
             text-align: center;
         }
         .sidebar-footer {
-            padding: 8px 12px 16px;
+            padding: 6px 10px 12px;
             border-top: 1px solid rgba(255,255,255,0.06);
             margin-top: auto;
             flex-shrink: 0;
             display: flex;
             flex-direction: column;
-            gap: 2px;
+            gap: 1px;
         }
         .sidebar-footer form { width: 100%; }
 
@@ -161,6 +179,16 @@
             margin-left: var(--sidebar-width);
             min-height: 100vh;
             transition: margin-left 0.3s cubic-bezier(.4,0,.2,1);
+        }
+        /* Sidebar collapsed on desktop */
+        body.sidebar-collapsed .sidebar {
+            transform: translateX(-100%);
+        }
+        body.sidebar-collapsed .main-wrapper {
+            margin-left: 0;
+        }
+        body.sidebar-collapsed .sidebar-toggle {
+            display: flex;
         }
 
         /* ── Header ── */
@@ -229,7 +257,7 @@
 
         /* ── Content ── */
         .dash-content {
-            padding: 20px 24px;
+            padding: 14px 18px;
             max-width: 1400px;
         }
 
@@ -281,17 +309,17 @@
         .stat-grid {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
-            gap: 16px;
-            margin-bottom: 20px;
+            gap: 10px;
+            margin-bottom: 14px;
         }
         .stat-tile {
             background: var(--card-bg);
-            border-radius: 12px;
+            border-radius: 10px;
             box-shadow: var(--shadow);
-            padding: 16px 18px;
+            padding: 10px 12px;
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 10px;
             border-left: 4px solid var(--primary);
             transition: transform 0.2s, box-shadow 0.2s;
         }
@@ -305,13 +333,13 @@
         .stat-tile.amber  { border-left-color: var(--warning); }
         .stat-tile.blue   { border-left-color: var(--info); }
         .stat-icon-circle {
-            width: 44px;
-            height: 44px;
-            border-radius: 12px;
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1rem;
+            font-size: 0.9rem;
             flex-shrink: 0;
             background: var(--primary-light);
             color: var(--primary);
@@ -327,7 +355,7 @@
             min-width: 0;
         }
         .stat-value {
-            font-size: 1.35rem;
+            font-size: 1.15rem;
             font-weight: 800;
             color: var(--text);
             line-height: 1.2;
@@ -354,15 +382,15 @@
         .inner-card {
             background: var(--card-bg);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 10px;
             overflow: hidden;
-            margin-bottom: 16px;
+            margin-bottom: 10px;
             box-shadow: var(--shadow);
         }
         .inner-card-header {
             background: #fafbfc;
-            padding: 14px 18px;
-            font-size: 0.88rem;
+            padding: 10px 14px;
+            font-size: 0.82rem;
             font-weight: 700;
             color: var(--text);
             display: flex;
@@ -372,7 +400,7 @@
             border-bottom: 1px solid var(--border);
         }
         .inner-card-header span { display: flex; align-items: center; gap: 8px; }
-        .inner-card-body { padding: 16px; overflow-x: auto; }
+        .inner-card-body { padding: 12px; }
         .inner-card.standalone { margin-top: 0; }
 
         /* ── Refresh button ── */
@@ -474,7 +502,7 @@
         .analytics-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 16px;
+            gap: 10px;
         }
 
         /* ── CSS vertical bar chart ── */
@@ -482,8 +510,8 @@
             display: flex;
             align-items: flex-end;
             gap: 4px;
-            padding: 8px 4px 0;
-            height: 160px;
+            padding: 6px 4px 0;
+            height: 140px;
             overflow: hidden;
             box-sizing: border-box;
         }
@@ -538,7 +566,7 @@
         .line-chart-wrap {
             position: relative;
             width: 100%;
-            height: 180px;
+            height: 160px;
             padding: 0;
             box-sizing: border-box;
         }
@@ -568,9 +596,9 @@
         .donut-wrap {
             display: flex;
             align-items: center;
-            gap: 20px;
+            gap: 14px;
             flex-wrap: nowrap;
-            padding: 8px 4px;
+            padding: 4px 4px;
         }
         .donut-wrap svg {
             flex-shrink: 0;
@@ -786,7 +814,7 @@
         }
 
         /* ── Horizontal scroll hint for tables on mobile ── */
-        .inner-card-body { -webkit-overflow-scrolling: touch; }
+        .inner-card-body.scrollable { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     </style>
 </head>
 <body>
@@ -801,6 +829,9 @@
         <div class="sidebar-header">
             <i class="fas fa-shield-alt"></i>
             <span>YOT Admin</span>
+            <button class="sidebar-close-btn" onclick="closeSidebar()" aria-label="Close sidebar" title="Close sidebar">
+                <i class="fas fa-times"></i>
+            </button>
         </div>
         <nav class="sidebar-nav">
             <div class="sidebar-menu-label">MENU</div>
@@ -969,7 +1000,7 @@
                             <i class="fas fa-sync-alt"></i> Refresh
                         </button>
                     </div>
-                    <div class="inner-card-body" id="dl-table-wrap">
+                    <div class="inner-card-body scrollable" id="dl-table-wrap">
                         <div class="empty-state">
                             <i class="fas fa-hourglass-half"></i>
                             <p>Loading records&hellip;</p>
@@ -1047,6 +1078,12 @@
                         </div>
                         <div class="inner-card-body" id="chart-repeat-visitors"></div>
                     </div>
+                    <div class="inner-card">
+                        <div class="inner-card-header">
+                            <span><i class="fas fa-star"></i> Review Ratings</span>
+                        </div>
+                        <div class="inner-card-body" id="chart-review-ratings"></div>
+                    </div>
                 </div>
 
                 <div class="inner-card standalone">
@@ -1092,7 +1129,7 @@
                             </button>
                         </div>
                     </div>
-                    <div class="inner-card-body" id="visitor-table-wrap">
+                    <div class="inner-card-body scrollable" id="visitor-table-wrap">
                         <div class="empty-state">
                             <i class="fas fa-hourglass-half"></i>
                             <p>Loading visitors&hellip;</p>
@@ -1184,14 +1221,34 @@
             const titles = { downloads: 'Downloads', analytics: 'Analytics', visitors: 'Visitors' };
             const titleEl = document.querySelector('.dash-title');
             if (titleEl) titleEl.textContent = titles[name] || 'Dashboard';
-            if (window.innerWidth <= 768) toggleSidebar();
+            if (window.innerWidth <= 768) {
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                sidebar.classList.remove('open');
+                overlay.classList.remove('open');
+            }
         }
 
         function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebar-overlay');
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('open');
+            if (window.innerWidth <= 768) {
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('open');
+            } else {
+                document.body.classList.toggle('sidebar-collapsed');
+            }
+        }
+
+        function closeSidebar() {
+            if (window.innerWidth <= 768) {
+                const sidebar = document.getElementById('sidebar');
+                const overlay = document.getElementById('sidebar-overlay');
+                sidebar.classList.remove('open');
+                overlay.classList.remove('open');
+            } else {
+                document.body.classList.add('sidebar-collapsed');
+            }
         }
 
         // ── Tab switching (legacy, also updates sidebar) ───────────
@@ -1230,6 +1287,7 @@
             renderDowChart();
             renderSuccessRateChart();
             renderRepeatVisitorsChart();
+            renderReviewRatingsChart();
         }
 
         function cssBarChart(el, items, colorFn) {
@@ -1685,6 +1743,35 @@
                     </div>
                 </div>
             </div>`;
+        }
+
+        function renderReviewRatingsChart() {
+            const el = document.getElementById('chart-review-ratings');
+            const ratings = analyticsData.review_ratings || [0,0,0,0,0];
+            const total = analyticsData.total_reviews || ratings.reduce((s,v)=>s+v, 0);
+            if (!total) {
+                el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No reviews yet</p></div>';
+                return;
+            }
+            const items = [
+                { label: '5 Stars', value: ratings[4] },
+                { label: '4 Stars', value: ratings[3] },
+                { label: '3 Stars', value: ratings[2] },
+                { label: '2 Stars', value: ratings[1] },
+                { label: '1 Star',  value: ratings[0] }
+            ].filter(i => i.value > 0);
+            const colors = ['#22c55e','#84cc16','#f59e0b','#f97316','#ef4444'];
+            const colorMap = { '5 Stars':'#22c55e', '4 Stars':'#84cc16', '3 Stars':'#f59e0b', '2 Stars':'#f97316', '1 Star':'#ef4444' };
+            const itemColors = items.map(i => colorMap[i.label]);
+            const avg = (ratings[0]*1 + ratings[1]*2 + ratings[2]*3 + ratings[3]*4 + ratings[4]*5) / total;
+            svgDonut(el, items, itemColors);
+            const legend = el.querySelector('.donut-legend');
+            if (legend) {
+                legend.innerHTML += `<div class="donut-legend-item" style="margin-top:4px;padding-top:4px;border-top:1px solid #e2e8f0;">
+                    <span style="color:#475569;font-weight:600;">Avg Rating</span>
+                    <span style="color:#94a3b8;font-size:0.72rem;margin-left:auto;padding-left:6px;">${avg.toFixed(1)} &#9733;</span>
+                </div>`;
+            }
         }
 
         // ── Download table ─────────────────────────────────────────

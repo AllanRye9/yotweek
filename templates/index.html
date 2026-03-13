@@ -1455,6 +1455,69 @@
         }
         .url-remove-btn:hover { background: #fecaca; }
 
+        /* ── Review section ── */
+        .review-form {
+            padding-bottom: 12px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .review-stars {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 8px;
+        }
+        .review-star {
+            font-size: 1.3rem;
+            color: #d1d5db;
+            cursor: pointer;
+            transition: color 0.15s, transform 0.15s;
+        }
+        .review-star:hover,
+        .review-star.active {
+            color: #f59e0b;
+        }
+        .review-star:hover { transform: scale(1.15); }
+        .review-star-label {
+            font-size: 0.78rem;
+            color: #94a3b8;
+            margin-left: 6px;
+        }
+        .review-list {
+            max-height: 340px;
+            overflow-y: auto;
+        }
+        .review-item {
+            padding: 10px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+        .review-item:last-child { border-bottom: none; }
+        .review-item-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .review-item-name {
+            font-weight: 700;
+            font-size: 0.85rem;
+            color: #1e293b;
+        }
+        .review-item-stars {
+            color: #f59e0b;
+            font-size: 0.8rem;
+        }
+        .review-item-date {
+            font-size: 0.72rem;
+            color: #94a3b8;
+            margin-left: auto;
+        }
+        .review-item-comment {
+            font-size: 0.82rem;
+            color: #475569;
+            line-height: 1.5;
+        }
+
     </style>
 </head>
 <body>
@@ -2139,9 +2202,43 @@
                         </ul>
                     </div>
                 </div>
-            </div>
 
-            <!-- Right ad column -->
+                <!-- Reviews Section -->
+                <div id="section-reviews" class="card">
+                    <div class="card-header" style="justify-content:space-between;">
+                        <span><i class="fas fa-star"></i> Visitor Reviews</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="review-form" id="review-form">
+                            <div class="review-stars" id="review-stars">
+                                <span class="review-star" data-star="1"><i class="fas fa-star"></i></span>
+                                <span class="review-star" data-star="2"><i class="fas fa-star"></i></span>
+                                <span class="review-star" data-star="3"><i class="fas fa-star"></i></span>
+                                <span class="review-star" data-star="4"><i class="fas fa-star"></i></span>
+                                <span class="review-star" data-star="5"><i class="fas fa-star"></i></span>
+                                <span class="review-star-label" id="review-star-label">Select a rating</span>
+                            </div>
+                            <input type="hidden" id="review-rating" value="0">
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <input type="text" id="review-name" placeholder="Your name" maxlength="50" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:0.85rem;font-family:inherit;">
+                            </div>
+                            <div class="form-group" style="margin-bottom:8px;">
+                                <textarea id="review-comment" placeholder="Write your review…" maxlength="500" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:0.85rem;font-family:inherit;resize:vertical;"></textarea>
+                            </div>
+                            <button class="btn-primary" onclick="submitReview()" style="font-size:0.85rem;padding:8px 18px;">
+                                <i class="fas fa-paper-plane"></i> Submit Review
+                            </button>
+                            <div id="review-status" style="margin-top:6px;font-size:0.82rem;"></div>
+                        </div>
+                        <div class="review-list" id="review-list">
+                            <div style="text-align:center;color:#9ca3af;padding:12px 0;">
+                                <i class="fas fa-hourglass-half"></i>
+                                <p style="margin-top:4px;">Loading reviews…</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             <div class="ad-col">
                 <div class="ad-placeholder">
                     <i class="fas fa-rectangle-ad"></i>
@@ -3756,6 +3853,111 @@
             backdrop.classList.remove('open');
             btn.setAttribute('aria-expanded', 'false');
             icon.className = 'fas fa-bars';
+        }
+
+        // ── Reviews ────────────────────────────────────────────────
+        (function initReviews() {
+            const starsContainer = document.getElementById('review-stars');
+            const ratingInput = document.getElementById('review-rating');
+            const starLabel = document.getElementById('review-star-label');
+            const labels = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+            if (starsContainer) {
+                starsContainer.querySelectorAll('.review-star').forEach(star => {
+                    star.addEventListener('click', () => {
+                        const val = parseInt(star.dataset.star);
+                        ratingInput.value = val;
+                        starLabel.textContent = labels[val] || '';
+                        starsContainer.querySelectorAll('.review-star').forEach(s => {
+                            s.classList.toggle('active', parseInt(s.dataset.star) <= val);
+                        });
+                    });
+                    star.addEventListener('mouseenter', () => {
+                        const val = parseInt(star.dataset.star);
+                        starsContainer.querySelectorAll('.review-star').forEach(s => {
+                            s.style.color = parseInt(s.dataset.star) <= val ? '#f59e0b' : '#d1d5db';
+                        });
+                    });
+                    star.addEventListener('mouseleave', () => {
+                        const cur = parseInt(ratingInput.value) || 0;
+                        starsContainer.querySelectorAll('.review-star').forEach(s => {
+                            s.style.color = parseInt(s.dataset.star) <= cur ? '#f59e0b' : '#d1d5db';
+                        });
+                    });
+                });
+            }
+            loadReviews();
+        })();
+
+        async function loadReviews() {
+            try {
+                const res = await fetch('/reviews');
+                if (!res.ok) return;
+                const data = await res.json();
+                renderReviewList(data);
+            } catch (_) {}
+        }
+
+        function escHtml(s) {
+            return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        function renderReviewList(reviews) {
+            const list = document.getElementById('review-list');
+            if (!list) return;
+            if (!reviews.length) {
+                list.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:16px 0;font-size:0.85rem;"><i class="fas fa-comments" style="font-size:1.2rem;display:block;margin-bottom:4px;opacity:0.5;"></i>No reviews yet. Be the first!</div>';
+                return;
+            }
+            list.innerHTML = reviews.map(r => {
+                const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+                const date = r.timestamp ? new Date(r.timestamp * 1000).toLocaleDateString() : '';
+                return `<div class="review-item">
+                    <div class="review-item-header">
+                        <span class="review-item-name">${escHtml(r.name)}</span>
+                        <span class="review-item-stars">${stars}</span>
+                        <span class="review-item-date">${escHtml(date)}</span>
+                    </div>
+                    <div class="review-item-comment">${escHtml(r.comment)}</div>
+                </div>`;
+            }).join('');
+        }
+
+        async function submitReview() {
+            const name = document.getElementById('review-name').value.trim();
+            const comment = document.getElementById('review-comment').value.trim();
+            const rating = parseInt(document.getElementById('review-rating').value) || 0;
+            const status = document.getElementById('review-status');
+
+            if (!rating) { status.innerHTML = '<span style="color:#ef4444;">Please select a star rating.</span>'; return; }
+            if (!name) { status.innerHTML = '<span style="color:#ef4444;">Please enter your name.</span>'; return; }
+            if (!comment) { status.innerHTML = '<span style="color:#ef4444;">Please write a review.</span>'; return; }
+
+            status.innerHTML = '<span style="color:#6b7280;"><i class="fas fa-spinner fa-spin"></i> Submitting…</span>';
+            try {
+                const res = await fetch('/reviews', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, comment, rating })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    status.innerHTML = `<span style="color:#ef4444;">${escHtml(data.error || 'Error')}</span>`;
+                    return;
+                }
+                status.innerHTML = '<span style="color:#22c55e;"><i class="fas fa-check-circle"></i> Review submitted!</span>';
+                document.getElementById('review-name').value = '';
+                document.getElementById('review-comment').value = '';
+                document.getElementById('review-rating').value = '0';
+                document.getElementById('review-star-label').textContent = 'Select a rating';
+                document.querySelectorAll('#review-stars .review-star').forEach(s => {
+                    s.classList.remove('active');
+                    s.style.color = '#d1d5db';
+                });
+                loadReviews();
+                setTimeout(() => { status.innerHTML = ''; }, 3000);
+            } catch (e) {
+                status.innerHTML = `<span style="color:#ef4444;">Failed: ${escHtml(e.message)}</span>`;
+            }
         }
     </script>
 </body>

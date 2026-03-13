@@ -185,6 +185,9 @@ visitors_lock = Lock()
 visitors = []             # List of visitor dicts tracked on page visits
 ip_country_cache = {}     # ip -> {"country": str, "code": str}
 
+reviews_lock = Lock()
+reviews: list = []        # List of review dicts submitted by visitors
+
 # Paths for persistent storage
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "admin.db")
@@ -419,6 +422,12 @@ def init_db():
                         password_hash TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS reviews (
+                        id SERIAL PRIMARY KEY,
+                        data TEXT NOT NULL
+                    )
+                """)
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -433,6 +442,10 @@ def init_db():
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         username TEXT UNIQUE NOT NULL,
                         password_hash TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS reviews (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        data TEXT NOT NULL
                     );
                 """)
             conn.commit()
@@ -517,6 +530,11 @@ def load_persistence():
     with visitors_lock:
         visitors.extend(saved_v)
     logger.info(f"Loaded {len(saved_dl)} download records and {len(saved_v)} visitor records from {'PostgreSQL' if USE_POSTGRES else 'SQLite'}")
+
+    # Load reviews
+    _load_reviews_from_db()
+    with reviews_lock:
+        logger.info(f"Loaded {len(reviews)} review records from {'PostgreSQL' if USE_POSTGRES else 'SQLite'}")
 
 
 def _migrate_json_to_db():
@@ -1805,7 +1823,92 @@ async def cancel_download(download_id: str):
 
     return JSONResponse({"error": "Download not found"}, status_code=404)
 
-@fastapi_app.get("/const")
+
+# ── Review endpoints ──────────────────────────────────────────────
+def _load_reviews_from_db():
+    """Load reviews from the database into memory on startup."""
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                rows = _execute(conn, "SELECT data FROM reviews ORDER BY rowid DESC" if not USE_POSTGRES else "SELECT data FROM reviews ORDER BY id DESC").fetchall()
+            finally:
+                conn.close()
+        loaded = []
+        for row in rows:
+            try:
+                loaded.append(json.loads(row["data"]))
+            except Exception:
+                pass
+        with reviews_lock:
+            reviews.clear()
+            reviews.extend(loaded)
+    except Exception as e:
+        logger.warning("Could not load reviews from DB: %s", e)
+
+
+def _save_review_to_db(review_data: dict):
+    """Persist a single review to the database."""
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                _execute(conn, "INSERT INTO reviews (data) VALUES (?)", (json.dumps(review_data),))
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning("Could not save review to DB: %s", e)
+
+
+@fastapi_app.get("/reviews")
+async def get_reviews():
+    """Return all reviews for the public home page."""
+    with reviews_lock:
+        return JSONResponse(list(reviews))
+
+
+@fastapi_app.post("/reviews")
+@rate_limit()
+async def submit_review(request: Request):
+    """Submit a new review from a visitor."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+    name = (body.get("name") or "").strip()[:50]
+    comment = (body.get("comment") or "").strip()[:500]
+    rating = body.get("rating")
+
+    if not name:
+        return JSONResponse({"error": "Name is required"}, status_code=400)
+    if not comment:
+        return JSONResponse({"error": "Comment is required"}, status_code=400)
+    try:
+        rating = int(rating)
+        if rating < 1 or rating > 5:
+            raise ValueError
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "Rating must be 1-5"}, status_code=400)
+
+    review = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "comment": comment,
+        "rating": rating,
+        "timestamp": time.time(),
+    }
+
+    with reviews_lock:
+        reviews.insert(0, review)
+
+    _save_review_to_db(review)
+
+    return JSONResponse({"success": True, "review": review})
+
+
+
 @admin_required
 async def admin_page(request: Request):
     """Admin page — full download history (authentication required)"""
@@ -2215,6 +2318,15 @@ async def admin_analytics_api(request: Request):
             except Exception:
                 pass
 
+    # 9. Review rating breakdown
+    with reviews_lock:
+        review_ratings = [0] * 5  # index 0 = 1-star, index 4 = 5-star
+        for r in reviews:
+            rt = r.get("rating")
+            if isinstance(rt, int) and 1 <= rt <= 5:
+                review_ratings[rt - 1] += 1
+        total_reviews = len(reviews)
+
     return JSONResponse({
         "download_countries": [
             {"country": k.split("||")[0], "code": k.split("||")[1], "count": v}
@@ -2255,6 +2367,8 @@ async def admin_analytics_api(request: Request):
         "repeat_visitors": repeat_ips,
         "repeat_rate": repeat_rate,
         "dow_downloads": dow_downloads,
+        "review_ratings": review_ratings,
+        "total_reviews": total_reviews,
     })
 
 
