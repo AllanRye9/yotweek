@@ -524,8 +524,17 @@
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
             justify-content: center;
+            position: relative;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 50%, #1e293b 100%);
+            background-size: 200% 200%;
+            animation: headerShimmer 6s ease-in-out infinite;
         }
         .main-section-header::-webkit-scrollbar { display: none; }
+        @keyframes headerShimmer {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
         .main-tab-btn {
             padding: 12px 18px;
             background: transparent;
@@ -535,7 +544,7 @@
             font-size: 0.84rem;
             font-weight: 700;
             cursor: pointer;
-            transition: background 0.15s, color 0.15s;
+            transition: background 0.3s ease, color 0.3s ease, box-shadow 0.3s ease;
             border-right: 1px solid rgba(255, 255, 255, 0.12);
             letter-spacing: -0.01em;
             font-family: inherit;
