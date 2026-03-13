@@ -19,8 +19,10 @@ except ImportError:
 _IntegrityErrors: tuple = (sqlite3.IntegrityError,)
 if psycopg2 is not None:
     _IntegrityErrors = (sqlite3.IntegrityError, psycopg2.IntegrityError)
+import gzip
 import zipfile
 import ipaddress
+import maxminddb
 import asyncio
 import mimetypes
 import certifi
@@ -111,6 +113,9 @@ from contextlib import asynccontextmanager
 async def lifespan(application):
     global _loop
     _loop = asyncio.get_running_loop()
+    # Initialize the local GeoIP database in a background thread so the
+    # server stays responsive while the (potentially large) download runs.
+    threading.Thread(target=_init_geoip_db, daemon=True).start()
     yield
 
 fastapi_app = FastAPI(lifespan=lifespan)
@@ -281,6 +286,61 @@ _ISO2_TO_NAME: dict[str, str] = {
     "WF": "Wallis and Futuna", "EH": "Western Sahara",
     "YE": "Yemen", "ZM": "Zambia", "ZW": "Zimbabwe",
 }
+
+# =========================================================
+# LOCAL GEOIP DATABASE (DB-IP City Lite – free, MMDB format)
+# =========================================================
+
+GEOIP_DB_PATH = os.path.join(DATA_DIR, "dbip-city-lite.mmdb")
+GEOIP_DB_REFRESH_SECONDS = 35 * 86400  # Re-download after ~35 days (database is updated monthly)
+_geoip_reader: maxminddb.Reader | None = None
+
+
+def _init_geoip_db():
+    """Download the free DB-IP City Lite MMDB database if absent or stale, then open it."""
+    global _geoip_reader
+
+    need_download = not os.path.exists(GEOIP_DB_PATH)
+    if not need_download:
+        age = time.time() - os.path.getmtime(GEOIP_DB_PATH)
+        if age > GEOIP_DB_REFRESH_SECONDS:
+            need_download = True
+
+    if need_download:
+        now = datetime.utcnow()
+        url = (
+            f"https://download.db-ip.com/free/"
+            f"dbip-city-lite-{now.year}-{now.month:02d}.mmdb.gz"
+        )
+        gz_path = GEOIP_DB_PATH + ".gz"
+        tmp_path = GEOIP_DB_PATH + ".tmp"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                with open(gz_path, "wb") as f:
+                    shutil.copyfileobj(resp, f)
+            with gzip.open(gz_path, "rb") as gz_in, open(tmp_path, "wb") as out:
+                shutil.copyfileobj(gz_in, out)
+            os.replace(tmp_path, GEOIP_DB_PATH)
+            logger.info("GeoIP database downloaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to download GeoIP database: {e}")
+        finally:
+            # Clean up temp files
+            for p in (gz_path, tmp_path):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+    if os.path.exists(GEOIP_DB_PATH):
+        try:
+            _geoip_reader = maxminddb.open_database(GEOIP_DB_PATH)
+            logger.info("GeoIP database loaded successfully")
+        except Exception as e:
+            logger.warning(f"Failed to open GeoIP database: {e}")
+            _geoip_reader = None
+
 
 # =========================================================
 # SSL CERTIFICATE FIX
@@ -638,7 +698,12 @@ def _country_from_accept_language(accept_lang: str) -> tuple[str, str]:
 
 
 def _lookup_country_async(ip: str, accept_language: str = ""):
-    """Resolve an IP to its country (and city/region when available) using multiple geo-IP services.
+    """Resolve an IP to its country (and city/region when available).
+
+    Lookup order:
+    1. Local GeoIP database (DB-IP City Lite MMDB – most accurate, offline)
+    2. ip-api.com / ipinfo.io / ipwhois.app / ipapi.co / api.country.is
+    3. Accept-Language header heuristic (last resort)
 
     Args:
         ip: The IP address to geo-locate.
@@ -671,19 +736,38 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
 
     country, code, city, region = "Unknown", "", "", ""
 
+    # --- Primary: Local GeoIP database (accurate, offline, no rate limits) ---
+    if _geoip_reader is not None:
+        try:
+            result = _geoip_reader.get(ip)
+            if result:
+                c = result.get("country", {})
+                iso = (c.get("iso_code") or "").upper()
+                if iso and len(iso) == 2:
+                    code = iso
+                    country = c.get("names", {}).get("en") or _ISO2_TO_NAME.get(code, code)
+                    city_data = result.get("city", {})
+                    city = city_data.get("names", {}).get("en", "")
+                    subdivisions = result.get("subdivisions", [])
+                    if subdivisions:
+                        region = subdivisions[0].get("names", {}).get("en", "")
+        except Exception:
+            pass
+
     # --- Service 1: ip-api.com (free, no key) ---
-    try:
-        with urllib.request.urlopen(
-            f"https://ip-api.com/json/{ip}?fields=status,country,countryCode,city,regionName", timeout=5
-        ) as resp:
-            data = json.loads(resp.read())
-        if data.get("status") == "success" and data.get("country"):
-            country = data["country"]
-            code = data.get("countryCode", "")
-            city = data.get("city", "")
-            region = data.get("regionName", "")
-    except Exception:
-        pass
+    if country == "Unknown":
+        try:
+            with urllib.request.urlopen(
+                f"https://ip-api.com/json/{ip}?fields=status,country,countryCode,city,regionName", timeout=5
+            ) as resp:
+                data = json.loads(resp.read())
+            if data.get("status") == "success" and data.get("country"):
+                country = data["country"]
+                code = data.get("countryCode", "")
+                city = data.get("city", "")
+                region = data.get("regionName", "")
+        except Exception:
+            pass
 
     # --- Service 2: ipinfo.io (fallback) ---
     if country == "Unknown":
