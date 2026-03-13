@@ -113,6 +113,9 @@ from contextlib import asynccontextmanager
 async def lifespan(application):
     global _loop
     _loop = asyncio.get_running_loop()
+    # Initialize the local GeoIP database in a background thread so the
+    # server stays responsive while the (potentially large) download runs.
+    threading.Thread(target=_init_geoip_db, daemon=True).start()
     yield
 
 fastapi_app = FastAPI(lifespan=lifespan)
@@ -289,6 +292,7 @@ _ISO2_TO_NAME: dict[str, str] = {
 # =========================================================
 
 GEOIP_DB_PATH = os.path.join(DATA_DIR, "dbip-city-lite.mmdb")
+GEOIP_DB_REFRESH_SECONDS = 35 * 86400  # Re-download after ~35 days (database is updated monthly)
 _geoip_reader: maxminddb.Reader | None = None
 
 
@@ -298,9 +302,8 @@ def _init_geoip_db():
 
     need_download = not os.path.exists(GEOIP_DB_PATH)
     if not need_download:
-        # Re-download if the file is older than 35 days (database is updated monthly)
         age = time.time() - os.path.getmtime(GEOIP_DB_PATH)
-        if age > 35 * 86400:
+        if age > GEOIP_DB_REFRESH_SECONDS:
             need_download = True
 
     if need_download:
@@ -338,10 +341,6 @@ def _init_geoip_db():
             logger.warning(f"Failed to open GeoIP database: {e}")
             _geoip_reader = None
 
-
-# Download / open the database at import time (runs once on startup).
-# Wrapped in a thread so the server still boots promptly if download is slow.
-threading.Thread(target=_init_geoip_db, daemon=True).start()
 
 # =========================================================
 # SSL CERTIFICATE FIX
