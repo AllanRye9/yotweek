@@ -917,7 +917,7 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
         try:
             # Try fetching timezone from worldtimeapi.org and map to a country
             with urllib.request.urlopen(
-                f"http://worldtimeapi.org/api/ip/{ip}", timeout=5
+                f"https://worldtimeapi.org/api/ip/{ip}", timeout=5
             ) as resp:
                 data = json.loads(resp.read())
             tz = data.get("timezone", "")
