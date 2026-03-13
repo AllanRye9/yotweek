@@ -745,7 +745,8 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
                 iso = (c.get("iso_code") or "").upper()
                 if iso and len(iso) == 2:
                     code = iso
-                    country = c.get("names", {}).get("en") or _ISO2_TO_NAME.get(code, code)
+                    # Prefer our canonical dictionary name for consistency
+                    country = _ISO2_TO_NAME.get(code) or c.get("names", {}).get("en") or code
                     city_data = result.get("city", {})
                     city = city_data.get("names", {}).get("en", "")
                     subdivisions = result.get("subdivisions", [])
@@ -761,9 +762,10 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
                 f"https://ip-api.com/json/{ip}?fields=status,country,countryCode,city,regionName", timeout=5
             ) as resp:
                 data = json.loads(resp.read())
-            if data.get("status") == "success" and data.get("country"):
-                country = data["country"]
-                code = data.get("countryCode", "")
+            if data.get("status") == "success" and data.get("countryCode"):
+                code = data["countryCode"].upper()
+                # Normalise name through our dictionary for consistency
+                country = _ISO2_TO_NAME.get(code, data.get("country", code))
                 city = data.get("city", "")
                 region = data.get("regionName", "")
         except Exception:
@@ -791,9 +793,9 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
                 f"https://ipwhois.app/json/{ip}?objects=country,country_code,city,region", timeout=5
             ) as resp:
                 data = json.loads(resp.read())
-            if data.get("country"):
-                country = data["country"]
-                code = data.get("country_code", "")
+            if data.get("country_code"):
+                code = data["country_code"].upper()
+                country = _ISO2_TO_NAME.get(code, data.get("country", code))
                 city = data.get("city", "")
                 region = data.get("region", "")
         except Exception:
@@ -808,9 +810,9 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
                 data = json.loads(resp.read())
-            if data.get("country_name") and not data.get("error"):
-                country = data["country_name"]
-                code = data.get("country_code", "").upper()
+            if data.get("country_code") and not data.get("error"):
+                code = data["country_code"].upper()
+                country = _ISO2_TO_NAME.get(code, data.get("country_name", code))
                 city = data.get("city", "")
                 region = data.get("region", "")
         except Exception:
@@ -836,6 +838,16 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
         if lang_country:
             country = lang_country
             code = lang_code
+
+    # Final normalisation: validate the ISO code and ensure the country name
+    # matches our canonical dictionary so every record uses the exact same
+    # spelling regardless of which lookup service resolved it.
+    if code:
+        code = code.upper()
+        if len(code) == 2 and code in _ISO2_TO_NAME:
+            country = _ISO2_TO_NAME[code]
+        elif len(code) != 2:
+            code = ""  # discard invalid codes
 
     ip_country_cache[ip] = {"country": country, "code": code, "city": city, "region": region}
     # Back-fill any visitor records that are waiting for this IP's country
@@ -1822,28 +1834,46 @@ async def track_admin_visitor(request: Request, call_next):
 @fastapi_app.get("/admin/downloads")
 @admin_required
 async def admin_downloads_api(request: Request):
-    """Return the complete download history for the admin page"""
+    """Return the complete download history for the admin page.
+
+    Merges in-memory records (which have live progress) with persisted
+    database records so that logs survive in-memory eviction and server
+    restarts.  In-memory entries take precedence for active downloads.
+    """
+    _fields = (
+        "id", "title", "url", "status", "percent", "filename",
+        "file_size_hr", "created_at", "end_time", "error", "ip",
+        "country", "country_code", "city", "region", "format",
+    )
+
+    def _pick(d: dict) -> dict:
+        return {k: d.get(k, "" if k in ("country", "country_code", "city", "region") else None) for k in _fields}
+
+    # Start with all DB records (these persist after in-memory cleanup)
+    merged: dict = {}
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                rows = _execute(conn, "SELECT id, data FROM downloads").fetchall()
+            finally:
+                conn.close()
+        for row in rows:
+            try:
+                d = json.loads(row["data"])
+                did = d.get("id") or row["id"]
+                merged[did] = _pick(d)
+            except Exception:
+                pass
+    except Exception as exc:
+        logger.error(f"admin_downloads_api DB read error: {exc}")
+
+    # Overlay in-memory records (they have live progress for active downloads)
     with downloads_lock:
-        history = []
-        for d in downloads.values():
-            history.append({
-                "id":           d.get("id"),
-                "title":        d.get("title"),
-                "url":          d.get("url"),
-                "status":       d.get("status"),
-                "percent":      d.get("percent"),
-                "filename":     d.get("filename"),
-                "file_size_hr": d.get("file_size_hr"),
-                "created_at":   d.get("created_at"),
-                "end_time":     d.get("end_time"),
-                "error":        d.get("error"),
-                "ip":           d.get("ip"),
-                "country":      d.get("country", ""),
-                "country_code": d.get("country_code", ""),
-                "city":         d.get("city", ""),
-                "region":       d.get("region", ""),
-            })
-        history.sort(key=lambda x: x.get("created_at") or 0, reverse=True)
+        for did, d in downloads.items():
+            merged[did] = _pick(d)
+
+    history = sorted(merged.values(), key=lambda x: x.get("created_at") or 0, reverse=True)
     return JSONResponse(history)
 
 
@@ -1926,9 +1956,32 @@ def _get_persistent_stats() -> dict:
 @fastapi_app.get("/admin/analytics")
 @admin_required
 async def admin_analytics_api(request: Request):
-    """Return aggregated analytics including country totals and persistent stats."""
+    """Return aggregated analytics including country totals, persistent stats,
+    and deep-insight metrics (peak hours, format preferences, OS breakdown,
+    success rate, repeat visitors, average file size).
+    """
+    # --- Collect full download list from DB + in-memory overlay ---
+    db_downloads: dict = {}
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                rows = _execute(conn, "SELECT id, data FROM downloads").fetchall()
+            finally:
+                conn.close()
+        for row in rows:
+            try:
+                d = json.loads(row["data"])
+                db_downloads[d.get("id") or row["id"]] = d
+            except Exception:
+                pass
+    except Exception:
+        pass
     with downloads_lock:
-        dl_list = list(downloads.values())
+        for did, d in downloads.items():
+            db_downloads[did] = d
+    dl_list = list(db_downloads.values())
+
     with visitors_lock:
         v_list = list(visitors)
 
@@ -1958,6 +2011,92 @@ async def admin_analytics_api(request: Request):
     # Persistent aggregate stats (queried from the database for accuracy)
     persistent = _get_persistent_stats()
 
+    # --- Deep-insight analytics ---
+
+    # 1. Peak download hours (0-23)
+    peak_hours = [0] * 24
+    for d in dl_list:
+        ts = d.get("created_at")
+        if ts:
+            try:
+                peak_hours[datetime.fromtimestamp(float(ts)).hour] += 1
+            except Exception:
+                pass
+
+    # 2. Peak visitor hours (0-23)
+    visitor_hours = [0] * 24
+    for v in v_list:
+        ts = v.get("timestamp")
+        if ts:
+            try:
+                visitor_hours[datetime.fromtimestamp(float(ts)).hour] += 1
+            except Exception:
+                pass
+
+    # 3. Format preferences (from download records)
+    format_counts: dict = {}
+    for d in dl_list:
+        fmt = d.get("format") or "unknown"
+        # Simplify long format strings to a readable label
+        label = fmt.split("/")[0].split("+")[0].strip()[:30] if fmt else "unknown"
+        format_counts[label] = format_counts.get(label, 0) + 1
+
+    # 4. Success / failure rate
+    total_dl = len(dl_list)
+    completed_count = sum(1 for d in dl_list if d.get("status") == "completed")
+    failed_count = sum(1 for d in dl_list if d.get("status") == "failed")
+    cancelled_count = sum(1 for d in dl_list if d.get("status") == "cancelled")
+    success_rate = round(100.0 * completed_count / total_dl, 1) if total_dl else 0
+
+    # 5. Average file size (completed downloads only)
+    sizes = []
+    for d in dl_list:
+        if d.get("status") == "completed":
+            sz = d.get("file_size")
+            if sz and isinstance(sz, (int, float)) and sz > 0:
+                sizes.append(sz)
+    avg_file_size = round(sum(sizes) / len(sizes)) if sizes else 0
+    avg_file_size_hr = format_size(avg_file_size) if avg_file_size else "—"
+
+    # 6. OS / device breakdown (from visitor user-agents)
+    os_counts: dict = {}
+    for v in v_list:
+        ua = (v.get("user_agent") or "").lower()
+        if "windows" in ua:
+            os_name = "Windows"
+        elif "macintosh" in ua or "mac os" in ua:
+            os_name = "macOS"
+        elif "android" in ua:
+            os_name = "Android"
+        elif "iphone" in ua or "ipad" in ua:
+            os_name = "iOS"
+        elif "linux" in ua:
+            os_name = "Linux"
+        elif "cros" in ua:
+            os_name = "ChromeOS"
+        else:
+            os_name = "Other"
+        os_counts[os_name] = os_counts.get(os_name, 0) + 1
+
+    # 7. Repeat visitors (IPs seen more than once on the main site)
+    ip_visit_counts: dict = {}
+    for v in v_list:
+        if v.get("page") == "/":
+            ip_visit_counts[v.get("ip", "")] = ip_visit_counts.get(v.get("ip", ""), 0) + 1
+    unique_ips = len(ip_visit_counts)
+    repeat_ips = sum(1 for c in ip_visit_counts.values() if c > 1)
+    repeat_rate = round(100.0 * repeat_ips / unique_ips, 1) if unique_ips else 0
+
+    # 8. Downloads by day-of-week (Mon=0 … Sun=6)
+    dow_downloads = [0] * 7
+    for d in dl_list:
+        ts = d.get("created_at")
+        if ts:
+            try:
+                dow_downloads[datetime.fromtimestamp(float(ts)).weekday()] += 1
+            except Exception:
+                pass
+
     return JSONResponse({
         "download_countries": [
             {"country": k.split("||")[0], "code": k.split("||")[1], "count": v}
@@ -1973,6 +2112,27 @@ async def admin_analytics_api(request: Request):
         "download_rate_per_day": persistent["download_rate_per_day"],
         "total_site_visitors": persistent["total_site_visitors"],
         "daily_site_visitors": persistent["daily_site_visitors"],
+        # Deep insights
+        "peak_hours": peak_hours,
+        "visitor_hours": visitor_hours,
+        "format_preferences": [
+            {"format": k, "count": v}
+            for k, v in sorted(format_counts.items(), key=lambda x: x[1], reverse=True)[:15]
+        ],
+        "success_rate": success_rate,
+        "completed_count": completed_count,
+        "failed_count": failed_count,
+        "cancelled_count": cancelled_count,
+        "avg_file_size": avg_file_size,
+        "avg_file_size_hr": avg_file_size_hr,
+        "os_breakdown": [
+            {"os": k, "count": v}
+            for k, v in sorted(os_counts.items(), key=lambda x: x[1], reverse=True)
+        ],
+        "unique_visitors": unique_ips,
+        "repeat_visitors": repeat_ips,
+        "repeat_rate": repeat_rate,
+        "dow_downloads": dow_downloads,
     })
 
 
@@ -1981,13 +2141,25 @@ async def admin_analytics_api(request: Request):
 async def admin_delete_record(request: Request, download_id: str):
     """Remove a download record from the history (admin only)."""
     with downloads_lock:
-        if download_id not in downloads:
-            return JSONResponse({"error": "Record not found"}, status_code=404)
-        status = downloads[download_id].get("status")
-        if status in ("queued", "downloading"):
-            return JSONResponse({"error": "Cannot delete an active download. Cancel it first."}, status_code=409)
-        del downloads[download_id]
-    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+        if download_id in downloads:
+            status = downloads[download_id].get("status")
+            if status in ("queued", "downloading"):
+                return JSONResponse({"error": "Cannot delete an active download. Cancel it first."}, status_code=409)
+            del downloads[download_id]
+
+    # Delete from database as well so the record is permanently removed
+    def _db_delete():
+        try:
+            with _db_lock:
+                conn = _get_db()
+                try:
+                    _execute(conn, "DELETE FROM downloads WHERE id = ?", (download_id,))
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception as exc:
+            logger.error(f"DB delete error for {download_id}: {exc}")
+    threading.Thread(target=_db_delete, daemon=True).start()
     logger.info(f"Admin deleted download record: {download_id}")
     return JSONResponse({"success": True})
 
@@ -3046,6 +3218,12 @@ def cleanup_thread():
     while True:
         time.sleep(Config.CLEANUP_INTERVAL)
         cleanup_old_files()
+
+        # Flush in-memory records to DB before evicting stale ones so that
+        # the admin dashboard (which reads from the DB) retains a complete
+        # download log even after the video files and in-memory entries are
+        # cleaned up.
+        save_downloads_to_disk()
 
         # Remove stale in-memory download records (keep for 1 h after completion)
         with downloads_lock:
