@@ -1748,7 +1748,7 @@
         function renderReviewRatingsChart() {
             const el = document.getElementById('chart-review-ratings');
             const ratings = analyticsData.review_ratings || [0,0,0,0,0];
-            const total = analyticsData.total_reviews || ratings.reduce((s,v)=>s+v, 0);
+            const total = analyticsData.total_reviews ?? ratings.reduce((s,v)=>s+v, 0);
             if (!total) {
                 el.innerHTML = '<div class="empty-state" style="padding:20px 0;"><p>No reviews yet</p></div>';
                 return;

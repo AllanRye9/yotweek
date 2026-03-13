@@ -1831,7 +1831,8 @@ def _load_reviews_from_db():
         with _db_lock:
             conn = _get_db()
             try:
-                rows = _execute(conn, "SELECT data FROM reviews ORDER BY rowid DESC" if not USE_POSTGRES else "SELECT data FROM reviews ORDER BY id DESC").fetchall()
+                order_col = "id" if USE_POSTGRES else "rowid"
+                rows = _execute(conn, f"SELECT data FROM reviews ORDER BY {order_col} DESC").fetchall()
             finally:
                 conn.close()
         loaded = []
@@ -1908,7 +1909,7 @@ async def submit_review(request: Request):
     return JSONResponse({"success": True, "review": review})
 
 
-
+@fastapi_app.get("/const")
 @admin_required
 async def admin_page(request: Request):
     """Admin page — full download history (authentication required)"""

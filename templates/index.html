@@ -3909,7 +3909,8 @@
                 return;
             }
             list.innerHTML = reviews.map(r => {
-                const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+                const rt = Math.max(1, Math.min(5, parseInt(r.rating) || 0));
+                const stars = '★'.repeat(rt) + '☆'.repeat(5 - rt);
                 const date = r.timestamp ? new Date(r.timestamp * 1000).toLocaleDateString() : '';
                 return `<div class="review-item">
                     <div class="review-item-header">
