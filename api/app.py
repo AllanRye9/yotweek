@@ -1287,6 +1287,7 @@ def get_video_info(url: str) -> dict:
             "sleep_interval": 5,
             "max_sleep_interval": 10,
             "geo_bypass": True,
+            "js_runtimes": {"deno": {}, "node": {}},
             **_get_cookie_opts(),
         }
 
@@ -1381,6 +1382,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         "sleep_interval": 5,
         "max_sleep_interval": 10,
         "geo_bypass": True,
+        "js_runtimes": {"deno": {}, "node": {}},
         "progress_hooks": [progress_hook],
         "quiet": True,
         "no_warnings": True,
@@ -3253,6 +3255,7 @@ async def start_playlist_download(
             "sleep_interval":  5,
             "max_sleep_interval": 10,
             "geo_bypass":      True,
+            "js_runtimes":     {"deno": {}, "node": {}},
             "progress_hooks":  [progress_hook],
             "quiet":           True,
             "no_warnings":     True,
