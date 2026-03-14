@@ -52,6 +52,7 @@ class Config:
     TEMPLATES_FOLDER = "templates"
     STATIC_FOLDER = "static"
     MAX_DOWNLOADS_PER_IP = 5
+    MAX_REVIEWS_PER_IP = 2
     MAX_CONCURRENT_DOWNLOADS = 3
     DOWNLOAD_TIMEOUT = 3600  # 1 hour
     CLEANUP_INTERVAL = 60    # Run cleanup every 60 seconds
@@ -1959,9 +1960,9 @@ async def submit_review(request: Request):
     ip = request.client.host if request.client else "unknown"
     with reviews_lock:
         ip_review_count = sum(1 for r in reviews if r.get("ip") == ip)
-        if ip_review_count >= 2:
+        if ip_review_count >= Config.MAX_REVIEWS_PER_IP:
             return JSONResponse(
-                {"error": "You have already submitted the maximum of 2 reviews."},
+                {"error": f"You have already submitted the maximum of {Config.MAX_REVIEWS_PER_IP} reviews."},
                 status_code=429,
             )
 
@@ -1979,7 +1980,7 @@ async def submit_review(request: Request):
 
     _save_review_to_db(review)
 
-    return JSONResponse({"success": True, "review": review})
+    return JSONResponse({"success": True, "review": {k: v for k, v in review.items() if k != "ip"}})
 
 
 @fastapi_app.get("/const")

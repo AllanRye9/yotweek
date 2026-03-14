@@ -4054,6 +4054,8 @@
             return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
+        const REVIEW_MAX_VISIBLE = 5;
+
         function renderReviewList(reviews) {
             const list = document.getElementById('review-list');
             if (!list) return;
@@ -4061,12 +4063,11 @@
                 list.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:16px 0;font-size:0.85rem;"><i class="fas fa-comments" style="font-size:1.2rem;display:block;margin-bottom:4px;opacity:0.5;"></i>No reviews yet. Be the first!</div>';
                 return;
             }
-            const MAX_VISIBLE = 5;
             const cards = reviews.map((r, idx) => {
                 const rt = Math.max(1, Math.min(5, parseInt(r.rating) || 0));
                 const stars = '★'.repeat(rt) + '☆'.repeat(5 - rt);
                 const date = r.timestamp ? new Date(r.timestamp * 1000).toLocaleDateString() : '';
-                const hidden = idx >= MAX_VISIBLE ? ' review-hidden' : '';
+                const hidden = idx >= REVIEW_MAX_VISIBLE ? ' review-hidden' : '';
                 return `<div class="review-item${hidden}">
                     <div class="review-item-header">
                         <span class="review-item-name">${escHtml(r.name)}</span>
@@ -4076,7 +4077,7 @@
                     <div class="review-item-comment">${escHtml(r.comment)}</div>
                 </div>`;
             }).join('');
-            const extra = reviews.length - MAX_VISIBLE;
+            const extra = reviews.length - REVIEW_MAX_VISIBLE;
             const moreBtn = extra > 0
                 ? `<button class="review-show-more" id="review-toggle-btn" onclick="toggleMoreReviews()">
                        <i class="fas fa-chevron-down"></i> Read more (${extra} more review${extra > 1 ? 's' : ''})
@@ -4092,14 +4093,14 @@
             const hidden = list.querySelectorAll('.review-item.review-hidden');
             const visible = hidden.length > 0;
             list.querySelectorAll('.review-item').forEach((el, i) => {
-                if (i >= 5) el.classList.toggle('review-hidden', !visible);
+                if (i >= REVIEW_MAX_VISIBLE) el.classList.toggle('review-hidden', !visible);
             });
             if (visible) {
                 btn.innerHTML = '<i class="fas fa-chevron-up"></i> Show less';
                 btn.classList.add('expanded');
             } else {
                 const total = list.querySelectorAll('.review-item').length;
-                const extra = total - 5;
+                const extra = total - REVIEW_MAX_VISIBLE;
                 btn.innerHTML = `<i class="fas fa-chevron-down"></i> Read more (${extra} more review${extra > 1 ? 's' : ''})`;
                 btn.classList.remove('expanded');
             }
