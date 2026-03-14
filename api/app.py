@@ -1155,6 +1155,12 @@ def get_ssl_env() -> dict:
 def _get_yt_extractor_args() -> dict:
     """Build YouTube extractor args letting yt-dlp pick the best player clients.
 
+    ⚠️  DO NOT CHANGE OR REMOVE ``player_client: ["default"]``.
+    Removing or replacing this setting causes the YouTube authentication error:
+    "YouTube requires authentication. Please upload a cookies.txt file …"
+    This was the root cause investigated in PR #78.  Keeping ``"default"``
+    is the fix — do not replace it with any hard-coded client list.
+
     Using ``"default"`` delegates the client selection to yt-dlp so it can
     automatically switch between its unauthenticated defaults (``android_vr``,
     ``web``, ``web_safari``) and its authenticated defaults (``tv_downgraded``,
@@ -1167,6 +1173,7 @@ def _get_yt_extractor_args() -> dict:
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
+    # ⚠️ DO NOT REMOVE OR CHANGE — see docstring above and PR #78
     args: dict = {"player_client": ["default"]}
     return {"youtube": args}
 
@@ -1292,6 +1299,7 @@ def get_video_info(url: str) -> dict:
             "sleep_interval": 5,
             "max_sleep_interval": 10,
             "geo_bypass": True,
+            # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
             "js_runtimes": {"deno": {}, "node": {}},
             **_get_cookie_opts(),
         }
@@ -1390,6 +1398,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         "sleep_interval": 5,
         "max_sleep_interval": 10,
         "geo_bypass": True,
+        # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
         "js_runtimes": {"deno": {}, "node": {}},
         "progress_hooks": [progress_hook],
         "quiet": True,
@@ -3351,6 +3360,7 @@ async def start_playlist_download(
             "sleep_interval":  5,
             "max_sleep_interval": 10,
             "geo_bypass":      True,
+            # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
             "js_runtimes":     {"deno": {}, "node": {}},
             "progress_hooks":  [progress_hook],
             "quiet":           True,
