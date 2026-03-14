@@ -1155,26 +1155,25 @@ def get_ssl_env() -> dict:
 def _get_yt_extractor_args() -> dict:
     """Build YouTube extractor args letting yt-dlp pick the best player clients.
 
-    ⚠️  DO NOT CHANGE OR REMOVE ``player_client: ["default"]``.
-    Removing or replacing this setting causes the YouTube authentication error:
-    "YouTube requires authentication. Please upload a cookies.txt file …"
-    This was the root cause investigated in PR #78.  Keeping ``"default"``
-    is the fix — do not replace it with any hard-coded client list.
+    ⚠️  DO NOT REMOVE ``"default"`` from ``player_client``.
+    ``"default"`` lets yt-dlp automatically switch between:
+      • unauthenticated defaults: ``android_vr``, ``web_safari``
+      • authenticated defaults:   ``tv_downgraded``, ``web_safari``
+    Removing it causes YouTube authentication errors (investigated in PR #78).
 
-    Using ``"default"`` delegates the client selection to yt-dlp so it can
-    automatically switch between its unauthenticated defaults (``android_vr``,
-    ``web``, ``web_safari``) and its authenticated defaults (``tv_downgraded``,
-    ``web``, ``web_safari``) depending on whether a cookies file is present.
-
-    Hard-coding specific clients caused YouTube authentication errors because
-    ``android_vr`` does not support cookies and was silently dropped when a
-    cookies file was supplied, removing the high-priority ``tv_downgraded``
-    client that yt-dlp would otherwise use for authenticated sessions.
+    ``web_embedded`` and ``tv`` are added alongside ``"default"`` because
+    yt-dlp 2026.3.13 removed the ``web`` client from its unauthenticated
+    defaults (``web`` and ``web_safari`` now require PO tokens for HTTPS/DASH
+    streams).  ``web_embedded`` and ``tv`` have no PO-token requirement, support
+    cookies, and work with or without a JS runtime — providing reliable fallback
+    clients for unauthenticated sessions where ``web_safari`` would otherwise
+    fail without a POT provider.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
-    # ⚠️ DO NOT REMOVE OR CHANGE — see docstring above and PR #78
-    args: dict = {"player_client": ["default"]}
+    # ⚠️ DO NOT REMOVE "default" — see docstring above and PR #78
+    # web_embedded + tv: no POT required, SUPPORTS_COOKIES=True — reliable fallbacks
+    args: dict = {"player_client": ["default", "web_embedded", "tv"]}
     return {"youtube": args}
 
 
