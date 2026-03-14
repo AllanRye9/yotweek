@@ -414,6 +414,30 @@
             background: #f8faff;
             animation: slideIn 0.3s ease-out;
         }
+        .dl-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .dl-card-header .dl-card-title { margin-bottom: 0; }
+        .dl-cancel-btn {
+            flex-shrink: 0;
+            background: #ef4444;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            width: 28px;
+            height: 28px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            transition: background 0.2s;
+        }
+        .dl-cancel-btn:hover { background: #dc2626; }
         .dl-card-title {
             font-weight: 600;
             color: #2c3e50;
@@ -2919,7 +2943,12 @@
                     card.id = `dlc-${id}`;
                     card.dataset.dlId = id;
                     card.innerHTML = `
-                        <div class="dl-card-title"><i class="fas fa-video"></i>${escHtml(dl.title)}</div>
+                        <div class="dl-card-header">
+                            <div class="dl-card-title"><i class="fas fa-video"></i>${escHtml(dl.title)}</div>
+                            <button class="dl-cancel-btn" onclick="cancelDownload('${id}')" title="Cancel download">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
                         <div class="progress-wrap"><div class="progress-fill" style="width:0%"></div></div>
                         <div class="dl-meta"></div>`;
                     body.appendChild(card);
@@ -2948,6 +2977,20 @@
                 .replace(/</g,'&lt;')
                 .replace(/>/g,'&gt;')
                 .replace(/"/g,'&quot;');
+        }
+
+        async function cancelDownload(id) {
+            try {
+                const res = await fetch('/cancel/' + encodeURIComponent(id), { method: 'POST' });
+                if (res.ok) {
+                    showToast('Download cancelled', 'info');
+                    activeDownloads.delete(id);
+                    renderActiveDownloads();
+                    updateProgressModal();
+                }
+            } catch (e) {
+                showToast('Cancel failed: ' + e.message, 'error');
+            }
         }
 
         // ─── Auto-delete (3-minute retention) ────────────────────
@@ -3063,7 +3106,12 @@
                     card.id = `modal-dlc-${id}`;
                     card.dataset.dlId = id;
                     card.innerHTML = `
-                        <div class="dl-card-title"><i class="fas fa-video"></i>${escHtml(dl.title)}</div>
+                        <div class="dl-card-header">
+                            <div class="dl-card-title"><i class="fas fa-video"></i>${escHtml(dl.title)}</div>
+                            <button class="dl-cancel-btn" onclick="cancelDownload('${id}')" title="Cancel download">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
                         <div class="progress-wrap"><div class="progress-fill" style="width:0%"></div></div>
                         <div class="dl-meta"></div>`;
                     body.appendChild(card);
@@ -3412,9 +3460,13 @@
         }
 
         // ─── Init ─────────────────────────────────────────────────
-        // Auto-delete all files present on the server when the page loads/refreshes,
-        // so each new session starts with a clean slate.
+        // Cancel any pending/active downloads and delete leftover files
+        // when the page loads or refreshes, so each session starts clean.
         (async function clearOnPageLoad() {
+            try {
+                // Cancel all active downloads for this client
+                await fetch('/cancel_all', { method: 'POST' });
+            } catch (_) {}
             try {
                 const res = await fetch('/files?t=' + Date.now());
                 const files = await res.json();
