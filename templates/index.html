@@ -946,21 +946,30 @@
 
         /* ── Checklist for multi-file ops ── */
         .file-checklist {
-            max-height: 160px;
+            max-height: 200px;
             overflow-y: auto;
-            border: 1px solid #e8ecf0;
-            border-radius: 6px;
-            padding: 8px 10px;
+            border: 1px solid #e0e7ef;
+            border-radius: 8px;
+            padding: 8px 12px;
             background: #fafbff;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
         }
+        .file-checklist::-webkit-scrollbar { width: 5px; }
+        .file-checklist::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         .file-checklist label {
             display: flex;
             align-items: center;
             gap: 8px;
-            padding: 3px 0;
+            padding: 5px 4px;
             font-weight: 400;
-            font-size: 0.88rem;
+            font-size: 0.84rem;
             cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.12s;
+        }
+        .file-checklist label:hover {
+            background: #eff6ff;
         }
 
         /* ── Job status badge ── */
@@ -1565,13 +1574,14 @@
             margin-left: 6px;
         }
         .review-list {
-            max-height: 340px;
-            overflow-y: auto;
+            max-height: none;
+            overflow-y: visible;
         }
         .review-item {
             padding: 10px 0;
             border-bottom: 1px solid #f1f5f9;
         }
+        .review-item.review-hidden { display: none; }
         .review-item:last-child { border-bottom: none; }
         .review-item-header {
             display: flex;
@@ -1597,6 +1607,33 @@
             font-size: 0.82rem;
             color: #475569;
             line-height: 1.5;
+        }
+        .review-show-more {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 16px;
+            margin-top: 8px;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            color: #2563eb;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            width: 100%;
+        }
+        .review-show-more:hover {
+            background: #e0e7ff;
+            color: #1d4ed8;
+        }
+        .review-show-more i {
+            transition: transform 0.2s;
+        }
+        .review-show-more.expanded i {
+            transform: rotate(180deg);
         }
 
     </style>
@@ -2014,21 +2051,30 @@
 
                         <!-- Export as ZIP tab -->
                         <div id="zip-tab" class="tab-pane" data-tabgroup="playlist-tabs">
-                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
-                                Select files to package into a single ZIP download.
-                            </p>
-                            <div class="form-group">
-                                <label><i class="fas fa-check-square"></i> Select Files</label>
-                                <div class="file-checklist" id="zip-file-checklist">
-                                    <p style="color:#95a5a6;font-size:0.85rem;">No files available</p>
+                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#f0f9ff);border:1px solid #bfdbfe;border-radius:10px;">
+                                <i class="fas fa-file-archive" style="font-size:1.5rem;color:#2563eb;"></i>
+                                <div>
+                                    <div style="font-size:0.9rem;font-weight:700;color:#1e40af;">Export as ZIP</div>
+                                    <p style="font-size:0.8rem;color:#64748b;margin:0;">Select files below to package into a single ZIP download.</p>
                                 </div>
                             </div>
-                            <button class="btn-secondary btn-small" onclick="loadEditFileSelectors()" style="margin-bottom:10px;">
-                                <i class="fas fa-sync-alt"></i> Refresh list
-                            </button>
-                            <button class="btn-primary" onclick="downloadZip()">
-                                <i class="fas fa-file-archive"></i> Download as ZIP
-                            </button>
+                            <div class="form-group">
+                                <label style="font-size:0.82rem;font-weight:600;color:#334155;margin-bottom:6px;display:flex;align-items:center;gap:6px;"><i class="fas fa-check-square" style="color:#2563eb;"></i> Select Files</label>
+                                <div class="file-checklist" id="zip-file-checklist">
+                                    <div style="text-align:center;color:#94a3b8;padding:16px 8px;font-size:0.82rem;">
+                                        <i class="fas fa-inbox" style="font-size:1.2rem;display:block;margin-bottom:6px;opacity:0.5;"></i>
+                                        No files available — download some files first
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
+                                <button class="btn-secondary btn-small" onclick="loadEditFileSelectors()">
+                                    <i class="fas fa-sync-alt"></i> Refresh list
+                                </button>
+                                <button class="btn-primary" onclick="downloadZip()" style="padding:8px 18px;">
+                                    <i class="fas fa-file-archive"></i> Download as ZIP
+                                </button>
+                            </div>
                         </div>
                     </div>
                     <!-- Video Editing & Conversion panel (hidden by default) -->
@@ -4015,11 +4061,13 @@
                 list.innerHTML = '<div style="text-align:center;color:#9ca3af;padding:16px 0;font-size:0.85rem;"><i class="fas fa-comments" style="font-size:1.2rem;display:block;margin-bottom:4px;opacity:0.5;"></i>No reviews yet. Be the first!</div>';
                 return;
             }
-            list.innerHTML = reviews.map(r => {
+            const MAX_VISIBLE = 5;
+            const cards = reviews.map((r, idx) => {
                 const rt = Math.max(1, Math.min(5, parseInt(r.rating) || 0));
                 const stars = '★'.repeat(rt) + '☆'.repeat(5 - rt);
                 const date = r.timestamp ? new Date(r.timestamp * 1000).toLocaleDateString() : '';
-                return `<div class="review-item">
+                const hidden = idx >= MAX_VISIBLE ? ' review-hidden' : '';
+                return `<div class="review-item${hidden}">
                     <div class="review-item-header">
                         <span class="review-item-name">${escHtml(r.name)}</span>
                         <span class="review-item-stars">${stars}</span>
@@ -4028,6 +4076,33 @@
                     <div class="review-item-comment">${escHtml(r.comment)}</div>
                 </div>`;
             }).join('');
+            const extra = reviews.length - MAX_VISIBLE;
+            const moreBtn = extra > 0
+                ? `<button class="review-show-more" id="review-toggle-btn" onclick="toggleMoreReviews()">
+                       <i class="fas fa-chevron-down"></i> Read more (${extra} more review${extra > 1 ? 's' : ''})
+                   </button>`
+                : '';
+            list.innerHTML = cards + moreBtn;
+        }
+
+        function toggleMoreReviews() {
+            const list = document.getElementById('review-list');
+            const btn = document.getElementById('review-toggle-btn');
+            if (!list || !btn) return;
+            const hidden = list.querySelectorAll('.review-item.review-hidden');
+            const visible = hidden.length > 0;
+            list.querySelectorAll('.review-item').forEach((el, i) => {
+                if (i >= 5) el.classList.toggle('review-hidden', !visible);
+            });
+            if (visible) {
+                btn.innerHTML = '<i class="fas fa-chevron-up"></i> Show less';
+                btn.classList.add('expanded');
+            } else {
+                const total = list.querySelectorAll('.review-item').length;
+                const extra = total - 5;
+                btn.innerHTML = `<i class="fas fa-chevron-down"></i> Read more (${extra} more review${extra > 1 ? 's' : ''})`;
+                btn.classList.remove('expanded');
+            }
         }
 
         async function submitReview() {

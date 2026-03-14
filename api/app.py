@@ -984,12 +984,16 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
         except Exception:
             pass
 
-    # Accept-Language header is NOT used for country detection because the
-    # browser language region subtag (e.g. en-US, en-GB) reflects locale
-    # preference, not geographic location.  A user in the United Arab
-    # Emirates with an English browser would be misidentified as "United
-    # States" or "United Kingdom".  When all geo-IP services fail it is
-    # more accurate to report "Unknown" than to guess incorrectly.
+    # --- Last-resort: Accept-Language header heuristic ---
+    # The browser language region subtag (e.g. en-US, en-GB) reflects locale
+    # preference, not geographic location, so it is imprecise.  However it is
+    # better than leaving the country as "Unknown" when every geo-IP service
+    # has failed.
+    if country == "Unknown" and not code and accept_language:
+        al_country, al_code = _parse_accept_language(accept_language)
+        if al_country and al_code:
+            code = al_code
+            country = al_country
 
     # Final normalisation: validate the ISO code and ensure the country name
     # matches our canonical dictionary so every record uses the exact same
@@ -1922,15 +1926,16 @@ def _save_review_to_db(review_data: dict):
 
 @fastapi_app.get("/reviews")
 async def get_reviews():
-    """Return all reviews for the public home page."""
+    """Return all reviews for the public home page (IP stripped for privacy)."""
     with reviews_lock:
-        return JSONResponse(list(reviews))
+        safe = [{k: v for k, v in r.items() if k != "ip"} for r in reviews]
+    return JSONResponse(safe)
 
 
 @fastapi_app.post("/reviews")
 @rate_limit()
 async def submit_review(request: Request):
-    """Submit a new review from a visitor."""
+    """Submit a new review from a visitor (max 2 per IP)."""
     try:
         body = await request.json()
     except Exception:
@@ -1951,12 +1956,22 @@ async def submit_review(request: Request):
     except (TypeError, ValueError):
         return JSONResponse({"error": "Rating must be 1-5"}, status_code=400)
 
+    ip = request.client.host if request.client else "unknown"
+    with reviews_lock:
+        ip_review_count = sum(1 for r in reviews if r.get("ip") == ip)
+        if ip_review_count >= 2:
+            return JSONResponse(
+                {"error": "You have already submitted the maximum of 2 reviews."},
+                status_code=429,
+            )
+
     review = {
         "id": str(uuid.uuid4()),
         "name": name,
         "comment": comment,
         "rating": rating,
         "timestamp": time.time(),
+        "ip": ip,
     }
 
     with reviews_lock:
