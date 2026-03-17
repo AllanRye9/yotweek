@@ -2,6 +2,23 @@ import { useState } from 'react'
 import { startPlaylist, startBatch } from '../api'
 import { SESSION_ID } from '../session'
 
+/** Matches any http/https URL; used for smart batch-URL normalisation. */
+const URL_REGEX = /https?:\/\/[^\s,|"'<>[\]{}()\n\r]+/gi
+
+/** Extract up to `limit` unique URLs from arbitrary text. */
+function extractUrls(text, limit = 50) {
+  URL_REGEX.lastIndex = 0
+  const found = []
+  const seen = new Set()
+  let m
+  while ((m = URL_REGEX.exec(text)) !== null) {
+    const url = m[0].replace(/[.,;!?)\]>]+$/, '')
+    if (!seen.has(url)) { seen.add(url); found.push(url) }
+    if (found.length >= limit) break
+  }
+  return found
+}
+
 const FORMATS = [
   { value: 'best', label: 'Best Quality' },
   { value: 'bestvideo[height<=1080]+bestaudio/best', label: '1080p' },
@@ -40,12 +57,13 @@ export default function PlaylistForm({ onDownloadStarted }) {
 
   const submitBatch = async (e) => {
     e.preventDefault()
-    const lines = batchUrls.split('\n').map(l => l.trim()).filter(Boolean)
-    if (!lines.length) { setError('Enter at least one URL'); return }
+    // Extract all valid http(s) URLs from the textarea (normalise before submit)
+    const found = extractUrls(batchUrls)
+    if (!found.length) { setError('Enter at least one valid URL'); return }
     setError(''); setNotice(''); setLoading(true)
     try {
-      const data = await startBatch(lines.join('\n'), format, ext, SESSION_ID)
-      setNotice(`✓ Batch started — ${data.queued ?? lines.length} downloads queued`)
+      const data = await startBatch(found.join('\n'), format, ext, SESSION_ID)
+      setNotice(`✓ Batch started — ${data.queued ?? found.length} downloads queued`)
       onDownloadStarted && onDownloadStarted()
     } catch (err) {
       setError(err.data?.error || err.message || 'Failed to start batch')
@@ -121,13 +139,23 @@ export default function PlaylistForm({ onDownloadStarted }) {
         <form onSubmit={submitBatch} className="space-y-4">
           <div>
             <label className="block text-sm text-gray-400 mb-1">
-              URLs (one per line, max 50)
+              URLs — paste freely, they are detected automatically (max 50)
             </label>
             <textarea
               className="input min-h-[120px] resize-y font-mono text-sm"
-              placeholder={'https://youtube.com/watch?v=…\nhttps://tiktok.com/@user/video/…\nhttps://instagram.com/reel/…'}
+              placeholder={'Paste one or more URLs here — from YouTube, TikTok, Instagram, Twitter/X, Facebook or any of 1,000+ sites.\nURLs are detected and arranged automatically regardless of how they are pasted.'}
               value={batchUrls}
               onChange={e => setBatchUrls(e.target.value)}
+              onPaste={e => {
+                // Normalise pasted content after React has updated state
+                setTimeout(() => {
+                  const raw = e.target.value
+                  const found = extractUrls(raw)
+                  if (found.length > 0 && raw.trim() !== found.join('\n')) {
+                    setBatchUrls(found.join('\n'))
+                  }
+                }, 0)
+              }}
               required
             />
             <p className="text-xs text-gray-600 mt-1">

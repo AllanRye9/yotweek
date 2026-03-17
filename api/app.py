@@ -767,23 +767,30 @@ def _country_from_accept_language(accept_lang: str) -> tuple[str, str]:
     """Best-effort country guess from an Accept-Language header value.
 
     Returns (country_name, iso2_code) or ("", "") when no guess can be made.
-    Handles formats like "en-US,en;q=0.9" – tries region subtag first, then
-    falls back to the primary language code.
+    Handles formats like "en-US,en;q=0.9" or "en,en-GB;q=0.9".
+
+    Accuracy improvement: scans ALL language tags (not just the first) for an
+    explicit region subtag (e.g. "en-GB") before falling back to the primary
+    language code.  This fixes cases where a browser sends the bare language
+    first (e.g. "en") followed by the region-qualified tag (e.g. "en-GB"),
+    which previously caused UK visitors to be reported as United States.
     """
     if not accept_lang:
         return "", ""
-    # Parse the first (highest-priority) language tag
-    first = accept_lang.split(",")[0].split(";")[0].strip()
-    parts = first.replace("_", "-").split("-")
-    # Check for explicit region subtag (e.g. "en-GB", "pt-BR")
-    if len(parts) >= 2:
-        region = parts[1].upper()
-        if len(region) == 2 and region.isalpha():
-            name = _ISO2_TO_NAME.get(region)
-            if name:
-                return name, region
-    # Fall back to primary language code
-    lang = parts[0].lower()
+    # Extract all tags, stripped of quality weights
+    tags = [t.split(";")[0].strip() for t in accept_lang.split(",")]
+    # First pass: scan every tag for an explicit two-letter region subtag
+    for tag in tags:
+        parts = tag.replace("_", "-").split("-")
+        if len(parts) >= 2:
+            region = parts[1].upper()
+            if len(region) == 2 and region.isalpha():
+                name = _ISO2_TO_NAME.get(region)
+                if name:
+                    return name, region
+    # Second pass: fall back to primary language code of the first tag
+    first_parts = tags[0].replace("_", "-").split("-") if tags else []
+    lang = first_parts[0].lower() if first_parts else ""
     code = _LANG_TO_COUNTRY.get(lang, "")
     if code:
         return _ISO2_TO_NAME.get(code, code), code

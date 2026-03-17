@@ -140,7 +140,7 @@
         .hero-subtitle {
             color: #64748b;
             margin-top: 1px;
-            font-size: 0.75rem;
+            font-size: 0.68rem;
             display: flex;
             align-items: center;
             gap: 6px;
@@ -713,7 +713,7 @@
         }
         .footer-brand i { margin-right: 8px; }
         .footer-subtitle {
-            font-size: 0.85rem;
+            font-size: 0.75rem;
             color: rgba(255, 255, 255, 0.78);
             margin-bottom: 14px;
         }
@@ -1929,7 +1929,7 @@
                 </h1>
                 <p class="hero-subtitle">
                     <span id="conn-dot"></span>
-                    Powered by yt-dlp &mdash; download videos from YouTube and 1000+ sites
+                    Download Any Video &mdash; Free &amp; Fast &bull; YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; No sign-up required
                 </p>
             </div>
         </div>
@@ -2193,20 +2193,24 @@
                         <!-- Batch URLs tab -->
                         <div id="batch-tab" class="tab-pane" data-tabgroup="playlist-tabs">
                             <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
-                                Enter up to 20 video URLs.
+                                Enter up to 20 video URLs. Paste any text containing URLs — they will be detected and arranged automatically.
                             </p>
                             <div class="form-group">
-                                <label><i class="fas fa-list-ul"></i> Video URLs</label>
-                                <div id="batch-url-fields">
-                                    <div class="url-field-row" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
-                                        <input type="url" class="batch-url-input"
-                                               placeholder="https://www.youtube.com/watch?v=…  or any supported URL"
-                                               style="flex:1;">
-                                    </div>
+                                <label><i class="fas fa-list-ul"></i> Video URLs <span style="font-size:0.75rem;color:#94a3b8;font-weight:400;">(one per line, or paste freely)</span></label>
+                                <textarea id="batch-url-textarea"
+                                    rows="6"
+                                    placeholder="Paste one or more URLs here — from YouTube, TikTok, Instagram, Twitter, Facebook, or any of 1,000+ supported sites. URLs will be detected and listed automatically."
+                                    style="width:100%;resize:vertical;font-family:inherit;font-size:0.82rem;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;outline:none;color:#1e293b;line-height:1.6;transition:border-color 0.2s;"
+                                    spellcheck="false"
+                                    oninput="normaliseBatchUrls(this)"
+                                    onpaste="setTimeout(()=>normaliseBatchUrls(this),0)"
+                                ></textarea>
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
+                                    <span id="batch-url-count" style="font-size:0.75rem;color:#94a3b8;">0 URLs detected</span>
+                                    <button type="button" class="btn-secondary btn-small" onclick="clearBatchUrlFields()" style="padding:4px 10px;font-size:0.75rem;">
+                                        <i class="fas fa-times"></i> Clear
+                                    </button>
                                 </div>
-                                <button type="button" class="btn-secondary btn-small" onclick="addBatchUrlField()" style="margin-top:2px;padding:6px 14px;font-size:0.82rem;">
-                                    <i class="fas fa-plus"></i> Add another URL
-                                </button>
                             </div>
                             <div class="form-group">
                                 <label for="batch-format"><i class="fas fa-sliders-h"></i> Quality</label>
@@ -2715,7 +2719,7 @@
                 <i class="fas fa-download"></i> YOT Downloader
             </div>
             <p class="footer-subtitle">
-                Download Any Video. Fast, Free, and Secure.
+                Download Any Video &mdash; Free &amp; Fast &bull; YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; No sign-up required
             </p>
             <!-- How It Works -->
             <div class="footer-how-it-works">
@@ -2831,47 +2835,64 @@
 
         // ─── Batch URL field helpers ──────────────────────────────
         function addBatchUrlField() {
-            const container = document.getElementById('batch-url-fields');
-            const rows = container.querySelectorAll('.url-field-row');
-            if (rows.length >= 20) {
-                showToast('Maximum 20 URLs allowed', 'warning');
-                return;
-            }
-            const row = document.createElement('div');
-            row.className = 'url-field-row';
-            row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:6px;';
-            row.innerHTML = `
-                <input type="url" class="batch-url-input"
-                       placeholder="https://www.youtube.com/watch?v=…  or any supported URL"
-                       style="flex:1;">
-                <button type="button" class="url-remove-btn" onclick="removeBatchUrlField(this)" title="Remove">
-                    <i class="fas fa-times"></i>
-                </button>`;
-            container.appendChild(row);
-            row.querySelector('.batch-url-input').focus();
+            // Legacy stub — no-op with the new textarea-based approach
         }
 
         function removeBatchUrlField(btn) {
-            const row = btn.closest('.url-field-row');
-            const container = document.getElementById('batch-url-fields');
-            if (container.querySelectorAll('.url-field-row').length > 1) {
-                row.remove();
+            // Legacy stub — no-op with the new textarea-based approach
+        }
+
+        /**
+         * normaliseBatchUrls – Smart URL extractor.
+         * Parses the raw text pasted into the batch textarea, extracts every
+         * URL (regardless of surrounding text / delimiters) and rewrites the
+         * textarea with one URL per line (capped at 20).
+         */
+        function normaliseBatchUrls(textarea) {
+            const raw = textarea.value;
+            // Match anything that looks like a URL (http/https)
+            const urlRegex = /https?:\/\/[^\s,|"'<>[\]{}()\n\r]+/gi;
+            const found = [];
+            const seen = new Set();
+            let m;
+            while ((m = urlRegex.exec(raw)) !== null) {
+                // Trim trailing punctuation that is unlikely part of the URL
+                let url = m[0].replace(/[.,;!?)\]>]+$/, '');
+                if (!seen.has(url)) {
+                    seen.add(url);
+                    found.push(url);
+                    if (found.length >= 20) break;
+                }
+            }
+            // Only rewrite if the normalised form differs from the current value
+            // (avoids fighting the user while they are typing a fresh URL)
+            const normalised = found.join('\n');
+            if (found.length > 0 && raw.trim() !== normalised) {
+                textarea.value = normalised;
+            }
+            const count = found.length;
+            const counter = document.getElementById('batch-url-count');
+            if (counter) {
+                counter.textContent = count === 0 ? '0 URLs detected'
+                    : count === 1 ? '1 URL detected'
+                    : `${count} URLs detected${count >= 20 ? ' (max)' : ''}`;
+                counter.style.color = count > 0 ? '#16a34a' : '#94a3b8';
             }
         }
 
         function getBatchUrlValues() {
-            return Array.from(document.querySelectorAll('#batch-url-fields .batch-url-input'))
-                        .map(f => f.value.trim())
-                        .filter(Boolean);
+            const ta = document.getElementById('batch-url-textarea');
+            if (!ta) return [];
+            // Re-run normalise to make sure we have the latest parsed state
+            normaliseBatchUrls(ta);
+            return ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 20);
         }
 
         function clearBatchUrlFields() {
-            const container = document.getElementById('batch-url-fields');
-            const rows = container.querySelectorAll('.url-field-row');
-            rows.forEach((row, i) => {
-                if (i > 0) row.remove();
-                else row.querySelector('.batch-url-input').value = '';
-            });
+            const ta = document.getElementById('batch-url-textarea');
+            if (ta) ta.value = '';
+            const counter = document.getElementById('batch-url-count');
+            if (counter) { counter.textContent = '0 URLs detected'; counter.style.color = '#94a3b8'; }
         }
 
         // ─── Animated counter with easing & comma formatting ──────
@@ -4495,6 +4516,288 @@
             };
         })();
         {% endif %}
+    </script>
+
+    <!-- ─── Draggable Help Button ──────────────────────────────────────── -->
+    <style>
+        /* Help button */
+        #help-fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9000;
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 16px rgba(37,99,235,0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            transition: box-shadow 0.2s, transform 0.15s;
+            user-select: none;
+            touch-action: none;
+        }
+        #help-fab:hover { box-shadow: 0 6px 24px rgba(37,99,235,0.55); transform: scale(1.07); }
+        #help-fab:active { transform: scale(0.96); }
+        #help-fab.dragging { opacity: 0.85; box-shadow: 0 8px 32px rgba(37,99,235,0.55); transition: none; }
+
+        /* Help modal */
+        #help-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15,23,42,0.55);
+            z-index: 9100;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        #help-modal-overlay.open { display: flex; }
+        #help-modal {
+            background: #fff;
+            border-radius: 16px;
+            max-width: 600px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 24px 80px rgba(15,23,42,0.22);
+            animation: helpSlideIn 0.25s ease;
+        }
+        @keyframes helpSlideIn {
+            from { opacity:0; transform: translateY(24px) scale(0.97); }
+            to   { opacity:1; transform: translateY(0) scale(1); }
+        }
+        .help-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px 22px 14px;
+            border-bottom: 1px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            background: #fff;
+            border-radius: 16px 16px 0 0;
+            z-index: 1;
+        }
+        .help-modal-header h2 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #1e293b;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .help-modal-close {
+            background: none;
+            border: none;
+            font-size: 1.15rem;
+            color: #94a3b8;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: background 0.15s;
+        }
+        .help-modal-close:hover { background: #f1f5f9; color: #475569; }
+        .help-modal-body { padding: 18px 22px 22px; }
+        .help-section {
+            margin-bottom: 18px;
+        }
+        .help-section-title {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #2563eb;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin-bottom: 6px;
+        }
+        .help-section-body {
+            font-size: 0.82rem;
+            color: #475569;
+            line-height: 1.65;
+        }
+        .help-section-body li { margin-bottom: 3px; padding-left: 4px; }
+        .help-divider { border: none; border-top: 1px solid #f1f5f9; margin: 14px 0; }
+    </style>
+
+    <!-- Help FAB -->
+    <button id="help-fab" aria-label="Help" title="Help — click for a guide to all features">
+        <i class="fas fa-question"></i>
+    </button>
+
+    <!-- Help Modal -->
+    <div id="help-modal-overlay" role="dialog" aria-modal="true" aria-label="Help" onclick="if(event.target===this)closeHelpModal()">
+        <div id="help-modal">
+            <div class="help-modal-header">
+                <h2><i class="fas fa-circle-question" style="color:#2563eb;"></i> YOT Downloader — Help Guide</h2>
+                <button class="help-modal-close" onclick="closeHelpModal()" aria-label="Close help"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="help-modal-body">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-download"></i> Single Video Download</div>
+                    <div class="help-section-body">
+                        <ol>
+                            <li>Paste a video URL (YouTube, TikTok, Instagram, Twitter/X, Facebook and 1,000+ other sites) into the URL box.</li>
+                            <li>Click <strong>Get Info</strong> to fetch the video title, duration, and thumbnail.</li>
+                            <li>Choose your preferred <strong>Quality</strong> (e.g. HD 720p, Full HD 1080p) and <strong>File Format</strong> (mp4, webm, mkv, mp3…).</li>
+                            <li>Click <strong>Download</strong> — the file is prepared on the server and a download link appears automatically.</li>
+                        </ol>
+                    </div>
+                </div>
+                <hr class="help-divider">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-list-ol"></i> Playlist Download</div>
+                    <div class="help-section-body">
+                        <ol>
+                            <li>Switch to the <strong>Playlist / Batch</strong> tab, then select the <strong>Playlist</strong> sub-tab.</li>
+                            <li>Paste a YouTube playlist URL (or any playlist-capable URL).</li>
+                            <li>Set the maximum number of videos to download, plus quality and format.</li>
+                            <li>Click <strong>Download Playlist</strong>. Each video is queued and processed concurrently.</li>
+                        </ol>
+                    </div>
+                </div>
+                <hr class="help-divider">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-layer-group"></i> Batch Download</div>
+                    <div class="help-section-body">
+                        <ol>
+                            <li>Switch to the <strong>Playlist / Batch</strong> tab, then select the <strong>Batch URLs</strong> sub-tab.</li>
+                            <li>Paste any text containing video URLs — from one site or many. URLs are detected automatically and arranged one per line regardless of how they were copied.</li>
+                            <li>Up to <strong>20 URLs</strong> are supported per batch. Extra URLs beyond 20 are discarded.</li>
+                            <li>Choose quality and format, then click <strong>Start Batch Download</strong>.</li>
+                        </ol>
+                    </div>
+                </div>
+                <hr class="help-divider">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-file-archive"></i> Export as ZIP</div>
+                    <div class="help-section-body">
+                        Download multiple already-processed files at once. Select files from your download list using the checkboxes, then click <strong>Download ZIP</strong> to receive them in a single archive.
+                    </div>
+                </div>
+                <hr class="help-divider">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-tools"></i> Edit &amp; Convert</div>
+                    <div class="help-section-body">
+                        <ul>
+                            <li><strong>Convert</strong> — change an existing file's format or resolution (e.g. mp4 → mp3, 1080p → 480p).</li>
+                            <li><strong>Trim</strong> — cut a video to a specific start/end time.</li>
+                            <li><strong>Merge Audio</strong> — overlay a separate audio file onto a video track.</li>
+                            <li><strong>Batch Convert</strong> — convert multiple files at once using the same settings.</li>
+                        </ul>
+                    </div>
+                </div>
+                <hr class="help-divider">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-folder-open"></i> File Manager</div>
+                    <div class="help-section-body">
+                        All your processed files are listed here. You can preview videos in the built-in player, download individual files, or delete files to free up server space.
+                    </div>
+                </div>
+                <hr class="help-divider">
+
+                <div class="help-section">
+                    <div class="help-section-title"><i class="fas fa-arrows-up-down-left-right"></i> Moving the Help Button</div>
+                    <div class="help-section-body">
+                        Drag the <strong>?</strong> button to any corner of the screen. A short click (no drag) opens this guide; a longer press-and-drag repositions it.
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        // ── Help modal open / close ──────────────────────────────
+        window.openHelpModal  = function () { document.getElementById('help-modal-overlay').classList.add('open'); };
+        window.closeHelpModal = function () { document.getElementById('help-modal-overlay').classList.remove('open'); };
+
+        // ── Draggable FAB ────────────────────────────────────────
+        const fab = document.getElementById('help-fab');
+        if (!fab) return;
+
+        let isDragging = false;
+        let dragMoved  = false;
+        let startX, startY, origRight, origBottom;
+
+        function getPos() {
+            const style = window.getComputedStyle(fab);
+            // Use stored data attrs for right/bottom so they stay consistent
+            return {
+                right:  parseFloat(fab.dataset.right  ?? '24'),
+                bottom: parseFloat(fab.dataset.bottom ?? '24'),
+            };
+        }
+
+        function applyPos(right, bottom) {
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const w  = fab.offsetWidth  || 52;
+            const h  = fab.offsetHeight || 52;
+            right  = Math.max(8, Math.min(right,  vw - w  - 8));
+            bottom = Math.max(8, Math.min(bottom, vh - h  - 8));
+            fab.style.right  = right  + 'px';
+            fab.style.bottom = bottom + 'px';
+            fab.style.left   = 'auto';
+            fab.style.top    = 'auto';
+            fab.dataset.right  = right;
+            fab.dataset.bottom = bottom;
+        }
+
+        // ── Pointer events (mouse + touch) ───────────────────────
+        fab.addEventListener('pointerdown', function (e) {
+            isDragging = true;
+            dragMoved  = false;
+            fab.classList.add('dragging');
+            fab.setPointerCapture(e.pointerId);
+            const pos = getPos();
+            origRight  = pos.right;
+            origBottom = pos.bottom;
+            startX = e.clientX;
+            startY = e.clientY;
+            e.preventDefault();
+        });
+
+        fab.addEventListener('pointermove', function (e) {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            if (Math.abs(dx) > 4 || Math.abs(dy) > 4) dragMoved = true;
+            applyPos(origRight - dx, origBottom + dy);
+        });
+
+        fab.addEventListener('pointerup', function (e) {
+            if (!isDragging) return;
+            isDragging = false;
+            fab.classList.remove('dragging');
+            if (!dragMoved) {
+                // Treat as a click — open help
+                openHelpModal();
+            }
+        });
+
+        fab.addEventListener('pointercancel', function () {
+            isDragging = false;
+            fab.classList.remove('dragging');
+        });
+
+        // Keyboard accessibility
+        fab.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHelpModal(); }
+        });
+    })();
     </script>
 </body>
 </html>
