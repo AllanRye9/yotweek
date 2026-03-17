@@ -47,17 +47,21 @@ export const getStats  = () => request('GET', '/stats')
 export const getVideoInfo = (url) =>
   request('POST', '/video_info', formBody({ url }), false)
 
-export const startDownload = (url, format = 'best', ext = 'mp4') =>
-  request('POST', '/start_download', formBody({ url, format, ext }), false)
+export const startDownload = (url, format = 'best', ext = 'mp4', sessionId = '') =>
+  request('POST', '/start_download', formBody({ url, format, ext, session_id: sessionId }), false)
 
 export const getStatus = (id) => request('GET', `/status/${id}`)
 
 // ── Files ─────────────────────────────────────────────────────────────────────
 
-export const listFiles    = () => request('GET', '/files')
+export const listFiles    = (sessionId = '') => request('GET', `/files${sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : ''}`)
 export const deleteFile   = (name) => request('DELETE', `/delete/${encodeURIComponent(name)}`)
 export const downloadUrl  = (name) => `${BASE}/downloads/${encodeURIComponent(name)}`
 export const streamUrl    = (name) => `${BASE}/stream/${encodeURIComponent(name)}`
+
+// ── Session ───────────────────────────────────────────────────────────────────
+
+export const deleteSession = (sessionId) => request('DELETE', `/session/${encodeURIComponent(sessionId)}`)
 
 // ── Downloads ─────────────────────────────────────────────────────────────────
 
@@ -67,11 +71,11 @@ export const getActiveDownloads = () => request('GET', '/active_downloads')
 
 // ── Playlist / Batch ──────────────────────────────────────────────────────────
 
-export const startPlaylist = (url, format = 'best', ext = 'mp4', startIdx = '', endIdx = '') =>
-  request('POST', '/start_playlist_download', formBody({ url, format, ext, start_index: startIdx, end_index: endIdx }), false)
+export const startPlaylist = (url, format = 'best', ext = 'mp4', startIdx = '', endIdx = '', sessionId = '') =>
+  request('POST', '/start_playlist_download', formBody({ url, format, ext, start_index: startIdx, end_index: endIdx, session_id: sessionId }), false)
 
-export const startBatch = (urls, format = 'best', ext = 'mp4') =>
-  request('POST', '/start_batch_download', formBody({ urls, format, ext }), false)
+export const startBatch = (urls, format = 'best', ext = 'mp4', sessionId = '') =>
+  request('POST', '/start_batch_download', formBody({ urls, format, ext, session_id: sessionId }), false)
 
 export const downloadZip = (filenames) =>
   request('POST', '/download_zip', { filenames })

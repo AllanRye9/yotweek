@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import socket from '../socket'
 import { cancelDownload, cancelAll } from '../api'
+import DownloadCompletePopup from './DownloadCompletePopup'
 
 function statusColor(status) {
   switch (status) {
@@ -74,6 +75,7 @@ function DownloadCard({ dl, onCancel }) {
 export default function ActiveDownloads({ onComplete }) {
   const [downloads, setDownloads] = useState({}) // id → dl
   const subscribedRef = useRef(new Set())
+  const [completedPopup, setCompletedPopup] = useState(null) // dl record to show in popup
 
   const updateDl = (id, patch) => {
     setDownloads(prev => ({
@@ -87,9 +89,12 @@ export default function ActiveDownloads({ onComplete }) {
     const onProgress  = (data) => { if (data?.id) updateDl(data.id, data) }
     const onCompleted = (data) => {
       if (data?.id) {
-        updateDl(data.id, { ...data, status: 'completed' })
+        const completedDl = { ...data, status: 'completed' }
+        updateDl(data.id, completedDl)
         onComplete && onComplete(data.id)
-        // Fade out after a few seconds
+        // Show the completion popup
+        setCompletedPopup(prev => prev || completedDl)
+        // Fade out the progress card after a delay
         setTimeout(() => {
           setDownloads(prev => {
             const n = { ...prev }
@@ -137,29 +142,42 @@ export default function ActiveDownloads({ onComplete }) {
   const dls = Object.values(downloads)
   const active = dls.filter(d => d.status === 'downloading' || d.status === 'queued')
 
-  if (!dls.length) return null
+  if (!dls.length && !completedPopup) return null
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-base font-semibold text-white">
-          Active Downloads
-          {active.length > 0 && (
-            <span className="ml-2 badge-info">{active.length}</span>
-          )}
-        </h2>
-        {active.length > 1 && (
-          <button className="btn-ghost btn-sm text-xs" onClick={handleCancelAll}>
-            Cancel all
-          </button>
-        )}
-      </div>
+    <>
+      {/* Completion popup */}
+      {completedPopup && (
+        <DownloadCompletePopup
+          dl={completedPopup}
+          onClose={() => setCompletedPopup(null)}
+          onDelete={() => { setCompletedPopup(null); onComplete && onComplete() }}
+        />
+      )}
 
-      <div className="space-y-2">
-        {dls.map(dl => (
-          <DownloadCard key={dl.id} dl={dl} onCancel={handleCancel} />
-        ))}
-      </div>
-    </div>
+      {dls.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-base font-semibold text-white">
+              Active Downloads
+              {active.length > 0 && (
+                <span className="ml-2 badge-info">{active.length}</span>
+              )}
+            </h2>
+            {active.length > 1 && (
+              <button className="btn-ghost btn-sm text-xs" onClick={handleCancelAll}>
+                Cancel all
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            {dls.map(dl => (
+              <DownloadCard key={dl.id} dl={dl} onCancel={handleCancel} />
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   )
 }

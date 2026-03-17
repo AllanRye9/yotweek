@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { startPlaylist, startBatch } from '../api'
+import { SESSION_ID } from '../session'
 
 const FORMATS = [
   { value: 'best', label: 'Best Quality' },
@@ -27,7 +28,7 @@ export default function PlaylistForm({ onDownloadStarted }) {
     if (!url.trim()) { setError('Please enter a playlist/channel URL'); return }
     setError(''); setNotice(''); setLoading(true)
     try {
-      const data = await startPlaylist(url.trim(), format, ext, startIdx, endIdx)
+      const data = await startPlaylist(url.trim(), format, ext, startIdx, endIdx, SESSION_ID)
       setNotice(`✓ Playlist download started — ${data.queued ?? ''} videos queued`)
       onDownloadStarted && onDownloadStarted()
     } catch (err) {
@@ -43,7 +44,7 @@ export default function PlaylistForm({ onDownloadStarted }) {
     if (!lines.length) { setError('Enter at least one URL'); return }
     setError(''); setNotice(''); setLoading(true)
     try {
-      const data = await startBatch(lines.join('\n'), format, ext)
+      const data = await startBatch(lines.join('\n'), format, ext, SESSION_ID)
       setNotice(`✓ Batch started — ${data.queued ?? lines.length} downloads queued`)
       onDownloadStarted && onDownloadStarted()
     } catch (err) {

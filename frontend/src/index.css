@@ -2,12 +2,202 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Theme CSS custom properties ─────────────────────────────────────────── */
+/*
+ * Each theme applies its own values to --bg-page, --bg-surface, --bg-card,
+ * --border-color, --text-primary, --text-secondary, --accent, --accent-hover.
+ * Tailwind's compiled classes are used for layout; theme variables override
+ * the visual colours so we don't need to re-compile Tailwind per theme.
+ */
+
+/* Default: Dark (matches the original Tailwind dark-gray palette) */
+:root,
+html.theme-dark {
+  --bg-page:       #030712; /* gray-950 */
+  --bg-nav:        rgba(3,7,18,.95);
+  --bg-surface:    #111827; /* gray-900 */
+  --bg-card:       #111827;
+  --bg-input:      #1f2937; /* gray-800 */
+  --border-color:  #1f2937;
+  --text-primary:  #f3f4f6; /* gray-100 */
+  --text-secondary:#9ca3af; /* gray-400 */
+  --text-muted:    #4b5563; /* gray-600 */
+  --accent:        #dc2626; /* red-600 */
+  --accent-hover:  #ef4444; /* red-500 */
+  --accent-text:   #ffffff;
+}
+
+html.theme-light {
+  --bg-page:       #f8fafc;
+  --bg-nav:        rgba(248,250,252,.95);
+  --bg-surface:    #ffffff;
+  --bg-card:       #ffffff;
+  --bg-input:      #f1f5f9;
+  --border-color:  #e2e8f0;
+  --text-primary:  #0f172a;
+  --text-secondary:#475569;
+  --text-muted:    #94a3b8;
+  --accent:        #dc2626;
+  --accent-hover:  #b91c1c;
+  --accent-text:   #ffffff;
+}
+
+html.theme-ocean {
+  --bg-page:       #0a1628;
+  --bg-nav:        rgba(10,22,40,.95);
+  --bg-surface:    #0f2040;
+  --bg-card:       #0f2040;
+  --bg-input:      #162c52;
+  --border-color:  #1e3a5f;
+  --text-primary:  #e2f0ff;
+  --text-secondary:#7db8e8;
+  --text-muted:    #3d6a96;
+  --accent:        #0ea5e9; /* sky-500 */
+  --accent-hover:  #38bdf8;
+  --accent-text:   #ffffff;
+}
+
+html.theme-forest {
+  --bg-page:       #0d1f0f;
+  --bg-nav:        rgba(13,31,15,.95);
+  --bg-surface:    #142914;
+  --bg-card:       #142914;
+  --bg-input:      #1a3a1a;
+  --border-color:  #1f4a1f;
+  --text-primary:  #d4edda;
+  --text-secondary:#74c083;
+  --text-muted:    #3d6b45;
+  --accent:        #22c55e; /* green-500 */
+  --accent-hover:  #4ade80;
+  --accent-text:   #ffffff;
+}
+
+/* ── Apply theme variables to base elements ──────────────────────────────── */
+html {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+body {
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+
+/* Themed structural elements */
+.themed-nav {
+  background-color: var(--bg-nav) !important;
+  border-color: var(--border-color) !important;
+}
+.themed-surface {
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+}
+.themed-card {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+}
+.themed-input {
+  background-color: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+.themed-text { color: var(--text-primary) !important; }
+.themed-text-secondary { color: var(--text-secondary) !important; }
+.themed-text-muted { color: var(--text-muted) !important; }
+
+/* ── Base overrides (applied to all themes via CSS variables) ─────────────── */
+html:not(.theme-dark) body { background-color: var(--bg-page); color: var(--text-primary); }
+
+html:not(.theme-dark) nav,
+html:not(.theme-dark) .sticky {
+  background-color: var(--bg-nav) !important;
+  border-color: var(--border-color) !important;
+}
+
+html:not(.theme-dark) .card,
+html:not(.theme-dark) .bg-gray-900,
+html:not(.theme-dark) [class*="bg-gray-9"] {
+  background-color: var(--bg-card) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+
+html:not(.theme-dark) .bg-gray-800,
+html:not(.theme-dark) [class*="bg-gray-8"] {
+  background-color: var(--bg-surface) !important;
+  border-color: var(--border-color) !important;
+}
+
+html:not(.theme-dark) .bg-gray-950,
+html:not(.theme-dark) [class*="bg-gray-950"] {
+  background-color: var(--bg-page) !important;
+}
+
+html:not(.theme-dark) .text-gray-100,
+html:not(.theme-dark) .text-white { color: var(--text-primary) !important; }
+html:not(.theme-dark) .text-gray-400,
+html:not(.theme-dark) .text-gray-500 { color: var(--text-secondary) !important; }
+html:not(.theme-dark) .text-gray-600 { color: var(--text-muted) !important; }
+
+html:not(.theme-dark) .border-gray-800,
+html:not(.theme-dark) .border-gray-700 { border-color: var(--border-color) !important; }
+
+html:not(.theme-dark) .input {
+  background-color: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-primary) !important;
+}
+html:not(.theme-dark) .input::placeholder { color: var(--text-muted) !important; }
+
+html:not(.theme-dark) .btn-primary {
+  background-color: var(--accent) !important;
+  color: var(--accent-text) !important;
+}
+html:not(.theme-dark) .btn-primary:hover { background-color: var(--accent-hover) !important; }
+
+html:not(.theme-dark) .tab-btn-active {
+  background-color: var(--accent) !important;
+  color: var(--accent-text) !important;
+}
+
+html:not(.theme-dark) .btn-ghost {
+  color: var(--text-secondary) !important;
+}
+html:not(.theme-dark) .btn-ghost:hover {
+  background-color: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+}
+
+html:not(.theme-dark) .btn-secondary {
+  background-color: var(--bg-input) !important;
+  color: var(--text-primary) !important;
+}
+html:not(.theme-dark) .btn-secondary:hover { filter: brightness(1.1); }
+
+html:not(.theme-dark) .progress-fill {
+  background: linear-gradient(to right, var(--accent), var(--accent-hover)) !important;
+}
+
+html:not(.theme-dark) .gradient-text {
+  background-image: linear-gradient(to right, var(--accent), var(--accent-hover));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+html:not(.theme-dark) .spinner {
+  border-top-color: var(--accent) !important;
+}
+
+html:not(.theme-dark) .bg-gradient-to-b {
+  background: linear-gradient(to bottom, var(--bg-surface), var(--bg-page)) !important;
+}
+
 @layer base {
   html {
     scroll-behavior: smooth;
   }
   body {
-    @apply bg-gray-950 text-gray-100 antialiased;
+    @apply antialiased;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 }
@@ -75,6 +265,20 @@
   }
   .sidebar-link-active {
     @apply sidebar-link bg-gray-800 text-white;
+  }
+  /* Download-complete popup card */
+  .popup-card {
+    @apply bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6;
+  }
+  /* Theme dropdown */
+  .theme-dropdown {
+    @apply absolute right-0 top-full mt-1 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 py-1 min-w-[160px];
+  }
+  .theme-option {
+    @apply w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition-colors;
+  }
+  .theme-option-active {
+    @apply text-white bg-gray-800;
   }
 }
 

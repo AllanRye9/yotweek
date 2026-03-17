@@ -7,6 +7,7 @@ import EditingPanel from '../components/EditingPanel'
 import ActiveDownloads from '../components/ActiveDownloads'
 import FileList from '../components/FileList'
 import Reviews from '../components/Reviews'
+import ThemeSelector from '../components/ThemeSelector'
 import { getStats } from '../api'
 import socket from '../socket'
 
@@ -80,6 +81,9 @@ export default function Home() {
             <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-500'}`} />
             <span className="text-gray-500 hidden sm:inline">{connected ? 'Live' : 'Offline'}</span>
           </div>
+
+          {/* Theme selector */}
+          <ThemeSelector />
 
           {/* Admin link */}
           {admin && (

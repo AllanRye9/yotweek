@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { listFiles, deleteFile, downloadUrl, streamUrl, downloadZip } from '../api'
+import { SESSION_ID } from '../session'
+import { useAuth } from '../App'
 
 const AUDIO_EXTS = new Set(['mp3','m4a','ogg','wav','opus','flac','aac','weba'])
 const VIDEO_EXTS = new Set(['mp4','webm','mkv','avi','mov','ts','3gp'])
@@ -41,6 +43,7 @@ function MediaPlayer({ file, onClose }) {
 }
 
 export default function FileList({ version }) {
+  const { admin } = useAuth()
   const [files, setFiles]       = useState([])
   const [loading, setLoading]   = useState(false)
   const [selected, setSelected] = useState(new Set())
@@ -51,7 +54,8 @@ export default function FileList({ version }) {
   const load = async () => {
     setLoading(true)
     try {
-      const data = await listFiles()
+      // Admin sees all files; regular users only see their session's files
+      const data = await listFiles(admin ? '' : SESSION_ID)
       setFiles(Array.isArray(data) ? data : [])
     } catch {
       setFiles([])

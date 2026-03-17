@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { getVideoInfo, startDownload } from '../api'
+import { SESSION_ID } from '../session'
 
 const VIDEO_FORMATS = [
   { value: 'best',                    label: 'Best Quality (auto)' },
@@ -49,7 +50,7 @@ export default function DownloadForm({ onDownloadStarted }) {
     setError(''); setNotice('')
     setDlLoading(true)
     try {
-      const data = await startDownload(url.trim(), format, ext)
+      const data = await startDownload(url.trim(), format, ext, SESSION_ID)
       setNotice(`✓ Download queued: ${data.title}`)
       if (data.warning) setError(`⚠ ${data.warning}`)
       onDownloadStarted && onDownloadStarted(data.download_id)

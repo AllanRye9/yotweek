@@ -999,7 +999,7 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
     # better than leaving the country as "Unknown" when every geo-IP service
     # has failed.
     if country == "Unknown" and not code and accept_language:
-        al_country, al_code = _parse_accept_language(accept_language)
+        al_country, al_code = _country_from_accept_language(accept_language)
         if al_country and al_code:
             code = al_code
             country = al_country
@@ -1676,7 +1676,7 @@ async def video_info_endpoint(request: Request, url: str = Form(None)):
 
 @fastapi_app.post("/start_download")
 @rate_limit()
-async def start_download(request: Request, url: str = Form(None), format: str = Form("best"), ext: str = Form("mp4")):
+async def start_download(request: Request, url: str = Form(None), format: str = Form("best"), ext: str = Form("mp4"), session_id: str = Form(None)):
     """Start a download with better error feedback"""
     format_spec = format
     output_ext  = ext.strip().lower() if ext else "mp4"
@@ -1735,7 +1735,8 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
             "country_code": cached_geo.get("code", ""),
             "city": cached_geo.get("city", ""),
             "region": cached_geo.get("region", ""),
-            "info_error": info.get("error") if info and "error" in info else None
+            "info_error": info.get("error") if info and "error" in info else None,
+            "owner_session": session_id or "",
         }
     # Resolve the requester's country in background if not already cached
     if ip not in ip_country_cache:
@@ -1784,28 +1785,82 @@ async def get_status(download_id: str):
     return JSONResponse(safe_download)
 
 @fastapi_app.get("/files")
-async def list_files(request: Request):
-    """List downloaded files"""
+async def list_files(request: Request, session_id: str = None):
+    """List downloaded files.
+
+    When *session_id* is provided (non-admin users), only files that were
+    downloaded in the same session are returned.  Admin users see every file.
+    """
+    is_admin = request.session.get("admin_logged_in", False)
+
+    # Build a mapping from filename → owner_session from in-memory download records
+    with downloads_lock:
+        filename_to_session: dict[str, str] = {
+            d["filename"]: d.get("owner_session", "")
+            for d in downloads.values()
+            if d.get("filename")
+        }
+
     files = []
     try:
         for name in os.listdir(DOWNLOAD_FOLDER):
             path = os.path.join(DOWNLOAD_FOLDER, name)
-            if os.path.isfile(path):
-                stat = os.stat(path)
-                files.append({
-                    "name": name,
-                    "size": stat.st_size,
-                    "size_hr": format_size(stat.st_size),
-                    "modified": stat.st_mtime,
-                    "modified_str": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
-                    "url": str(request.url_for('download_file', filename=name))
-                })
+            if not os.path.isfile(path):
+                continue
+            owner_sess = filename_to_session.get(name, "")
+            # Non-admin users only see files belonging to their session
+            if not is_admin and session_id:
+                if owner_sess != session_id:
+                    continue
+            elif not is_admin and not session_id:
+                # No session_id provided by a non-admin: show nothing
+                continue
+            stat = os.stat(path)
+            files.append({
+                "name": name,
+                "size": stat.st_size,
+                "size_hr": format_size(stat.st_size),
+                "modified": stat.st_mtime,
+                "modified_str": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M"),
+                "url": str(request.url_for('download_file', filename=name)),
+                "owner_session": owner_sess,
+            })
         files.sort(key=lambda f: f["modified"], reverse=True)
     except Exception as e:
         logger.error(f"Error listing files: {e}")
         return JSONResponse({"error": "Failed to list files"}, status_code=500)
 
     return JSONResponse(files)
+
+
+@fastapi_app.delete("/session/{session_id}")
+async def delete_session_files(session_id: str):
+    """Delete all files associated with *session_id*.
+
+    Called by the frontend on page load to clean up the previous session's
+    downloaded files, ensuring each page refresh starts fresh.
+    """
+    if not session_id or len(session_id) > 128:
+        return JSONResponse({"deleted": []})
+
+    deleted = []
+    with downloads_lock:
+        owned_files = [
+            d["filename"]
+            for d in downloads.values()
+            if d.get("owner_session") == session_id and d.get("filename")
+        ]
+
+    for filename in owned_files:
+        filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+        try:
+            if os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)) and os.path.isfile(filepath):
+                os.remove(filepath)
+                deleted.append(filename)
+        except Exception as e:
+            logger.warning(f"Could not delete session file {filename}: {e}")
+
+    return JSONResponse({"deleted": deleted})
 
 @fastapi_app.get("/downloads/{filename:path}", name="download_file")
 async def download_file(filename: str):
@@ -3364,6 +3419,7 @@ async def start_playlist_download(
     url: str = Form(""),
     format: str = Form("bestvideo*+bestaudio*/best"),
     ext: str = Form("mp4"),
+    session_id: str = Form(None),
 ):
     """Download an entire playlist or channel (yt-dlp playlist mode)."""
     url = url.strip()
@@ -3411,10 +3467,9 @@ async def start_playlist_download(
             "country_code": cached_geo.get("code", ""),
             "city":         cached_geo.get("city", ""),
             "region":       cached_geo.get("region", ""),
-            "created_at":   time.time(),
+            "created_at":      time.time(),
+            "owner_session":   session_id or "",
         }
-
-    def playlist_worker():
         completed = [0]
         total     = [0]
 
@@ -3532,6 +3587,7 @@ async def start_batch_download(
     urls: str = Form(""),
     format: str = Form("bestvideo*+bestaudio*/best"),
     ext: str = Form("mp4"),
+    session_id: str = Form(None),
 ):
     """Start individual downloads for a newline-separated list of URLs."""
     urls_text   = urls.strip()
@@ -3591,6 +3647,7 @@ async def start_batch_download(
                 "country_code":    cached_geo.get("code", ""),
                 "city":            cached_geo.get("city", ""),
                 "region":          cached_geo.get("region", ""),
+                "owner_session":   session_id or "",
             }
 
         thread = threading.Thread(
