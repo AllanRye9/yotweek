@@ -1951,7 +1951,8 @@ async def upload_local_file(
     if len(content) == 0:
         return JSONResponse({"error": "Empty file"}, status_code=400)
     if len(content) > Config.MAX_CONTENT_LENGTH:
-        return JSONResponse({"error": "File too large (max 100 MB)"}, status_code=413)
+        max_mb = Config.MAX_CONTENT_LENGTH // (1024 * 1024)
+        return JSONResponse({"error": f"File too large (max {max_mb} MB)"}, status_code=413)
 
     safe_base = safe_filename(os.path.splitext(raw_name)[0]) or "upload"
     output_filename = f"{safe_base}.{ext}"
