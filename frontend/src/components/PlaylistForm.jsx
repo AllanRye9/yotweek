@@ -2,18 +2,30 @@ import { useState } from 'react'
 import { startPlaylist, startBatch } from '../api'
 import { SESSION_ID } from '../session'
 
-/** Matches any http/https URL; used for smart batch-URL normalisation. */
-const URL_REGEX = /https?:\/\/[^\s,|"'<>[\]{}()\n\r]+/gi
+/** Matches any http/https URL starting from https?:// to the next whitespace. */
+const URL_REGEX = /https?:\/\/\S+/gi
 
-/** Extract up to `limit` unique URLs from arbitrary text. */
+/** Extract up to `limit` unique URLs from arbitrary text.
+ *  Correctly strips trailing punctuation while preserving balanced parentheses
+ *  (e.g. Wikipedia-style URLs like https://en.wikipedia.org/wiki/A_(B)).
+ */
 function extractUrls(text, limit = 50) {
   URL_REGEX.lastIndex = 0
   const found = []
   const seen = new Set()
   let m
   while ((m = URL_REGEX.exec(text)) !== null) {
-    const url = m[0].replace(/[.,;!?)\]>]+$/, '')
-    if (!seen.has(url)) { seen.add(url); found.push(url) }
+    let url = m[0]
+    // Strip trailing punctuation that is unlikely to be part of a URL
+    url = url.replace(/[.,;!?\]>'"]+$/, '')
+    // Strip unbalanced trailing ')' — keep ')' that close an '(' inside the URL
+    while (url.endsWith(')')) {
+      const opens  = (url.match(/\(/g) || []).length
+      const closes = (url.match(/\)/g) || []).length
+      if (closes > opens) url = url.slice(0, -1)
+      else break
+    }
+    if (url.length > 8 && !seen.has(url)) { seen.add(url); found.push(url) }
     if (found.length >= limit) break
   }
   return found
@@ -39,6 +51,8 @@ export default function PlaylistForm({ onDownloadStarted }) {
   const [loading, setLoading] = useState(false)
   const [error,   setError]   = useState('')
   const [notice,  setNotice]  = useState('')
+
+  const urlCount = extractUrls(batchUrls).length
 
   const submitPlaylist = async (e) => {
     e.preventDefault()
@@ -158,8 +172,8 @@ export default function PlaylistForm({ onDownloadStarted }) {
               }}
               required
             />
-            <p className="text-xs text-gray-600 mt-1">
-              {batchUrls.split('\n').filter(l => l.trim()).length} URLs entered
+            <p className="text-xs mt-1" style={{ color: urlCount > 0 ? '#4ade80' : '#6b7280' }}>
+              {urlCount === 0 ? '0 URLs detected' : urlCount === 1 ? '1 URL detected' : `${urlCount} URLs detected${urlCount >= 50 ? ' (max)' : ''}`}
             </p>
           </div>
 

@@ -516,6 +516,52 @@
             box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
         }
 
+        /* ── Local file upload row ── */
+        .local-upload-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+        .local-upload-or {
+            font-size: 0.78rem;
+            color: #94a3b8;
+            font-style: italic;
+            white-space: nowrap;
+        }
+        .local-upload-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            background: #f1f5f9;
+            border: 1px dashed #cbd5e1;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            color: #475569;
+            cursor: pointer;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .local-upload-label:hover {
+            background: #e2e8f0;
+            border-color: #94a3b8;
+        }
+        .local-upload-label.uploading {
+            opacity: 0.6;
+            pointer-events: none;
+        }
+        .local-upload-label input[type="file"] {
+            display: none;
+        }
+        .local-upload-status {
+            font-size: 0.78rem;
+            color: #16a34a;
+        }
+        .local-upload-status.error {
+            color: #dc2626;
+        }
+
         /* ── Tips card ── */
         .format-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
         .format-table th, .format-table td {
@@ -2283,6 +2329,14 @@
                                 <select id="conv-file" class="edit-file-selector">
                                     <option value="">Loading…</option>
                                 </select>
+                                <div class="local-upload-row">
+                                    <span class="local-upload-or">or</span>
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Select from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,'conv-file')">
+                                    </label>
+                                    <span class="local-upload-status" id="conv-upload-status"></span>
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
@@ -2322,6 +2376,13 @@
                                 <label><i class="fas fa-check-square"></i> Select Files to Convert</label>
                                 <div class="file-checklist" id="batch-conv-checklist">
                                     <p style="color:#95a5a6;font-size:0.85rem;">No files available</p>
+                                </div>
+                                <div class="local-upload-row" style="margin-top:6px;">
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Upload file from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,null)">
+                                    </label>
+                                    <span class="local-upload-status" id="batch-conv-upload-status"></span>
                                 </div>
                             </div>
                             <div class="form-row">
@@ -2368,6 +2429,14 @@
                                 <select id="trim-file" class="edit-file-selector">
                                     <option value="">Loading…</option>
                                 </select>
+                                <div class="local-upload-row">
+                                    <span class="local-upload-or">or</span>
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Select from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,'trim-file')">
+                                    </label>
+                                    <span class="local-upload-status" id="trim-upload-status"></span>
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
@@ -2395,6 +2464,14 @@
                                 <select id="crop-file" class="edit-file-selector">
                                     <option value="">Loading…</option>
                                 </select>
+                                <div class="local-upload-row">
+                                    <span class="local-upload-or">or</span>
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Select from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,'crop-file')">
+                                    </label>
+                                    <span class="local-upload-status" id="crop-upload-status"></span>
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
@@ -2429,6 +2506,14 @@
                                 <select id="wm-file" class="edit-file-selector">
                                     <option value="">Loading…</option>
                                 </select>
+                                <div class="local-upload-row">
+                                    <span class="local-upload-or">or</span>
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Select from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,'wm-file')">
+                                    </label>
+                                    <span class="local-upload-status" id="wm-upload-status"></span>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="wm-text"><i class="fas fa-font"></i> Watermark Text</label>
@@ -2466,6 +2551,13 @@
                                 <div class="file-checklist" id="merge-checklist">
                                     <p style="color:#95a5a6;font-size:0.85rem;">No files available</p>
                                 </div>
+                                <div class="local-upload-row" style="margin-top:6px;">
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Upload file from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,null)">
+                                    </label>
+                                    <span class="local-upload-status" id="merge-upload-status"></span>
+                                </div>
                             </div>
                             <div class="form-group">
                                 <label for="merge-format"><i class="fas fa-exchange-alt"></i> Output Format</label>
@@ -2494,6 +2586,14 @@
                                 <select id="clip-file" class="edit-file-selector">
                                     <option value="">Loading…</option>
                                 </select>
+                                <div class="local-upload-row">
+                                    <span class="local-upload-or">or</span>
+                                    <label class="local-upload-label">
+                                        <i class="fas fa-upload"></i> Select from computer
+                                        <input type="file" class="local-file-input" accept="video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v" onchange="uploadLocalFile(this,'clip-file')">
+                                    </label>
+                                    <span class="local-upload-status" id="clip-upload-status"></span>
+                                </div>
                             </div>
                             <div class="form-row">
                                 <div class="form-group">
@@ -2527,9 +2627,14 @@
                 <div id="section-files" class="card">
                     <div class="card-header" style="justify-content:space-between;">
                         <span><i class="fas fa-film"></i> Downloaded Videos</span>
-                        <button class="btn-secondary btn-small" onclick="loadFiles(true)">
-                            <i class="fas fa-sync-alt"></i> Refresh
-                        </button>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <button class="btn-primary btn-small" id="dl-all-btn" onclick="downloadAllFiles()" title="Download all files as a ZIP archive">
+                                <i class="fas fa-file-archive"></i> Download All
+                            </button>
+                            <button class="btn-secondary btn-small" onclick="loadFiles(true)">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
                     </div>
                     <div class="card-body">
                         <ul class="file-list" id="file-list">
@@ -2845,20 +2950,38 @@
         /**
          * normaliseBatchUrls – Smart URL extractor.
          * Parses the raw text pasted into the batch textarea, extracts every
-         * URL (regardless of surrounding text / delimiters) and rewrites the
-         * textarea with one URL per line (capped at 20).
+         * URL starting from https:// (or http://) to its end, regardless of
+         * surrounding text or delimiters, and rewrites the textarea with one
+         * URL per line (capped at 20).
+         *
+         * Handles parentheses in URLs (e.g. Wikipedia) and common trailing
+         * punctuation that is unlikely to be part of the URL.
          */
         function normaliseBatchUrls(textarea) {
             const raw = textarea.value;
-            // Match anything that looks like a URL (http/https)
-            const urlRegex = /https?:\/\/[^\s,|"'<>[\]{}()\n\r]+/gi;
+            // Match from https:// (or http://) to the first whitespace or
+            // hard delimiter. Use \S+ so we capture everything including
+            // characters like (, ), [, ] that can appear in real URLs.
+            const urlRegex = /https?:\/\/\S+/gi;
             const found = [];
             const seen = new Set();
             let m;
             while ((m = urlRegex.exec(raw)) !== null) {
-                // Trim trailing punctuation that is unlikely part of the URL
-                let url = m[0].replace(/[.,;!?)\]>]+$/, '');
-                if (!seen.has(url)) {
+                let url = m[0];
+                // Strip trailing punctuation unlikely to be part of a URL
+                url = url.replace(/[.,;!?\]>'"]+$/, '');
+                // Strip unbalanced trailing ')' — keep ')' that close an
+                // opening '(' that is itself part of the URL
+                while (url.endsWith(')')) {
+                    const opens  = (url.match(/\(/g) || []).length;
+                    const closes = (url.match(/\)/g) || []).length;
+                    if (closes > opens) {
+                        url = url.slice(0, -1);
+                    } else {
+                        break;
+                    }
+                }
+                if (url.length > 8 && !seen.has(url)) {
                     seen.add(url);
                     found.push(url);
                     if (found.length >= 20) break;
@@ -4167,6 +4290,84 @@
                 showToast(`✅ ZIP ready for ${checked.length} file(s)`, 'success');
             } catch (err) {
                 showToast('Error: ' + err.message, 'error', 6000);
+            }
+        }
+
+        // ─── Download All files as ZIP (one-click) ───────────────
+        async function downloadAllFiles() {
+            // Collect all filenames currently shown in the file list
+            const items = [...document.querySelectorAll('#file-list .file-item')];
+            const filenames = items.map(li => {
+                const a = li.querySelector('a[download]');
+                return a ? a.getAttribute('download') : null;
+            }).filter(Boolean);
+            if (filenames.length === 0) {
+                showToast('No files to download', 'warning');
+                return;
+            }
+            const btn = document.getElementById('dl-all-btn');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Packing…'; }
+            try {
+                const fd = new FormData();
+                fd.append('filenames', JSON.stringify(filenames));
+                const res = await fetch('/download_zip', { method: 'POST', body: fd });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || 'Failed to create ZIP');
+                }
+                const blob = await res.blob();
+                const a    = document.createElement('a');
+                a.href     = URL.createObjectURL(blob);
+                a.download = `downloads_${new Date().toISOString().slice(0,10)}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+                showToast(`✅ ZIP ready for ${filenames.length} file(s)`, 'success');
+            } catch (err) {
+                showToast('Error: ' + err.message, 'error', 6000);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-file-archive"></i> Download All'; }
+            }
+        }
+
+        // ─── Upload a local file for use in editing tools ─────────
+        /**
+         * Upload a local video/audio file to the server.
+         * @param {HTMLInputElement} input   - The <input type="file"> element
+         * @param {string|null}      selId   - ID of the <select> to auto-select
+         *                                    the uploaded file in, or null for
+         *                                    checklist-only tabs (Merge, Batch).
+         */
+        async function uploadLocalFile(input, selId) {
+            const file = input.files[0];
+            if (!file) return;
+            // Find the nearest status span
+            const row    = input.closest('.local-upload-row');
+            const status = row ? row.querySelector('.local-upload-status') : null;
+            const label  = input.closest('.local-upload-label');
+            if (label)  label.classList.add('uploading');
+            if (status) { status.textContent = 'Uploading…'; status.className = 'local-upload-status'; }
+            try {
+                const fd = new FormData();
+                fd.append('file', file, file.name);
+                const res  = await fetch('/upload_local', { method: 'POST', body: fd });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Upload failed');
+                if (status) status.textContent = `✓ ${data.filename}`;
+                showToast(`✅ Uploaded: ${escHtml(data.filename)}`, 'success');
+                // Refresh all file selectors/checklists then auto-select if requested
+                await loadEditFileSelectors();
+                if (selId) {
+                    const sel = document.getElementById(selId);
+                    if (sel) sel.value = data.filename;
+                }
+            } catch (err) {
+                if (status) { status.textContent = '✗ ' + err.message; status.className = 'local-upload-status error'; }
+                showToast('Upload failed: ' + err.message, 'error', 6000);
+            } finally {
+                if (label) label.classList.remove('uploading');
+                // Reset file input so the same file can be re-selected if needed
+                input.value = '';
             }
         }
 

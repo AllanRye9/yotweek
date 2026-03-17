@@ -77,8 +77,17 @@ export const startPlaylist = (url, format = 'best', ext = 'mp4', startIdx = '', 
 export const startBatch = (urls, format = 'best', ext = 'mp4', sessionId = '') =>
   request('POST', '/start_batch_download', formBody({ urls, format, ext, session_id: sessionId }), false)
 
-export const downloadZip = (filenames) =>
-  request('POST', '/download_zip', { filenames })
+export const downloadZip = (filenames) => {
+  const fd = new FormData()
+  fd.append('filenames', JSON.stringify(filenames))
+  return request('POST', '/download_zip', fd, false)
+}
+
+export const uploadLocalFile = (file) => {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  return request('POST', '/upload_local', fd, false)
+}
 
 // ── Editing ───────────────────────────────────────────────────────────────────
 

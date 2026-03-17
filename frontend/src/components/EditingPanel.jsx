@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   convertFile, batchConvert, trimVideo, cropVideo,
-  addWatermark, extractClip, mergeVideos, getJobStatus, listFiles,
+  addWatermark, extractClip, mergeVideos, getJobStatus, listFiles, uploadLocalFile,
 } from '../api'
 
 const EDIT_TABS = [
@@ -16,10 +16,63 @@ const EDIT_TABS = [
 const CONVERT_FORMATS = ['mp4','webm','mkv','avi','mp3','m4a','wav','ogg']
 const RESOLUTIONS = ['', '1920x1080', '1280x720', '854x480', '640x360']
 const WATERMARK_POSITIONS = ['bottomright','bottomleft','topright','topleft','center']
+const ACCEPTED_MEDIA = 'video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v'
 
-function FileSelect({ label, value, onChange, files, multi, selected }) {
+/** Small component for uploading a local file. After upload the parent's
+ *  onUploaded(filename) callback is called and the file list is refreshed. */
+function LocalFileUpload({ onUploaded }) {
+  const inputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [status,    setStatus]    = useState('')
+
+  const handleChange = async (e) => {
+    const file = e.target.files[0]
+    if (!file) return
+    setUploading(true)
+    setStatus('Uploading…')
+    try {
+      const data = await uploadLocalFile(file)
+      setStatus(`✓ ${data.filename}`)
+      onUploaded && onUploaded(data.filename)
+    } catch (err) {
+      setStatus(`✗ ${err.message || 'Upload failed'}`)
+    } finally {
+      setUploading(false)
+      // Reset so the same file can be re-selected
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2 mt-1 flex-wrap">
+      <span className="text-xs text-gray-600 italic">or</span>
+      <label className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-dashed text-xs cursor-pointer transition-colors
+        ${uploading ? 'opacity-50 pointer-events-none' : 'border-gray-700 text-gray-400 hover:border-gray-500 hover:text-gray-300'}`}>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPTED_MEDIA}
+          className="hidden"
+          onChange={handleChange}
+          disabled={uploading}
+        />
+        {uploading ? <span className="spinner w-3 h-3" /> : '⬆'} Select from computer
+      </label>
+      {status && (
+        <span className={`text-xs ${status.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}>
+          {status}
+        </span>
+      )}
+    </div>
+  )
+}
+
+function FileSelect({ label, value, onChange, files, multi, selected, onUploaded }) {
   if (!files?.length) return (
-    <div className="text-sm text-gray-500 italic">No files available. Download some videos first.</div>
+    <div>
+      <div className="text-sm text-gray-500 italic mb-1">No files available. Download some videos first.</div>
+      {!multi && <LocalFileUpload onUploaded={onUploaded} />}
+    </div>
   )
   if (multi) {
     return (
@@ -42,6 +95,7 @@ function FileSelect({ label, value, onChange, files, multi, selected }) {
             </label>
           ))}
         </div>
+        <LocalFileUpload onUploaded={onUploaded} />
       </div>
     )
   }
@@ -54,6 +108,7 @@ function FileSelect({ label, value, onChange, files, multi, selected }) {
           <option key={f.name} value={f.name}>{f.name} ({f.size_hr})</option>
         ))}
       </select>
+      <LocalFileUpload onUploaded={onUploaded} />
     </div>
   )
 }
@@ -134,6 +189,20 @@ export default function EditingPanel({ onJobDone }) {
     listFiles().then(setFiles).catch(() => setFiles([]))
   }, [])
 
+  const refreshFiles = () => listFiles().then(setFiles).catch(() => {})
+
+  /** Called when a local file is successfully uploaded to the server.
+   *  Refreshes the file list and auto-selects the newly uploaded file. */
+  const handleUploaded = (editTab) => (filename) => {
+    refreshFiles().then(() => {
+      if (editTab === 'convert')   setConvFile(filename)
+      if (editTab === 'trim')      setTrimFile(filename)
+      if (editTab === 'crop')      setCropFile(filename)
+      if (editTab === 'watermark') setWmFile(filename)
+      if (editTab === 'extract')   setExFile(filename)
+    })
+  }
+
   const run = async (fn) => {
     setError(''); setNotice(''); setJobId(null); setLoading(true)
     try {
@@ -181,7 +250,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Convert ── */}
       {tab === 'convert' && (
         <form onSubmit={submitConvert} className="space-y-3">
-          <FileSelect label="Select file" value={convFile} onChange={setConvFile} files={files} />
+          <FileSelect label="Select file" value={convFile} onChange={setConvFile} files={files} onUploaded={handleUploaded('convert')} />
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1">Output format</label>
@@ -212,7 +281,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Batch Convert ── */}
       {tab === 'batch_convert' && (
         <form onSubmit={submitBatch} className="space-y-3">
-          <FileSelect label="Select files (up to 20)" onChange={setBatchFiles} files={files} multi selected={batchFiles} />
+          <FileSelect label="Select files (up to 20)" onChange={setBatchFiles} files={files} multi selected={batchFiles} onUploaded={refreshFiles} />
           <div>
             <label className="block text-xs text-gray-400 mb-1">Output format</label>
             <select className="input text-sm" value={batchFmt} onChange={e => setBatchFmt(e.target.value)}>
@@ -227,7 +296,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Trim ── */}
       {tab === 'trim' && (
         <form onSubmit={submitTrim} className="space-y-3">
-          <FileSelect label="Select file" value={trimFile} onChange={setTrimFile} files={files} />
+          <FileSelect label="Select file" value={trimFile} onChange={setTrimFile} files={files} onUploaded={handleUploaded('trim')} />
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1">Start time (HH:MM:SS)</label>
@@ -246,7 +315,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Crop ── */}
       {tab === 'crop' && (
         <form onSubmit={submitCrop} className="space-y-3">
-          <FileSelect label="Select file" value={cropFile} onChange={setCropFile} files={files} />
+          <FileSelect label="Select file" value={cropFile} onChange={setCropFile} files={files} onUploaded={handleUploaded('crop')} />
           <div className="grid grid-cols-2 gap-3">
             {[['X offset', cropX, setCropX, '0'], ['Y offset', cropY, setCropY, '0'],
               ['Width (px)', cropW, setCropW, '1280'], ['Height (px)', cropH, setCropH, '720']].map(([lbl, val, set, ph]) => (
@@ -264,7 +333,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Watermark ── */}
       {tab === 'watermark' && (
         <form onSubmit={submitWm} className="space-y-3">
-          <FileSelect label="Select file" value={wmFile} onChange={setWmFile} files={files} />
+          <FileSelect label="Select file" value={wmFile} onChange={setWmFile} files={files} onUploaded={handleUploaded('watermark')} />
           <div>
             <label className="block text-xs text-gray-400 mb-1">Watermark text</label>
             <input className="input text-sm" placeholder="YOT Downloader" value={wmText} onChange={e => setWmText(e.target.value)} required />
@@ -289,7 +358,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Extract Clip ── */}
       {tab === 'extract' && (
         <form onSubmit={submitExtract} className="space-y-3">
-          <FileSelect label="Select file" value={exFile} onChange={setExFile} files={files} />
+          <FileSelect label="Select file" value={exFile} onChange={setExFile} files={files} onUploaded={handleUploaded('extract')} />
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1">Start time (HH:MM:SS)</label>
@@ -308,7 +377,7 @@ export default function EditingPanel({ onJobDone }) {
       {/* ── Merge ── */}
       {tab === 'merge' && (
         <form onSubmit={submitMerge} className="space-y-3">
-          <FileSelect label="Select files to merge (in order)" onChange={setMergeFiles} files={files} multi selected={mergeFiles} />
+          <FileSelect label="Select files to merge (in order)" onChange={setMergeFiles} files={files} multi selected={mergeFiles} onUploaded={refreshFiles} />
           <div>
             <label className="block text-xs text-gray-400 mb-1">Output filename (optional)</label>
             <input className="input text-sm" placeholder="merged_video" value={mergeName} onChange={e => setMergeName(e.target.value)} />
