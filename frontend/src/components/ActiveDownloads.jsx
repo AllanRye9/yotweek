@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import socket from '../socket'
 import { cancelDownload, cancelAll } from '../api'
-import DownloadCompletePopup from './DownloadCompletePopup'
+import DownloadProgressPopup from './DownloadProgressPopup'
 
 function statusColor(status) {
   switch (status) {
@@ -75,7 +75,8 @@ function DownloadCard({ dl, onCancel }) {
 export default function ActiveDownloads({ onComplete }) {
   const [downloads, setDownloads] = useState({}) // id → dl
   const subscribedRef = useRef(new Set())
-  const [completedPopup, setCompletedPopup] = useState(null) // dl record to show in popup
+  // ID of the download currently shown in the centered progress popup
+  const [popupId, setPopupId] = useState(null)
 
   const updateDl = (id, patch) => {
     setDownloads(prev => ({
@@ -84,27 +85,40 @@ export default function ActiveDownloads({ onComplete }) {
     }))
   }
 
+  // Open the popup for `id` if nothing is already showing
+  const openPopupFor = useCallback((id) => {
+    setPopupId(prev => prev ?? id)
+  }, [])
+
   // Subscribe to socket events
   useEffect(() => {
-    const onProgress  = (data) => { if (data?.id) updateDl(data.id, data) }
+    const onProgress  = (data) => {
+      if (data?.id) {
+        updateDl(data.id, data)
+        openPopupFor(data.id)
+      }
+    }
     const onCompleted = (data) => {
       if (data?.id) {
-        const completedDl = { ...data, status: 'completed' }
-        updateDl(data.id, completedDl)
+        updateDl(data.id, { ...data, status: 'completed' })
         onComplete && onComplete(data.id)
-        // Show the completion popup
-        setCompletedPopup(prev => prev || completedDl)
-        // Fade out the progress card after a delay
+        openPopupFor(data.id)
+        // Remove the card after the popup auto-close window has passed
         setTimeout(() => {
           setDownloads(prev => {
             const n = { ...prev }
             delete n[data.id]
             return n
           })
-        }, 6000)
+        }, 8000)
       }
     }
-    const onFailed    = (data) => { if (data?.id) updateDl(data.id, { ...data, status: 'failed' }) }
+    const onFailed    = (data) => {
+      if (data?.id) {
+        updateDl(data.id, { ...data, status: 'failed' })
+        openPopupFor(data.id)
+      }
+    }
     const onCancelled = (data) => {
       if (data?.id) {
         updateDl(data.id, { status: 'cancelled' })
@@ -125,7 +139,7 @@ export default function ActiveDownloads({ onComplete }) {
       socket.off('failed',    onFailed)
       socket.off('cancelled', onCancelled)
     }
-  }, [onComplete])
+  }, [onComplete, openPopupFor])
 
   const handleCancel = async (id) => {
     try {
@@ -139,19 +153,32 @@ export default function ActiveDownloads({ onComplete }) {
     } catch {}
   }
 
-  const dls = Object.values(downloads)
-  const active = dls.filter(d => d.status === 'downloading' || d.status === 'queued')
+  // When the popup closes, surface the next active download if any
+  const handlePopupClose = useCallback(() => {
+    setPopupId(null)
+    setDownloads(prev => {
+      const next = Object.values(prev).find(
+        d => d.status === 'downloading' || d.status === 'queued'
+      )
+      if (next) setPopupId(next.id)
+      return prev
+    })
+  }, [])
 
-  if (!dls.length && !completedPopup) return null
+  const dls     = Object.values(downloads)
+  const active  = dls.filter(d => d.status === 'downloading' || d.status === 'queued')
+  const popupDl = popupId ? downloads[popupId] : null
+
+  if (!dls.length && !popupDl) return null
 
   return (
     <>
-      {/* Completion popup */}
-      {completedPopup && (
-        <DownloadCompletePopup
-          dl={completedPopup}
-          onClose={() => setCompletedPopup(null)}
-          onDelete={() => { setCompletedPopup(null); onComplete && onComplete() }}
+      {/* Centered progress popup – shown while a download is active or just finished */}
+      {popupDl && (
+        <DownloadProgressPopup
+          dl={popupDl}
+          onClose={handlePopupClose}
+          onDelete={() => { handlePopupClose(); onComplete && onComplete() }}
         />
       )}
 

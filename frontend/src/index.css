@@ -360,6 +360,15 @@ html:not(.theme-dark) .bg-gradient-to-b {
   animation: dl-bar-sweep 1.5s ease-in-out infinite;
 }
 
+/* Indeterminate progress bar for queued downloads */
+.progress-fill-indeterminate {
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent, #dc2626), transparent);
+  animation: dl-bar-sweep 1.5s ease-in-out infinite;
+}
+
 /* Mobile nav */
 @media (max-width: 640px) {
   .mobile-hidden { display: none; }
