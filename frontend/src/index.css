@@ -5,12 +5,12 @@
 /* ── Mobile foundations (applied before theme variables) ─────────────────── */
 html {
   -webkit-text-size-adjust: 100%; /* prevent iOS font-size inflation on rotation */
+  overflow-x: clip; /* prevent accidental horizontal scroll without blocking iOS touch scroll */
+  max-width: 100%;
 }
 body {
   -webkit-tap-highlight-color: transparent; /* remove blue tap flash on iOS/Android */
   overscroll-behavior-y: contain; /* prevent pull-to-refresh interference */
-}
-html, body {
   overflow-x: hidden; /* prevent accidental horizontal scroll */
   max-width: 100%;
 }

@@ -123,7 +123,7 @@ export default function AdminDashboard() {
   const tabChange = (t) => { setTab(t); setSidebarOpen(false); setNotice(''); setError('') }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex">
+    <div className="h-screen bg-gray-950 flex overflow-hidden">
       {/* ── Sidebar overlay (mobile) ── */}
       {sidebarOpen && (
         <div
@@ -201,7 +201,7 @@ export default function AdminDashboard() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-auto">
+        <main className="flex-1 p-4 lg:p-6 overflow-y-auto overflow-x-hidden" style={{webkitOverflowScrolling: 'touch'}}>
           {notice && (
             <div className="mb-4 text-sm text-green-400 bg-green-900/20 border border-green-800/50 rounded-lg px-3 py-2">
               {notice}
