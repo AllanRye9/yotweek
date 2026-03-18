@@ -342,6 +342,24 @@ html:not(.theme-dark) .bg-gradient-to-b {
   to { transform: rotate(360deg); }
 }
 
+/* Download queued animation */
+@keyframes dl-icon-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(5px); }
+}
+.dl-icon-bounce {
+  display: inline-block;
+  animation: dl-icon-bounce 0.9s ease-in-out infinite;
+}
+
+@keyframes dl-bar-sweep {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+.dl-bar-sweep {
+  animation: dl-bar-sweep 1.5s ease-in-out infinite;
+}
+
 /* Mobile nav */
 @media (max-width: 640px) {
   .mobile-hidden { display: none; }
