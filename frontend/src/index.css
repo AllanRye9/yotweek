@@ -5,7 +5,7 @@
 /* ── Mobile foundations (applied before theme variables) ─────────────────── */
 html {
   -webkit-text-size-adjust: 100%; /* prevent iOS font-size inflation on rotation */
-  overflow-x: clip; /* prevent accidental horizontal scroll without blocking iOS touch scroll */
+  overflow-x: hidden; /* prevent accidental horizontal scroll; using hidden (not clip) for iOS Safari compatibility */
   max-width: 100%;
 }
 body {

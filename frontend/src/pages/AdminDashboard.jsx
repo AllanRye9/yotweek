@@ -201,7 +201,7 @@ export default function AdminDashboard() {
         </header>
 
         {/* Content */}
-        <main className="flex-1 p-4 lg:p-6 overflow-y-auto overflow-x-hidden" style={{webkitOverflowScrolling: 'touch'}}>
+        <main className="flex-1 min-h-0 p-4 lg:p-6 overflow-y-auto overflow-x-hidden" style={{WebkitOverflowScrolling: 'touch'}}>
           {notice && (
             <div className="mb-4 text-sm text-green-400 bg-green-900/20 border border-green-800/50 rounded-lg px-3 py-2">
               {notice}
