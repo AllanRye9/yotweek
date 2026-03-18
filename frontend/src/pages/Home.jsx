@@ -11,6 +11,58 @@ import ThemeSelector from '../components/ThemeSelector'
 import { getStats } from '../api'
 import socket from '../socket'
 
+/** Animate a numeric counter from its previous value to a new target.
+ * @param {number|null} target - The target number to animate toward.
+ * @param {number} duration - Animation duration in milliseconds (default 1800).
+ * @returns {number} The current animated display value.
+ */
+function useAnimatedCounter(target, duration = 1800) {
+  const [display, setDisplay] = useState(0)
+  const prevRef = useRef(0)
+  const rafRef  = useRef(null)
+
+  useEffect(() => {
+    if (target == null) return
+    const start = prevRef.current
+    const diff  = target - start
+    if (diff === 0) return
+    const t0 = performance.now()
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    const tick = (now) => {
+      const p    = Math.min((now - t0) / duration, 1)
+      const ease = 1 - Math.pow(1 - p, 3) // cubic ease-out
+      setDisplay(Math.round(start + diff * ease))
+      if (p < 1) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        prevRef.current = target
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+  }, [target, duration])
+
+  return display
+}
+
+/** Displays a labelled stat that animates from 0 (or its prior value) to `value`.
+ * @param {Object} props
+ * @param {number} props.value - The numeric value to display.
+ * @param {string} props.label - The caption shown below the number.
+ * @param {string} props.icon  - Emoji icon shown before the number.
+ */
+function AnimatedCounter({ value, label, icon }) {
+  const count = useAnimatedCounter(value ?? 0)
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <span className="text-2xl sm:text-3xl font-bold text-white tabular-nums">
+        {icon} {count.toLocaleString()}
+      </span>
+      <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+    </div>
+  )
+}
+
 const TABS = [
   { id: 'download', label: '⬇ Download',  icon: '⬇' },
   { id: 'playlist', label: '📋 Playlist',   icon: '📋' },
@@ -188,6 +240,23 @@ export default function Home() {
           <p className="text-gray-400 text-xs sm:text-sm">
             YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites. No sign-up required.
           </p>
+
+          {/* Animated global stats counters */}
+          {stats && (
+            <div className="mt-5 flex justify-center gap-10 sm:gap-16">
+              <AnimatedCounter
+                value={stats.total_downloads}
+                label="Total Downloads"
+                icon="⬇"
+              />
+              <div className="w-px bg-gray-700 self-stretch" />
+              <AnimatedCounter
+                value={stats.total_visitors}
+                label="Total Visitors"
+                icon="👥"
+              />
+            </div>
+          )}
         </div>
       </div>
 

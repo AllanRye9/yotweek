@@ -31,6 +31,7 @@ export default function DownloadForm({ onDownloadStarted }) {
   const [dlLoading, setDlLoading] = useState(false)
   const [error, setError]   = useState('')
   const [notice, setNotice] = useState('')
+  const [pasteSupported, setPasteSupported] = useState(typeof navigator !== 'undefined' && !!navigator.clipboard)
 
   const fetchInfo = async (e) => {
     e.preventDefault()
@@ -63,23 +64,46 @@ export default function DownloadForm({ onDownloadStarted }) {
 
   const clearAll = () => { setUrl(''); setInfo(null); setError(''); setNotice('') }
 
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) setUrl(text.trim())
+    } catch (err) {
+      // Clipboard API unavailable (non-HTTPS context or permission denied)
+      console.debug('Clipboard paste unavailable:', err)
+      setPasteSupported(false)
+    }
+  }
+
   return (
     <div>
       <h2 className="text-lg font-semibold text-white mb-4">Download Video</h2>
 
       <form onSubmit={fetchInfo} className="flex gap-2">
-        <input
-          className="input flex-1"
-          type="url"
-          placeholder="https://youtube.com/watch?v=…"
-          value={url}
-          onChange={e => setUrl(e.target.value)}
-          autoComplete="off"
-          inputMode="url"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
-        />
+        <div className="relative flex-1">
+          <input
+            className="input w-full pr-20"
+            type="url"
+            placeholder="https://youtube.com/watch?v=…"
+            value={url}
+            onChange={e => setUrl(e.target.value)}
+            autoComplete="off"
+            inputMode="url"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+          />
+          {pasteSupported && !url && (
+            <button
+              type="button"
+              onClick={handlePaste}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-white bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-colors"
+              title="Paste from clipboard"
+            >
+              📋 Paste
+            </button>
+          )}
+        </div>
         <button type="submit" className="btn-primary shrink-0" disabled={loading}>
           {loading
             ? <><span className="spinner w-4 h-4" /> Fetching…</>
