@@ -92,16 +92,30 @@ export default function FileList({ version }) {
     if (!selected.size) return
     try {
       const res = await downloadZip([...selected])
-      if (res.ok || res.url) {
-        window.open(res.url || '/downloads/archive.zip', '_blank')
-      } else {
-        const blob = await (res instanceof Response ? res.blob() : null)
-        if (blob) {
-          const a = document.createElement('a')
-          a.href = URL.createObjectURL(blob)
-          a.download = 'archive.zip'
-          a.click()
-        }
+      const blob = res instanceof Response ? await res.blob() : null
+      if (blob) {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `downloads_${new Date().toISOString().slice(0,10)}.zip`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to create ZIP')
+    }
+  }
+
+  const handleDownloadAll = async () => {
+    if (!files.length) return
+    try {
+      const res = await downloadZip(files.map(f => f.name))
+      const blob = res instanceof Response ? await res.blob() : null
+      if (blob) {
+        const a = document.createElement('a')
+        a.href = URL.createObjectURL(blob)
+        a.download = `all_downloads_${new Date().toISOString().slice(0,10)}.zip`
+        a.click()
+        setTimeout(() => URL.revokeObjectURL(a.href), 1000)
       }
     } catch (err) {
       alert(err.message || 'Failed to create ZIP')
@@ -121,6 +135,11 @@ export default function FileList({ version }) {
           {selected.size > 0 && (
             <button className="btn-secondary btn-sm text-xs" onClick={handleZip}>
               📦 ZIP ({selected.size})
+            </button>
+          )}
+          {files.length > 0 && (
+            <button className="btn-secondary btn-sm text-xs" onClick={handleDownloadAll} title="Download all files as a ZIP">
+              ⬇ All
             </button>
           )}
           <button className="btn-ghost btn-sm text-xs" onClick={load} disabled={loading}>

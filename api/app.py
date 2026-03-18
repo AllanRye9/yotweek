@@ -1927,6 +1927,52 @@ async def stream_file(filename: str):
         return JSONResponse({"error": "File not found"}, status_code=404)
 
 
+_ALLOWED_UPLOAD_EXTENSIONS = {
+    "mp4", "mkv", "webm", "avi", "mov", "m4v", "flv", "wmv",
+    "mp3", "wav", "aac", "ogg", "flac", "m4a",
+}
+
+@fastapi_app.post("/upload_local")
+async def upload_local_file(
+    request: Request,
+    file: UploadFile = File(...),
+    session_id: str = Form(None),
+):
+    """Upload a local video/audio file to the downloads folder for use with editing tools."""
+    raw_name = file.filename or "upload"
+    ext = os.path.splitext(raw_name)[1].lstrip(".").lower()
+    if ext not in _ALLOWED_UPLOAD_EXTENSIONS:
+        return JSONResponse(
+            {"error": f"Unsupported file type. Allowed extensions: {', '.join(sorted(_ALLOWED_UPLOAD_EXTENSIONS))}"},
+            status_code=400,
+        )
+
+    content = await file.read()
+    if len(content) == 0:
+        return JSONResponse({"error": "Empty file"}, status_code=400)
+    if len(content) > Config.MAX_CONTENT_LENGTH:
+        max_mb = Config.MAX_CONTENT_LENGTH // (1024 * 1024)
+        return JSONResponse({"error": f"File too large (max {max_mb} MB)"}, status_code=413)
+
+    safe_base = safe_filename(os.path.splitext(raw_name)[0]) or "upload"
+    output_filename = f"{safe_base}.{ext}"
+    output_path = os.path.join(DOWNLOAD_FOLDER, output_filename)
+
+    # Avoid overwriting existing files
+    counter = 2
+    while os.path.exists(output_path):
+        output_filename = f"{safe_base}_{counter}.{ext}"
+        output_path = os.path.join(DOWNLOAD_FOLDER, output_filename)
+        counter += 1
+
+    with open(output_path, "wb") as fh:
+        fh.write(content)
+
+    emit_from_thread("files_updated")
+    logger.info(f"Local file uploaded: {output_filename} ({len(content)} bytes)")
+    return JSONResponse({"filename": output_filename, "success": True})
+
+
 @fastapi_app.delete("/delete/{filename:path}")
 async def delete_file(filename: str):
     """Delete a downloaded file"""
