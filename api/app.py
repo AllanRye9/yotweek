@@ -701,6 +701,97 @@ def _is_private_ip(ip: str) -> bool:
         return False
 
 
+# Ordered list of headers that may carry the real client IP when the
+# application sits behind a CDN, load-balancer, or reverse proxy.
+# Priority (highest first):
+#   1. CDN-specific single-IP headers  (Cloudflare, Akamai, Fastly, Fly.io)
+#   2. Standard proxy headers          (X-Real-IP, X-Forwarded-For)
+#   3. Less-common proxy headers       (X-Client-IP, X-Cluster-Client-IP)
+_REAL_IP_HEADERS: tuple[str, ...] = (
+    "CF-Connecting-IP",      # Cloudflare – always a single, verified IP
+    "True-Client-IP",        # Akamai / Cloudflare Enterprise
+    "Fastly-Client-IP",      # Fastly CDN
+    "Fly-Client-IP",         # Fly.io
+    "X-Real-IP",             # nginx / Apache mod_remoteip
+    "X-Forwarded-For",       # Standard multi-proxy chain header
+    "X-Client-IP",           # HAProxy / some load-balancers
+    "X-Cluster-Client-IP",   # Rackspace Cloud Load Balancers
+    "Forwarded",             # RFC 7239 – "for=<ip>" syntax
+)
+
+# CDN/proxy headers that carry the visitor's country ISO-2 code directly.
+# Checked in priority order in _get_country_from_headers().
+_CDN_GEO_HEADERS: tuple[str, ...] = (
+    "CF-IPCountry",              # Cloudflare
+    "CloudFront-Viewer-Country", # AWS CloudFront
+    "X-Vercel-IP-Country",       # Vercel
+    "X-Appengine-Country",       # Google App Engine
+    "Fastly-Geo-Country",        # Fastly CDN
+    "X-Country-Code",            # generic reverse-proxy
+    "X-GeoIP-Country",           # generic reverse-proxy
+    "X-Forwarded-Country",       # generic reverse-proxy
+)
+
+
+def _get_real_ip(request) -> str:
+    """Return the best-guess real client IP from a FastAPI/Starlette request.
+
+    When the application runs behind a reverse proxy or CDN the TCP peer
+    visible at ``request.client.host`` is the proxy, not the actual visitor.
+    This helper inspects a prioritised list of well-known forwarding headers
+    to recover the original client address.
+
+    The returned IP is always validated with :func:`ipaddress.ip_address` so
+    that header injection cannot sneak in garbage values.  Private / loopback
+    addresses in the ``X-Forwarded-For`` chain are skipped so that an internal
+    hop does not obscure the public client IP.
+    """
+    for header in _REAL_IP_HEADERS:
+        raw = request.headers.get(header, "").strip()
+        if not raw:
+            continue
+        # RFC 7239 "Forwarded" header uses "for=<token>" syntax
+        if header.lower() == "forwarded":
+            for part in raw.split(","):
+                for field in part.split(";"):
+                    field = field.strip()
+                    if field.lower().startswith("for="):
+                        candidate = field[4:].strip().strip('"')
+                        # RFC 7239 tokens may be "[IPv6]:port" or "IPv4:port"
+                        if candidate.startswith("["):
+                            # IPv6 in brackets – extract content, drop zone id
+                            candidate = candidate.split("]")[0].lstrip("[").split("%")[0]
+                        elif candidate.count(":") == 1:
+                            # IPv4:port – keep only the IP part
+                            candidate = candidate.split(":")[0]
+                        # For bare IPv6 (no brackets) just drop any zone id
+                        candidate = candidate.split("%")[0]
+                        try:
+                            addr = ipaddress.ip_address(candidate)
+                            if not (addr.is_private or addr.is_loopback or addr.is_link_local):
+                                return str(addr)
+                        except ValueError:
+                            continue
+            continue
+        # X-Forwarded-For may contain a comma-separated chain; take the first
+        # non-private public IP (leftmost = original client in most setups).
+        for candidate in raw.split(","):
+            candidate = candidate.strip().split("%")[0]  # strip IPv6 zone id
+            # Handle "ip:port" notation – keep only the IP part
+            if candidate.startswith("["):
+                candidate = candidate.split("]")[0].lstrip("[")
+            elif candidate.count(":") == 1:  # IPv4:port
+                candidate = candidate.split(":")[0]
+            try:
+                addr = ipaddress.ip_address(candidate)
+                if not (addr.is_private or addr.is_loopback or addr.is_link_local):
+                    return str(addr)
+            except ValueError:
+                continue
+    # Fallback: direct TCP peer (works for direct connections / local dev)
+    return request.client.host if request.client else "unknown"
+
+
 # ── Accept-Language → country heuristic ──────────────────────────────────
 # Maps common primary language codes to their most likely country ISO-2 code.
 # Used only as a last-resort fallback when all geo-IP services fail.
@@ -712,24 +803,73 @@ _LANG_TO_COUNTRY: dict[str, str] = {
     "sv": "SE", "da": "DK", "fi": "FI", "nb": "NO", "no": "NO",
     "cs": "CZ", "ro": "RO", "hu": "HU", "el": "GR", "he": "IL",
     "ms": "MY", "tl": "PH", "sw": "KE", "fa": "IR",
+    "am": "ET", "az": "AZ", "be": "BY", "bg": "BG", "ca": "ES",
+    "cy": "GB", "eu": "ES", "gl": "ES", "hr": "HR", "hy": "AM",
+    "is": "IS", "ka": "GE", "km": "KH", "lo": "LA", "lt": "LT",
+    "lv": "LV", "mk": "MK", "mn": "MN", "my": "MM", "ne": "NP",
+    "si": "LK", "sk": "SK", "sl": "SI", "sq": "AL", "sr": "RS",
+    "ta": "IN", "te": "IN", "ur": "PK", "uz": "UZ", "kk": "KZ",
+    "ky": "KG", "tk": "TM", "tg": "TJ", "ps": "AF", "pa": "IN",
+    "gu": "IN", "mr": "IN", "ml": "IN", "kn": "IN", "or": "IN",
+    "so": "SO", "ha": "NG", "yo": "NG", "ig": "NG",
 }
 
 # Maps common IANA timezone prefixes/names to their most likely country ISO-2
 # code. Used as a secondary heuristic before Accept-Language fallback.
 _TZ_TO_COUNTRY: dict[str, str] = {
+    # United States
     "America/New_York": "US", "America/Chicago": "US", "America/Denver": "US",
     "America/Los_Angeles": "US", "America/Anchorage": "US", "Pacific/Honolulu": "US",
     "America/Phoenix": "US", "America/Detroit": "US", "America/Indiana/Indianapolis": "US",
+    "America/Indiana/Knox": "US", "America/Indiana/Marengo": "US",
+    "America/Indiana/Petersburg": "US", "America/Indiana/Tell_City": "US",
+    "America/Indiana/Vevay": "US", "America/Indiana/Vincennes": "US",
+    "America/Indiana/Winamac": "US", "America/Kentucky/Louisville": "US",
+    "America/Kentucky/Monticello": "US", "America/North_Dakota/Beulah": "US",
+    "America/North_Dakota/Center": "US", "America/North_Dakota/New_Salem": "US",
+    "America/Adak": "US", "America/Boise": "US", "America/Juneau": "US",
+    "America/Metlakatla": "US", "America/Nome": "US", "America/Sitka": "US",
+    "America/Yakutat": "US",
+    # Canada
     "America/Toronto": "CA", "America/Vancouver": "CA", "America/Edmonton": "CA",
     "America/Winnipeg": "CA", "America/Halifax": "CA", "America/St_Johns": "CA",
+    "America/Moncton": "CA", "America/Glace_Bay": "CA", "America/Goose_Bay": "CA",
+    "America/Iqaluit": "CA", "America/Nipigon": "CA", "America/Pangnirtung": "CA",
+    "America/Rainy_River": "CA", "America/Rankin_Inlet": "CA",
+    "America/Regina": "CA", "America/Resolute": "CA", "America/Swift_Current": "CA",
+    "America/Thunder_Bay": "CA", "America/Whitehorse": "CA", "America/Yellowknife": "CA",
+    "America/Dawson": "CA", "America/Dawson_Creek": "CA", "America/Fort_Nelson": "CA",
+    "America/Cambridge_Bay": "CA", "America/Creston": "CA",
+    # Mexico
     "America/Mexico_City": "MX", "America/Cancun": "MX", "America/Tijuana": "MX",
+    "America/Hermosillo": "MX", "America/Chihuahua": "MX", "America/Matamoros": "MX",
+    "America/Mazatlan": "MX", "America/Merida": "MX", "America/Monterrey": "MX",
+    "America/Ojinaga": "MX", "America/Santa_Isabel": "MX",
+    # South America
     "America/Sao_Paulo": "BR", "America/Fortaleza": "BR", "America/Manaus": "BR",
-    "America/Argentina/Buenos_Aires": "AR", "America/Bogota": "CO",
-    "America/Lima": "PE", "America/Santiago": "CL", "America/Caracas": "VE",
-    "America/Guayaquil": "EC", "America/La_Paz": "BO", "America/Asuncion": "PY",
-    "America/Montevideo": "UY", "America/Panama": "PA", "America/Costa_Rica": "CR",
-    "America/Guatemala": "GT", "America/Havana": "CU", "America/Jamaica": "JM",
-    "America/Port-au-Prince": "HT", "America/Santo_Domingo": "DO",
+    "America/Belem": "BR", "America/Boa_Vista": "BR", "America/Campo_Grande": "BR",
+    "America/Cuiaba": "BR", "America/Eirunepe": "BR", "America/Maceio": "BR",
+    "America/Noronha": "BR", "America/Porto_Velho": "BR", "America/Recife": "BR",
+    "America/Rio_Branco": "BR", "America/Santarem": "BR",
+    "America/Argentina/Buenos_Aires": "AR", "America/Argentina/Catamarca": "AR",
+    "America/Argentina/Cordoba": "AR", "America/Argentina/Jujuy": "AR",
+    "America/Argentina/La_Rioja": "AR", "America/Argentina/Mendoza": "AR",
+    "America/Argentina/Rio_Gallegos": "AR", "America/Argentina/Salta": "AR",
+    "America/Argentina/San_Juan": "AR", "America/Argentina/San_Luis": "AR",
+    "America/Argentina/Tucuman": "AR", "America/Argentina/Ushuaia": "AR",
+    "America/Bogota": "CO", "America/Lima": "PE", "America/Santiago": "CL",
+    "America/Caracas": "VE", "America/Guayaquil": "EC", "America/La_Paz": "BO",
+    "America/Asuncion": "PY", "America/Montevideo": "UY",
+    "America/Cayenne": "GF", "America/Guyana": "GY", "America/Paramaribo": "SR",
+    # Central America & Caribbean
+    "America/Panama": "PA", "America/Costa_Rica": "CR", "America/Guatemala": "GT",
+    "America/Havana": "CU", "America/Jamaica": "JM", "America/Port-au-Prince": "HT",
+    "America/Santo_Domingo": "DO", "America/Tegucigalpa": "HN",
+    "America/Managua": "NI", "America/El_Salvador": "SV", "America/Belize": "BZ",
+    "America/Nassau": "BS", "America/Barbados": "BB", "America/Martinique": "MQ",
+    "America/Port_of_Spain": "TT", "America/Aruba": "AW", "America/Curacao": "CW",
+    "America/Puerto_Rico": "PR",
+    # Europe
     "Europe/London": "GB", "Europe/Paris": "FR", "Europe/Berlin": "DE",
     "Europe/Madrid": "ES", "Europe/Rome": "IT", "Europe/Amsterdam": "NL",
     "Europe/Brussels": "BE", "Europe/Zurich": "CH", "Europe/Vienna": "AT",
@@ -737,10 +877,17 @@ _TZ_TO_COUNTRY: dict[str, str] = {
     "Europe/Helsinki": "FI", "Europe/Warsaw": "PL", "Europe/Prague": "CZ",
     "Europe/Budapest": "HU", "Europe/Bucharest": "RO", "Europe/Sofia": "BG",
     "Europe/Athens": "GR", "Europe/Istanbul": "TR", "Europe/Moscow": "RU",
-    "Europe/Kiev": "UA", "Europe/Lisbon": "PT", "Europe/Dublin": "IE",
-    "Europe/Belgrade": "RS", "Europe/Zagreb": "HR", "Europe/Bratislava": "SK",
-    "Europe/Ljubljana": "SI", "Europe/Tallinn": "EE", "Europe/Riga": "LV",
-    "Europe/Vilnius": "LT", "Europe/Minsk": "BY",
+    "Europe/Kiev": "UA", "Europe/Kyiv": "UA", "Europe/Lisbon": "PT",
+    "Europe/Dublin": "IE", "Europe/Belgrade": "RS", "Europe/Zagreb": "HR",
+    "Europe/Bratislava": "SK", "Europe/Ljubljana": "SI", "Europe/Tallinn": "EE",
+    "Europe/Riga": "LV", "Europe/Vilnius": "LT", "Europe/Minsk": "BY",
+    "Europe/Luxembourg": "LU", "Europe/Monaco": "MC", "Europe/Andorra": "AD",
+    "Europe/Malta": "MT", "Europe/Nicosia": "CY", "Europe/Tirane": "AL",
+    "Europe/Skopje": "MK", "Europe/Sarajevo": "BA", "Europe/Podgorica": "ME",
+    "Europe/Kaliningrad": "RU", "Europe/Samara": "RU", "Europe/Saratov": "RU",
+    "Europe/Ulyanovsk": "RU", "Europe/Volgograd": "RU",
+    "Atlantic/Reykjavik": "IS", "Atlantic/Faroe": "FO",
+    # Asia
     "Asia/Tokyo": "JP", "Asia/Seoul": "KR", "Asia/Shanghai": "CN",
     "Asia/Hong_Kong": "HK", "Asia/Taipei": "TW", "Asia/Singapore": "SG",
     "Asia/Kolkata": "IN", "Asia/Calcutta": "IN", "Asia/Karachi": "PK",
@@ -750,16 +897,63 @@ _TZ_TO_COUNTRY: dict[str, str] = {
     "Asia/Baghdad": "IQ", "Asia/Jerusalem": "IL", "Asia/Beirut": "LB",
     "Asia/Colombo": "LK", "Asia/Kathmandu": "NP", "Asia/Yangon": "MM",
     "Asia/Almaty": "KZ", "Asia/Tashkent": "UZ", "Asia/Bishkek": "KG",
+    "Asia/Kabul": "AF", "Asia/Yerevan": "AM", "Asia/Baku": "AZ",
+    "Asia/Tbilisi": "GE", "Asia/Ashgabat": "TM", "Asia/Dushanbe": "TJ",
+    "Asia/Katmandu": "NP", "Asia/Rangoon": "MM", "Asia/Saigon": "VN",
+    "Asia/Phnom_Penh": "KH", "Asia/Vientiane": "LA", "Asia/Brunei": "BN",
+    "Asia/Makassar": "ID", "Asia/Jayapura": "ID", "Asia/Pontianak": "ID",
+    "Asia/Kuching": "MY", "Asia/Macau": "MO", "Asia/Ulaanbaatar": "MN",
+    "Asia/Choibalsan": "MN", "Asia/Hovd": "MN", "Asia/Aden": "YE",
+    "Asia/Kuwait": "KW", "Asia/Bahrain": "BH", "Asia/Qatar": "QA",
+    "Asia/Muscat": "OM", "Asia/Nicosia": "CY", "Asia/Amman": "JO",
+    "Asia/Damascus": "SY", "Asia/Gaza": "PS", "Asia/Hebron": "PS",
+    "Asia/Pyongyang": "KP", "Asia/Urumqi": "CN", "Asia/Chongqing": "CN",
+    "Asia/Harbin": "CN", "Asia/Kashgar": "CN",
+    "Asia/Novosibirsk": "RU", "Asia/Omsk": "RU", "Asia/Krasnoyarsk": "RU",
+    "Asia/Irkutsk": "RU", "Asia/Yakutsk": "RU", "Asia/Vladivostok": "RU",
+    "Asia/Magadan": "RU", "Asia/Kamchatka": "RU", "Asia/Anadyr": "RU",
+    "Asia/Sakhalin": "RU", "Asia/Srednekolymsk": "RU", "Asia/Chita": "RU",
+    "Asia/Khandyga": "RU", "Asia/Ust-Nera": "RU", "Asia/Yekaterinburg": "RU",
+    # Africa
     "Africa/Cairo": "EG", "Africa/Lagos": "NG", "Africa/Nairobi": "KE",
     "Africa/Johannesburg": "ZA", "Africa/Casablanca": "MA", "Africa/Algiers": "DZ",
     "Africa/Tunis": "TN", "Africa/Accra": "GH", "Africa/Addis_Ababa": "ET",
     "Africa/Dar_es_Salaam": "TZ", "Africa/Kampala": "UG", "Africa/Khartoum": "SD",
     "Africa/Abidjan": "CI", "Africa/Dakar": "SN", "Africa/Maputo": "MZ",
     "Africa/Lusaka": "ZM", "Africa/Harare": "ZW", "Africa/Tripoli": "LY",
+    "Africa/Luanda": "AO", "Africa/Douala": "CM", "Africa/Brazzaville": "CG",
+    "Africa/Kinshasa": "CD", "Africa/Libreville": "GA", "Africa/Bangui": "CF",
+    "Africa/Ndjamena": "TD", "Africa/Malabo": "GQ", "Africa/Windhoek": "NA",
+    "Africa/Gaborone": "BW", "Africa/Maseru": "LS", "Africa/Mbabane": "SZ",
+    "Africa/Bujumbura": "BI", "Africa/Kigali": "RW", "Africa/Djibouti": "DJ",
+    "Africa/Mogadishu": "SO", "Africa/Asmara": "ER", "Africa/Juba": "SS",
+    "Africa/Bamako": "ML", "Africa/Conakry": "GN", "Africa/Bissau": "GW",
+    "Africa/Freetown": "SL", "Africa/Monrovia": "LR", "Africa/Ouagadougou": "BF",
+    "Africa/Lome": "TG", "Africa/Porto-Novo": "BJ", "Africa/Niamey": "NE",
+    "Africa/Nouakchott": "MR", "Africa/El_Aaiun": "EH", "Africa/Ceuta": "ES",
+    # Oceania / Pacific
     "Australia/Sydney": "AU", "Australia/Melbourne": "AU", "Australia/Brisbane": "AU",
     "Australia/Perth": "AU", "Australia/Adelaide": "AU", "Australia/Darwin": "AU",
-    "Pacific/Auckland": "NZ", "Pacific/Fiji": "FJ", "Pacific/Guam": "GU",
-    "Pacific/Port_Moresby": "PG",
+    "Australia/Hobart": "AU", "Australia/Lord_Howe": "AU",
+    "Australia/Broken_Hill": "AU", "Australia/Currie": "AU",
+    "Australia/Eucla": "AU", "Australia/Lindeman": "AU",
+    "Pacific/Auckland": "NZ", "Pacific/Chatham": "NZ",
+    "Pacific/Fiji": "FJ", "Pacific/Guam": "GU", "Pacific/Port_Moresby": "PG",
+    "Pacific/Bougainville": "PG", "Pacific/Noumea": "NC",
+    "Pacific/Guadalcanal": "SB", "Pacific/Efate": "VU",
+    "Pacific/Tarawa": "KI", "Pacific/Enderbury": "KI", "Pacific/Kiritimati": "KI",
+    "Pacific/Funafuti": "TV", "Pacific/Majuro": "MH", "Pacific/Kwajalein": "MH",
+    "Pacific/Nauru": "NR", "Pacific/Palau": "PW", "Pacific/Yap": "FM",
+    "Pacific/Pohnpei": "FM", "Pacific/Kosrae": "FM", "Pacific/Chuuk": "FM",
+    "Pacific/Honolulu": "US", "Pacific/Pago_Pago": "AS", "Pacific/Midway": "UM",
+    "Pacific/Tongatapu": "TO", "Pacific/Apia": "WS", "Pacific/Niue": "NU",
+    "Pacific/Rarotonga": "CK", "Pacific/Tahiti": "PF", "Pacific/Gambier": "PF",
+    "Pacific/Marquesas": "PF", "Pacific/Pitcairn": "PN",
+    "Pacific/Easter": "CL", "Pacific/Galapagos": "EC",
+    "Indian/Maldives": "MV", "Indian/Mauritius": "MU", "Indian/Reunion": "RE",
+    "Indian/Mayotte": "YT", "Indian/Comoro": "KM", "Indian/Antananarivo": "MG",
+    "Indian/Mahe": "SC", "Indian/Kerguelen": "TF", "Indian/Cocos": "CC",
+    "Indian/Christmas": "CX",
 }
 
 
@@ -797,7 +991,7 @@ def _country_from_accept_language(accept_lang: str) -> tuple[str, str]:
     return "", ""
 
 
-def _lookup_country_async(ip: str, accept_language: str = ""):
+def _lookup_country_async(ip: str, accept_language: str = "", client_tz: str = ""):
     """Resolve an IP to its country (and city/region when available).
 
     Lookup order:
@@ -805,11 +999,16 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
     2. ip-api.com / ipinfo.io / ipwhois.app / ipapi.co / api.country.is
        / reallyfreegeoip.org / freeipapi.com / ipapi.com (ipstack)
     3. Timezone heuristic via worldtimeapi.org
+    4. Browser-reported IANA timezone (client_tz) – more precise than Accept-Language
+    5. Accept-Language header heuristic (last resort)
 
     Args:
         ip: The IP address to geo-locate.
         accept_language: Optional Accept-Language header value used as a
             last-resort heuristic when all geo-IP services fail.
+        client_tz: Optional IANA timezone string reported by the browser
+            (``Intl.DateTimeFormat().resolvedOptions().timeZone``).  Used as a
+            high-confidence fallback when all network-based lookups fail.
     """
     if ip in ip_country_cache:
         return
@@ -1005,6 +1204,12 @@ def _lookup_country_async(ip: str, accept_language: str = ""):
     # preference, not geographic location, so it is imprecise.  However it is
     # better than leaving the country as "Unknown" when every geo-IP service
     # has failed.
+    if country == "Unknown" and not code and client_tz:
+        tz_code = _TZ_TO_COUNTRY.get(client_tz, "")
+        if tz_code and tz_code in _ISO2_TO_NAME:
+            code = tz_code
+            country = _ISO2_TO_NAME[code]
+
     if country == "Unknown" and not code and accept_language:
         al_country, al_code = _country_from_accept_language(accept_language)
         if al_country and al_code:
@@ -1047,13 +1252,18 @@ def _get_country_from_headers(req) -> tuple[str, str]:
     """Extract country from CDN/proxy headers before hitting external APIs.
 
     Supported headers (in priority order):
-    - CF-IPCountry (Cloudflare)
-    - X-Country-Code
-    - X-GeoIP-Country
-    - X-Forwarded-Country
+    - CF-IPCountry            (Cloudflare)
+    - CloudFront-Viewer-Country (AWS CloudFront)
+    - X-Vercel-IP-Country     (Vercel)
+    - X-Appengine-Country     (Google App Engine)
+    - Fastly-Geo-Country      (Fastly CDN)
+    - X-Country-Code          (generic)
+    - X-GeoIP-Country         (generic)
+    - X-Forwarded-Country     (generic)
+
     Returns (country_name, iso2_code) or ("", "") when not found.
     """
-    for header in ("CF-IPCountry", "X-Country-Code", "X-GeoIP-Country", "X-Forwarded-Country"):
+    for header in _CDN_GEO_HEADERS:
         code = req.headers.get(header, "").strip().upper()
         if len(code) == 2 and code.isalpha() and code not in ("XX", "T1"):
             return _ISO2_TO_NAME.get(code, code), code
@@ -1073,7 +1283,7 @@ def rate_limit(max_per_ip=Config.MAX_DOWNLOADS_PER_IP):
     def decorator(f):
         @wraps(f)
         async def wrapped(*args, request: Request, **kwargs):
-            ip = request.client.host if request.client else "unknown"
+            ip = _get_real_ip(request)
             with downloads_lock:
                 count = ip_download_count.get(ip, 0)
                 if count >= max_per_ip:
@@ -1668,6 +1878,70 @@ async def health():
         "version": "1.0.0"
     })
 
+
+@fastapi_app.post("/api/client_hints")
+async def client_hints(request: Request):
+    """Accept client-side hints (browser timezone, language) for improved geo-detection.
+
+    The browser reports its local ``Intl.DateTimeFormat().resolvedOptions().timeZone``
+    and ``navigator.language`` via a small JS snippet.  These signals are used to
+    refine the cached country for the client IP when all server-side geo-IP
+    services have already been tried but the country is still unknown.
+
+    The endpoint is intentionally lightweight – it returns immediately and does
+    all cache updates synchronously (the data is already in-process).
+    """
+    ip = _get_real_ip(request)
+    if not ip or ip == "unknown":
+        return JSONResponse({"ok": False}, status_code=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False}, status_code=400)
+
+    tz = (body.get("timezone") or "").strip()
+    lang = (body.get("language") or "").strip()
+
+    # Only refine – never overwrite a successfully resolved country
+    cached = ip_country_cache.get(ip, {})
+    if cached.get("country") and cached["country"] not in ("Unknown", ""):
+        return JSONResponse({"ok": True, "country": cached["country"]})
+
+    country, code = "", ""
+
+    # 1. Try IANA timezone from the browser (more precise than IP heuristic)
+    if tz and not code:
+        tz_code = _TZ_TO_COUNTRY.get(tz, "")
+        if tz_code and tz_code in _ISO2_TO_NAME:
+            code = tz_code
+            country = _ISO2_TO_NAME[code]
+
+    # 2. Try Accept-Language-style hint from navigator.language
+    if not code and lang:
+        country, code = _country_from_accept_language(lang)
+
+    if country and code:
+        ip_country_cache[ip] = {
+            "country": country, "code": code, "city": "", "region": ""
+        }
+        # Back-fill pending visitor / download records (last 200 entries is a
+        # reasonable window that covers recent unresolved visitors without
+        # iterating the entire in-memory list)
+        with visitors_lock:
+            for v in visitors[-200:]:
+                if v.get("ip") == ip and not v.get("country"):
+                    v["country"] = country
+                    v["country_code"] = code
+        with downloads_lock:
+            for d in downloads.values():
+                if d.get("ip") == ip and not d.get("country"):
+                    d["country"] = country
+                    d["country_code"] = code
+        _schedule_visitor_save()
+
+    return JSONResponse({"ok": True, "country": country or "Unknown"})
+
 @fastapi_app.post("/video_info")
 @rate_limit()
 async def video_info_endpoint(request: Request, url: str = Form(None)):
@@ -1717,7 +1991,7 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
     output_template = os.path.join(DOWNLOAD_FOLDER, f"{safe_title}.%(ext)s")
 
     # Store download info
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     # Try CDN/proxy headers first for country
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
@@ -2063,7 +2337,7 @@ async def cancel_download(download_id: str):
 async def cancel_all_downloads(request: Request):
     """Cancel all active/queued downloads for the requesting client IP.
     Called on page refresh so orphaned downloads are cleaned up."""
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     cancelled_ids = []
     with downloads_lock:
         for did, d in downloads.items():
@@ -2149,7 +2423,7 @@ async def submit_review(request: Request):
     except (TypeError, ValueError):
         return JSONResponse({"error": "Rating must be 1-5"}, status_code=400)
 
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     with reviews_lock:
         ip_review_count = sum(1 for r in reviews if r.get("ip") == ip)
         if ip_review_count >= Config.MAX_REVIEWS_PER_IP:
@@ -2343,7 +2617,7 @@ async def track_admin_visitor(request: Request, call_next):
     if request.url.path not in TRACKED_VISITOR_PATHS:
         return response
 
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     ua = request.headers.get("user-agent", "")
 
     # Try to get country from CDN/proxy headers first
@@ -3495,7 +3769,7 @@ async def start_playlist_download(
             }, status_code=429)
 
     batch_id = str(uuid.uuid4())
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
         ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code, "city": "", "region": ""}
@@ -3656,7 +3930,7 @@ async def start_batch_download(
         return JSONResponse({"error": "Maximum 20 URLs per batch"}, status_code=400)
 
     started = []
-    ip = request.client.host if request.client else "unknown"
+    ip = _get_real_ip(request)
     hdr_country, hdr_code = _get_country_from_headers(request)
     if hdr_country and ip not in ip_country_cache:
         ip_country_cache[ip] = {"country": hdr_country, "code": hdr_code, "city": "", "region": ""}
@@ -3905,6 +4179,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "/admin/cancel_download/", "/admin/delete_record/", "/admin/clear_visitors",
             "/admin/db/", "/admin/cookies", "/admin/auth_status", "/admin/has_admin",
             "/admin/api/", "/health", "/ads.txt", "/static/", "/assets/",
+            "/api/",
         )
         if not any(path.startswith(p) for p in api_prefixes):
             return _react_index()

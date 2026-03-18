@@ -4497,6 +4497,27 @@
             if (footerYear) footerYear.textContent = new Date().getFullYear();
         });
 
+        // ─── Client hints: report browser timezone/language for better geo-detection ───
+        // Runs once per page load (after a short delay so it doesn't block rendering).
+        // Only fires when the browser supports Intl and the Fetch API.
+        (function sendClientHints() {
+            if (typeof Intl === 'undefined' || typeof fetch === 'undefined') return;
+            try {
+                const tz   = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+                const lang = navigator.language || navigator.userLanguage || '';
+                if (!tz && !lang) return;
+                // Small delay so the page paints first
+                setTimeout(function () {
+                    fetch('/api/client_hints', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ timezone: tz, language: lang }),
+                        credentials: 'same-origin',
+                    }).catch(function () { /* best-effort – ignore failures */ });
+                }, 1500);
+            } catch (e) { /* ignore any errors */ }
+        })();
+
         // ─── Mobile nav ────────────────────────────────────────────
         function toggleMobileNav() {
             const menu     = document.getElementById('mobile-nav');
