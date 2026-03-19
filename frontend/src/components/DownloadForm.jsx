@@ -30,13 +30,12 @@ export default function DownloadForm({ onDownloadStarted }) {
   const [loading, setLoading] = useState(false)
   const [dlLoading, setDlLoading] = useState(false)
   const [error, setError]   = useState('')
-  const [notice, setNotice] = useState('')
   const [pasteSupported, setPasteSupported] = useState(typeof navigator !== 'undefined' && !!navigator.clipboard)
 
   const fetchInfo = async (e) => {
     e.preventDefault()
     if (!url.trim()) { setError('Please enter a URL'); return }
-    setError(''); setNotice(''); setInfo(null); setLoading(true)
+    setError(''); setInfo(null); setLoading(true)
     try {
       const data = await getVideoInfo(url.trim())
       setInfo(data)
@@ -48,11 +47,10 @@ export default function DownloadForm({ onDownloadStarted }) {
   }
 
   const download = async () => {
-    setError(''); setNotice('')
+    setError('')
     setDlLoading(true)
     try {
       const data = await startDownload(url.trim(), format, ext, SESSION_ID)
-      setNotice(data.title)
       if (data.warning) setError(`⚠ ${data.warning}`)
       onDownloadStarted && onDownloadStarted({ download_id: data.download_id, title: data.title })
     } catch (err) {
@@ -62,7 +60,7 @@ export default function DownloadForm({ onDownloadStarted }) {
     }
   }
 
-  const clearAll = () => { setUrl(''); setInfo(null); setError(''); setNotice('') }
+  const clearAll = () => { setUrl(''); setInfo(null); setError('') }
 
   const handlePaste = async () => {
     try {
@@ -114,20 +112,6 @@ export default function DownloadForm({ onDownloadStarted }) {
 
       {/* Errors / notices */}
       {error  && <p className="mt-3 text-sm text-red-400 bg-red-900/20 border border-red-800/50 rounded-lg px-3 py-2">{error}</p>}
-      {notice && (
-        <div className="mt-3 bg-green-900/20 border border-green-800/50 rounded-lg px-3 py-2.5">
-          <div className="flex items-center gap-2.5">
-            <span className="text-green-400 text-xl dl-icon-bounce">⬇</span>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-green-400">Download queued</p>
-              <p className="text-xs text-green-500/70 truncate">{notice}</p>
-            </div>
-          </div>
-          <div className="mt-2 h-1.5 rounded-full bg-green-900/50 overflow-hidden relative">
-            <div className="absolute top-0 left-0 h-full w-1/2 bg-green-500/70 rounded-full dl-bar-sweep" />
-          </div>
-        </div>
-      )}
 
       {/* Video preview card */}
       {info && (
