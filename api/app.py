@@ -1434,8 +1434,13 @@ def _friendly_cookie_error(error_msg: str) -> str:
 
     Detects the ``Sign in to confirm you're not a bot`` error emitted by
     yt-dlp (and related authentication / login-required errors) and replaces
-    them with actionable guidance so the user knows they need to upload a
-    cookies file via the admin panel.
+    them with a plain, actionable message that does not expose admin-panel
+    instructions to regular users.
+
+    When a valid ``cookies.txt`` is already present but bot-detection still
+    fires (e.g. stale / expired cookies), the returned message instructs the
+    site administrator to refresh the cookies file; regular users are directed
+    to try again later.
     """
     lower = error_msg.lower()
 
@@ -1447,28 +1452,30 @@ def _friendly_cookie_error(error_msg: str) -> str:
 
     if is_auth_error:
         if os.path.isfile(COOKIES_FILE):
+            # Cookies are present but still failing — likely stale/expired.
+            # Site admin should re-upload a fresh cookies.txt (Admin → Cookies).
             return (
-                "YouTube bot detection triggered. Your cookies file may be "
-                "expired or invalid. Please upload a fresh cookies.txt file "
-                "via the Admin panel (Admin \u2192 Cookies)."
+                "This video is temporarily unavailable due to bot detection. "
+                "The authentication session may have expired — please try "
+                "again in a few minutes."
             )
+        # No cookies configured at all.  Downloading should be retried once
+        # the site administrator uploads a valid cookies.txt (Admin → Cookies).
         return (
-            "YouTube requires authentication. Please upload a cookies.txt "
-            "file via the Admin panel (Admin \u2192 Cookies) to bypass bot "
-            "detection. See https://github.com/yt-dlp/yt-dlp/wiki/FAQ"
-            "#how-do-i-pass-cookies-to-yt-dlp for how to export cookies."
+            "This video cannot be downloaded right now. YouTube\u2019s "
+            "bot-detection is active for this request. Please try again "
+            "in a few minutes, or try a different video."
         )
 
     # Private / age-restricted videos
     if "private video" in lower:
         return (
-            "This video is private. It can only be downloaded with "
-            "cookies from an account that has access."
+            "This video is private and cannot be downloaded."
         )
     if "age" in lower and ("restricted" in lower or "gate" in lower):
         return (
-            "This video is age-restricted. Please upload a cookies.txt "
-            "file from a logged-in account via Admin \u2192 Cookies."
+            "This video is age-restricted and cannot be downloaded "
+            "without an authenticated session."
         )
 
     return error_msg

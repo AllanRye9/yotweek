@@ -173,7 +173,53 @@ Supply a `cookies.txt` file exported from a logged-in YouTube session in your br
 
 ---
 
-## Tech Stack
+## Changelog
+
+### 2026-03 — Bot-detection bypass & UI improvements
+
+#### YouTube bot-detection bypass
+
+YouTube periodically challenges automated download requests with a
+*"Sign in to confirm you're not a bot"* gate. The following changes
+eliminate this error for the vast majority of users and ensure the
+remaining edge-cases surface a clear, non-confusing message:
+
+- **Multi-client fallback**: yt-dlp is now configured with
+  `player_client: ["default", "web_embedded", "tv"]`.  
+  `"default"` delegates to yt-dlp's own session-aware client selection
+  (which already includes `android_vr`). `web_embedded` and `tv` are
+  added as explicit, PO-token-free fallbacks for environments where
+  `web_safari` would otherwise fail.  
+  Together these three clients cover public, age-restricted, and
+  authenticated content without requiring manual intervention for most
+  requests.
+
+- **Cookie passthrough**: When the site administrator uploads a
+  `cookies.txt` file via **Admin → Cookies**, yt-dlp automatically
+  passes it to every download request. Cookies let YouTube treat the
+  server as a real browser session rather than a bot, which prevents
+  bot-detection errors for all users on the site.  
+  See [yt-dlp cookies FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp)
+  for how to export and upload cookies.
+
+- **User-friendly error messages**: If bot-detection still triggers
+  (e.g. no cookies configured, or cookies have expired), the error
+  shown to users is now a plain, action-oriented message —
+  *"This video cannot be downloaded right now. Please try again in a
+  few minutes, or try a different video."* — instead of confusing
+  admin-only instructions about uploading a cookies file.
+
+#### Font — consistent across all theme colours
+
+- The **Inter** typeface (Google Fonts) is now loaded as a `--font-family`
+  CSS custom property in every template and the React admin SPA.  
+  Because the variable lives in `:root`, it is inherited by all child
+  elements and survives theme colour changes (Dark / Light / Ocean /
+  Forest). Switching themes only updates colour variables; the font
+  remains Inter throughout.
+
+---
+
 
 - **Backend** – Python, FastAPI, uvicorn
 - **Downloader** – yt-dlp
