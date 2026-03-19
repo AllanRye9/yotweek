@@ -3,6 +3,7 @@ import {
   convertFile, batchConvert, trimVideo, cropVideo,
   addWatermark, extractClip, mergeVideos, getJobStatus, listFiles, uploadLocalFile,
 } from '../api'
+import { SESSION_ID } from '../session'
 
 const EDIT_TABS = [
   { id: 'convert',       label: '🔄 Convert' },
@@ -15,7 +16,7 @@ const EDIT_TABS = [
 ]
 const CONVERT_FORMATS = ['mp4','webm','mkv','avi','mp3','m4a','wav','ogg']
 const RESOLUTIONS = ['', '1920x1080', '1280x720', '854x480', '640x360']
-const WATERMARK_POSITIONS = ['bottomright','bottomleft','topright','topleft','center']
+const WATERMARK_POSITIONS = ['bottom-right','bottom-left','top-right','top-left','center']
 const ACCEPTED_MEDIA = 'video/*,audio/*,.mkv,.webm,.avi,.flv,.wmv,.mp3,.wav,.aac,.ogg,.flac,.m4a,.m4v'
 
 /** Small component for uploading a local file. After upload the parent's
@@ -31,7 +32,7 @@ function LocalFileUpload({ onUploaded }) {
     setUploading(true)
     setStatus('Uploading…')
     try {
-      const data = await uploadLocalFile(file)
+      const data = await uploadLocalFile(file, SESSION_ID)
       setStatus(`✓ ${data.filename}`)
       onUploaded && onUploaded(data.filename)
     } catch (err) {
@@ -122,9 +123,9 @@ function JobResult({ jobId, onDone }) {
     const poll = async () => {
       try {
         const data = await getJobStatus(jobId)
-        if (data.status === 'done' || data.status === 'error') {
+        if (data.status === 'completed' || data.status === 'failed') {
           setResult(data); setLoading(false)
-          if (data.status === 'done' && onDone) onDone()
+          if (data.status === 'completed' && onDone) onDone()
           return
         }
         setTimeout(poll, 1500)
@@ -140,8 +141,8 @@ function JobResult({ jobId, onDone }) {
     </div>
   )
   if (!result) return null
-  return result.status === 'done'
-    ? <p className="mt-3 text-sm text-green-400 bg-green-900/20 border border-green-800/50 rounded-lg px-3 py-2">✓ Done! Output: {result.output_file}</p>
+  return result.status === 'completed'
+    ? <p className="mt-3 text-sm text-green-400 bg-green-900/20 border border-green-800/50 rounded-lg px-3 py-2">✓ Done! Output: {result.filename}</p>
     : <p className="mt-3 text-sm text-red-400 bg-red-900/20 border border-red-800/50 rounded-lg px-3 py-2">✗ {result.error}</p>
 }
 
@@ -175,7 +176,7 @@ export default function EditingPanel({ onJobDone }) {
   // Watermark
   const [wmFile, setWmFile]         = useState('')
   const [wmText, setWmText]         = useState('')
-  const [wmPos, setWmPos]           = useState('bottomright')
+  const [wmPos, setWmPos]           = useState('bottom-right')
   const [wmSize, setWmSize]         = useState('24')
   // Extract
   const [exFile, setExFile]         = useState('')
@@ -183,13 +184,13 @@ export default function EditingPanel({ onJobDone }) {
   const [exDur, setExDur]           = useState('10')
   // Merge
   const [mergeFiles, setMergeFiles] = useState([])
-  const [mergeName, setMergeName]   = useState('')
+  const [mergeFmt, setMergeFmt]     = useState('mp4')
 
   useEffect(() => {
-    listFiles().then(setFiles).catch(() => setFiles([]))
+    listFiles(SESSION_ID).then(setFiles).catch(() => setFiles([]))
   }, [])
 
-  const refreshFiles = () => listFiles().then(setFiles).catch(() => {})
+  const refreshFiles = () => listFiles(SESSION_ID).then(setFiles).catch(() => {})
 
   /** Called when a local file is successfully uploaded to the server.
    *  Refreshes the file list and auto-selects the newly uploaded file. */
@@ -208,8 +209,11 @@ export default function EditingPanel({ onJobDone }) {
     try {
       const data = await fn()
       if (data.job_id) { setJobId(data.job_id) }
-      else if (data.success || data.output_file) {
-        setNotice(`✓ ${data.output_file || 'Done!'}`)
+      else if (data.jobs) {
+        setNotice(`✓ ${data.total} conversion job${data.total !== 1 ? 's' : ''} started`)
+        onJobDone && onJobDone()
+      } else if (data.success || data.filename) {
+        setNotice(`✓ ${data.filename || 'Done!'}`)
         onJobDone && onJobDone()
       }
     } catch (err) {
@@ -219,13 +223,13 @@ export default function EditingPanel({ onJobDone }) {
     }
   }
 
-  const submitConvert = (e) => { e.preventDefault(); if (!convFile) { setError('Select a file'); return } run(() => convertFile(convFile, convFmt, convRes, convVBit, convABit)) }
-  const submitBatch   = (e) => { e.preventDefault(); if (!batchFiles.length) { setError('Select files'); return } run(() => batchConvert(batchFiles, batchFmt)) }
-  const submitTrim    = (e) => { e.preventDefault(); if (!trimFile||!trimStart||!trimEnd) { setError('Fill all fields'); return } run(() => trimVideo(trimFile, trimStart, trimEnd)) }
-  const submitCrop    = (e) => { e.preventDefault(); if (!cropFile||!cropW||!cropH) { setError('Fill all fields'); return } run(() => cropVideo(cropFile, cropX||0, cropY||0, cropW, cropH)) }
-  const submitWm      = (e) => { e.preventDefault(); if (!wmFile||!wmText) { setError('Fill all fields'); return } run(() => addWatermark(wmFile, wmText, wmPos, wmSize)) }
-  const submitExtract = (e) => { e.preventDefault(); if (!exFile||!exStart) { setError('Fill all fields'); return } run(() => extractClip(exFile, exStart, exDur)) }
-  const submitMerge   = (e) => { e.preventDefault(); if (mergeFiles.length < 2) { setError('Select at least 2 files'); return } run(() => mergeVideos(mergeFiles, mergeName)) }
+  const submitConvert = (e) => { e.preventDefault(); if (!convFile) { setError('Select a file'); return } run(() => convertFile(convFile, convFmt, convRes, convVBit, convABit, SESSION_ID)) }
+  const submitBatch   = (e) => { e.preventDefault(); if (!batchFiles.length) { setError('Select files'); return } run(() => batchConvert(batchFiles, batchFmt, SESSION_ID)) }
+  const submitTrim    = (e) => { e.preventDefault(); if (!trimFile||!trimStart||!trimEnd) { setError('Fill all fields'); return } run(() => trimVideo(trimFile, trimStart, trimEnd, SESSION_ID)) }
+  const submitCrop    = (e) => { e.preventDefault(); if (!cropFile||!cropW||!cropH) { setError('Fill all fields'); return } run(() => cropVideo(cropFile, cropX||0, cropY||0, cropW, cropH, SESSION_ID)) }
+  const submitWm      = (e) => { e.preventDefault(); if (!wmFile||!wmText) { setError('Fill all fields'); return } run(() => addWatermark(wmFile, wmText, wmPos, wmSize, SESSION_ID)) }
+  const submitExtract = (e) => { e.preventDefault(); if (!exFile||!exStart) { setError('Fill all fields'); return } run(() => extractClip(exFile, exStart, exDur, SESSION_ID)) }
+  const submitMerge   = (e) => { e.preventDefault(); if (mergeFiles.length < 2) { setError('Select at least 2 files'); return } run(() => mergeVideos(mergeFiles, mergeFmt, SESSION_ID)) }
 
   return (
     <div>
@@ -379,8 +383,10 @@ export default function EditingPanel({ onJobDone }) {
         <form onSubmit={submitMerge} className="space-y-3">
           <FileSelect label="Select files to merge (in order)" onChange={setMergeFiles} files={files} multi selected={mergeFiles} onUploaded={refreshFiles} />
           <div>
-            <label className="block text-xs text-gray-400 mb-1">Output filename (optional)</label>
-            <input className="input text-sm" placeholder="merged_video" value={mergeName} onChange={e => setMergeName(e.target.value)} />
+            <label className="block text-xs text-gray-400 mb-1">Output format</label>
+            <select className="input text-sm" value={mergeFmt} onChange={e => setMergeFmt(e.target.value)}>
+              {['mp4','webm','mkv','avi'].map(f => <option key={f} value={f}>{f.toUpperCase()}</option>)}
+            </select>
           </div>
           <button type="submit" className="btn-primary w-full" disabled={loading}>{loading ? 'Processing…' : '🔗 Merge Videos'}</button>
           <JobResult jobId={jobId} onDone={onJobDone} />

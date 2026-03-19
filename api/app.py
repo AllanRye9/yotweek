@@ -1937,12 +1937,16 @@ def _start_ffmpeg_job(
     output_filename: str,
     event: str = "job_complete",
     cleanup=None,
+    session_id: str = "",
 ):
     """Run an ffmpeg *cmd* in a daemon thread, updating *conversions[job_id]*.
 
     Emits ``event`` with ``{id, filename}`` on success, or ``event_failed``
     with ``{id, error}`` on failure.  The optional *cleanup* callable is
     invoked (once) when the thread finishes, regardless of outcome.
+
+    When *session_id* is provided, the output file is registered in *downloads*
+    so it appears in /files for the user who triggered the job.
     """
     def _worker():
         with conversions_lock:
@@ -1964,6 +1968,16 @@ def _start_ffmpeg_job(
                         "status": "completed",
                         "filename": output_filename,
                     })
+                # Register output file in downloads so it shows up in /files
+                # for the session that triggered the job
+                with downloads_lock:
+                    downloads[job_id] = {
+                        "status": "completed",
+                        "type": "edit_output",
+                        "filename": output_filename,
+                        "owner_session": session_id or "",
+                        "end_time": time.time(),
+                    }
                 emit_from_thread(event, {"id": job_id, "filename": output_filename})
                 emit_from_thread("files_updated")
         except subprocess.TimeoutExpired:
@@ -2390,6 +2404,17 @@ async def upload_local_file(
 
     with open(output_path, "wb") as fh:
         fh.write(content)
+
+    # Register in downloads so the file appears in /files for the uploader's session
+    upload_id = str(uuid.uuid4())
+    with downloads_lock:
+        downloads[upload_id] = {
+            "status": "completed",
+            "type": "upload",
+            "filename": output_filename,
+            "owner_session": session_id or "",
+            "end_time": time.time(),
+        }
 
     emit_from_thread("files_updated")
     logger.info(f"Local file uploaded: {output_filename} ({len(content)} bytes)")
@@ -3487,6 +3512,7 @@ async def convert_file(
     resolution: str = Form(""),
     audio_bitrate: str = Form(""),
     video_bitrate: str = Form(""),
+    session_id: str = Form(""),
 ):
     """Convert a downloaded file to a different format, resolution, or bitrate."""
     filename      = filename.strip()
@@ -3525,7 +3551,7 @@ async def convert_file(
     with conversions_lock:
         conversions[job_id] = {"status": "queued", "type": "convert", "filename": output_filename}
 
-    _start_ffmpeg_job(job_id, cmd, output_filename)
+    _start_ffmpeg_job(job_id, cmd, output_filename, session_id=session_id)
     return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
@@ -3537,6 +3563,7 @@ async def batch_convert(
     resolution: str = Form(""),
     audio_bitrate: str = Form(""),
     video_bitrate: str = Form(""),
+    session_id: str = Form(""),
 ):
     """Convert multiple files to a target format/resolution/bitrate."""
     filenames_json = filenames
@@ -3584,7 +3611,7 @@ async def batch_convert(
         job_id = str(uuid.uuid4())
         with conversions_lock:
             conversions[job_id] = {"status": "queued", "type": "batch_convert", "filename": output_filename}
-        _start_ffmpeg_job(job_id, cmd, output_filename)
+        _start_ffmpeg_job(job_id, cmd, output_filename, session_id=session_id)
         jobs.append({"job_id": job_id, "source": fn, "output_filename": output_filename})
 
     if not jobs:
@@ -3603,6 +3630,7 @@ async def trim_video(
     filename: str = Form(""),
     start_time: str = Form("0"),
     end_time: str = Form(""),
+    session_id: str = Form(""),
 ):
     """Trim a video to [start_time, end_time]."""
     filename   = filename.strip()
@@ -3640,7 +3668,7 @@ async def trim_video(
     with conversions_lock:
         conversions[job_id] = {"status": "queued", "type": "trim", "filename": output_filename}
 
-    _start_ffmpeg_job(job_id, cmd, output_filename)
+    _start_ffmpeg_job(job_id, cmd, output_filename, session_id=session_id)
     return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
@@ -3652,6 +3680,7 @@ async def crop_video(
     y: str = Form("0"),
     width: str = Form(""),
     height: str = Form(""),
+    session_id: str = Form(""),
 ):
     """Crop a video frame to (x, y, width, height)."""
     filename = filename.strip()
@@ -3690,7 +3719,7 @@ async def crop_video(
     with conversions_lock:
         conversions[job_id] = {"status": "queued", "type": "crop", "filename": output_filename}
 
-    _start_ffmpeg_job(job_id, cmd, output_filename)
+    _start_ffmpeg_job(job_id, cmd, output_filename, session_id=session_id)
     return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
@@ -3701,6 +3730,7 @@ async def watermark_video(
     text: str = Form(""),
     position: str = Form("bottom-right"),
     fontsize: str = Form("24"),
+    session_id: str = Form(""),
 ):
     """Overlay a text watermark onto a video."""
     filename = filename.strip()
@@ -3760,7 +3790,7 @@ async def watermark_video(
     with conversions_lock:
         conversions[job_id] = {"status": "queued", "type": "watermark", "filename": output_filename}
 
-    _start_ffmpeg_job(job_id, cmd, output_filename)
+    _start_ffmpeg_job(job_id, cmd, output_filename, session_id=session_id)
     return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
@@ -3770,6 +3800,7 @@ async def extract_clip(
     filename: str = Form(""),
     start_time: str = Form("0"),
     duration: str = Form("30"),
+    session_id: str = Form(""),
 ):
     """Extract a short clip (10–60 s) starting at start_time."""
     filename   = filename.strip()
@@ -3808,7 +3839,7 @@ async def extract_clip(
     with conversions_lock:
         conversions[job_id] = {"status": "queued", "type": "extract_clip", "filename": output_filename}
 
-    _start_ffmpeg_job(job_id, cmd, output_filename)
+    _start_ffmpeg_job(job_id, cmd, output_filename, session_id=session_id)
     return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 
@@ -3817,6 +3848,7 @@ async def merge_videos(
     request: Request,
     filenames: str = Form("[]"),
     format: str = Form("mp4"),
+    session_id: str = Form(""),
 ):
     """Concatenate multiple downloaded videos into a single output file."""
     filenames_json = filenames
@@ -3868,7 +3900,7 @@ async def merge_videos(
         except OSError:
             pass
 
-    _start_ffmpeg_job(job_id, cmd, output_filename, cleanup=_remove_list_file)
+    _start_ffmpeg_job(job_id, cmd, output_filename, cleanup=_remove_list_file, session_id=session_id)
     return JSONResponse({"job_id": job_id, "output_filename": output_filename})
 
 

@@ -83,34 +83,45 @@ export const downloadZip = (filenames) => {
   return request('POST', '/download_zip', fd, false)
 }
 
-export const uploadLocalFile = (file) => {
+export const uploadLocalFile = (file, sessionId = '') => {
   const fd = new FormData()
   fd.append('file', file, file.name)
+  if (sessionId) fd.append('session_id', sessionId)
   return request('POST', '/upload_local', fd, false)
 }
 
 // ── Editing ───────────────────────────────────────────────────────────────────
 
-export const convertFile = (filename, targetFormat, resolution = '', videoBitrate = '', audioBitrate = '') =>
-  request('POST', '/convert_file', formBody({ filename, target_format: targetFormat, resolution, video_bitrate: videoBitrate, audio_bitrate: audioBitrate }), false)
+export const convertFile = (filename, targetFormat, resolution = '', videoBitrate = '', audioBitrate = '', sessionId = '') =>
+  request('POST', '/convert', formBody({ filename, format: targetFormat, resolution, video_bitrate: videoBitrate, audio_bitrate: audioBitrate, session_id: sessionId }), false)
 
-export const batchConvert = (filenames, targetFormat) =>
-  request('POST', '/batch_convert', { filenames, target_format: targetFormat })
+export const batchConvert = (filenames, targetFormat, sessionId = '') => {
+  const fd = new FormData()
+  fd.append('filenames', JSON.stringify(filenames))
+  fd.append('format', targetFormat)
+  if (sessionId) fd.append('session_id', sessionId)
+  return request('POST', '/batch_convert', fd, false)
+}
 
-export const trimVideo = (filename, startTime, endTime) =>
-  request('POST', '/trim', formBody({ filename, start_time: startTime, end_time: endTime }), false)
+export const trimVideo = (filename, startTime, endTime, sessionId = '') =>
+  request('POST', '/trim', formBody({ filename, start_time: startTime, end_time: endTime, session_id: sessionId }), false)
 
-export const cropVideo = (filename, x, y, width, height) =>
-  request('POST', '/crop', formBody({ filename, x, y, width, height }), false)
+export const cropVideo = (filename, x, y, width, height, sessionId = '') =>
+  request('POST', '/crop', formBody({ filename, x, y, width, height, session_id: sessionId }), false)
 
-export const addWatermark = (filename, text, position = 'bottomright', size = 24) =>
-  request('POST', '/watermark', formBody({ filename, text, position, size }), false)
+export const addWatermark = (filename, text, position = 'bottom-right', fontsize = 24, sessionId = '') =>
+  request('POST', '/watermark', formBody({ filename, text, position, fontsize, session_id: sessionId }), false)
 
-export const extractClip = (filename, startTime, duration) =>
-  request('POST', '/extract_clip', formBody({ filename, start_time: startTime, duration }), false)
+export const extractClip = (filename, startTime, duration, sessionId = '') =>
+  request('POST', '/extract_clip', formBody({ filename, start_time: startTime, duration, session_id: sessionId }), false)
 
-export const mergeVideos = (filenames, outputName) =>
-  request('POST', '/merge', { filenames, output_name: outputName })
+export const mergeVideos = (filenames, format = 'mp4', sessionId = '') => {
+  const fd = new FormData()
+  fd.append('filenames', JSON.stringify(filenames))
+  fd.append('format', format)
+  if (sessionId) fd.append('session_id', sessionId)
+  return request('POST', '/merge', fd, false)
+}
 
 export const getJobStatus = (id) => request('GET', `/job_status/${id}`)
 
