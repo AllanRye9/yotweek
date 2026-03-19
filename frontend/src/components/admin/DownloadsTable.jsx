@@ -12,14 +12,23 @@ function StatusBadge({ status }) {
 }
 
 export default function DownloadsTable({ downloads, loading, onCancel, onDelete }) {
-  const [search, setSearch]   = useState('')
-  const [sortBy, setSortBy]   = useState('created_at')
-  const [sortDir, setSortDir] = useState('desc')
-  const [filter, setFilter]   = useState('all')
+  const [search, setSearch]         = useState('')
+  const [sortBy, setSortBy]         = useState('created_at')
+  const [sortDir, setSortDir]       = useState('desc')
+  const [filter, setFilter]         = useState('all')
+  const [countryFilter, setCountryFilter] = useState('all')
+  const [dateFrom, setDateFrom]     = useState('')
+  const [dateTo, setDateTo]         = useState('')
+
+  const countries = useMemo(() => {
+    const set = new Set((downloads || []).map(r => r.country).filter(Boolean))
+    return Array.from(set).sort()
+  }, [downloads])
 
   const filtered = useMemo(() => {
     let rows = [...(downloads || [])]
     if (filter !== 'all') rows = rows.filter(r => r.status === filter)
+    if (countryFilter !== 'all') rows = rows.filter(r => r.country === countryFilter)
     if (search) {
       const q = search.toLowerCase()
       rows = rows.filter(r =>
@@ -29,13 +38,21 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
         (r.country || '').toLowerCase().includes(q)
       )
     }
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime()
+      rows = rows.filter(r => r.created_at && r.created_at * 1000 >= from)
+    }
+    if (dateTo) {
+      const to = new Date(dateTo).getTime() + 86400000 // inclusive end of day
+      rows = rows.filter(r => r.created_at && r.created_at * 1000 <= to)
+    }
     rows.sort((a, b) => {
       let va = a[sortBy] ?? '', vb = b[sortBy] ?? ''
       if (typeof va === 'number') return sortDir === 'asc' ? va - vb : vb - va
       return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va))
     })
     return rows
-  }, [downloads, search, sortBy, sortDir, filter])
+  }, [downloads, search, sortBy, sortDir, filter, countryFilter, dateFrom, dateTo])
 
   const toggleSort = (col) => {
     if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -56,9 +73,9 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
   return (
     <div>
       {/* Controls */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
         <input
-          className="input flex-1 text-sm"
+          className="input flex-1 text-sm min-w-[160px]"
           placeholder="Search title, URL, IP, country…"
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -75,6 +92,28 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
           <option value="failed">Failed</option>
           <option value="cancelled">Cancelled</option>
         </select>
+        <select
+          className="input sm:w-44 text-sm"
+          value={countryFilter}
+          onChange={e => setCountryFilter(e.target.value)}
+        >
+          <option value="all">All countries</option>
+          {countries.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input
+          type="date"
+          className="input text-sm"
+          title="From date"
+          value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)}
+        />
+        <input
+          type="date"
+          className="input text-sm"
+          title="To date"
+          value={dateTo}
+          onChange={e => setDateTo(e.target.value)}
+        />
       </div>
       <p className="text-xs text-gray-600 mb-3">{filtered.length} records</p>
 

@@ -1,8 +1,16 @@
 import { useState, useMemo } from 'react'
 
 export default function VisitorsTable({ visitors, loading, onClear }) {
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all')
+  const [search, setSearch]         = useState('')
+  const [deviceFilter, setDeviceFilter] = useState('all')
+  const [countryFilter, setCountryFilter] = useState('all')
+  const [dateFrom, setDateFrom]     = useState('')
+  const [dateTo, setDateTo]         = useState('')
+
+  const countries = useMemo(() => {
+    const set = new Set((visitors || []).map(r => r.country).filter(Boolean))
+    return Array.from(set).sort()
+  }, [visitors])
 
   const filtered = useMemo(() => {
     let rows = [...(visitors || [])]
@@ -16,31 +24,66 @@ export default function VisitorsTable({ visitors, loading, onClear }) {
         (r.page    || '').toLowerCase().includes(q)
       )
     }
-    if (filter !== 'all') rows = rows.filter(r => r.device === filter)
+    if (deviceFilter !== 'all') {
+      rows = rows.filter(r => (r.device || '').toLowerCase() === deviceFilter)
+    }
+    if (countryFilter !== 'all') {
+      rows = rows.filter(r => r.country === countryFilter)
+    }
+    if (dateFrom) {
+      const from = new Date(dateFrom).getTime()
+      rows = rows.filter(r => r.timestamp && r.timestamp * 1000 >= from)
+    }
+    if (dateTo) {
+      const to = new Date(dateTo).getTime() + 86400000 // inclusive end of day
+      rows = rows.filter(r => r.timestamp && r.timestamp * 1000 <= to)
+    }
     return rows
-  }, [visitors, search, filter])
+  }, [visitors, search, deviceFilter, countryFilter, dateFrom, dateTo])
 
   if (loading) return <div className="flex justify-center py-20"><span className="spinner w-10 h-10" /></div>
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
         <input
-          className="input flex-1 text-sm"
+          className="input flex-1 text-sm min-w-[160px]"
           placeholder="Search IP, country, browser, OS…"
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
         <select
           className="input sm:w-40 text-sm"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
+          value={deviceFilter}
+          onChange={e => setDeviceFilter(e.target.value)}
         >
           <option value="all">All devices</option>
           <option value="desktop">Desktop</option>
           <option value="mobile">Mobile</option>
           <option value="tablet">Tablet</option>
         </select>
+        <select
+          className="input sm:w-44 text-sm"
+          value={countryFilter}
+          onChange={e => setCountryFilter(e.target.value)}
+        >
+          <option value="all">All countries</option>
+          {countries.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+        <input
+          type="date"
+          className="input text-sm"
+          title="From date"
+          value={dateFrom}
+          onChange={e => setDateFrom(e.target.value)}
+        />
+        <input
+          type="date"
+          className="input text-sm"
+          title="To date"
+          value={dateTo}
+          onChange={e => setDateTo(e.target.value)}
+        />
         <button className="btn-danger btn-sm whitespace-nowrap" onClick={onClear}>
           🗑 Clear all
         </button>

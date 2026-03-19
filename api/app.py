@@ -3944,50 +3944,52 @@ async def start_playlist_download(
             "created_at":      time.time(),
             "owner_session":   session_id or "",
         }
-        completed = [0]
-        total     = [0]
 
-        def progress_hook(d):
-            if d["status"] == "finished":
-                completed[0] += 1
-                pct = (100.0 * completed[0] / total[0]) if total[0] else 0
-                with downloads_lock:
-                    # Check if download was cancelled
-                    if downloads.get(batch_id, {}).get("status") == "cancelled":
-                        raise yt_dlp.utils.DownloadCancelled("Download cancelled")
-                    downloads[batch_id].update({"percent": pct, "status": "downloading"})
-                emit_from_thread(
-                    "progress",
-                    {"id": batch_id, "percent": pct,
-                     "line": f"Downloaded {completed[0]}/{total[0]} videos"},
-                    room=batch_id,
-                )
+    completed = [0]
+    total     = [0]
 
-        ydl_opts = {
-            "format":          normalize_format_spec(format_spec),
-            "outtmpl":         output_template,
-            "noplaylist":      False,
-            "extractor_args":  _get_yt_extractor_args(),
-            "http_headers":    {"User-Agent": _CHROME_UA},
-            "extractor_retries": 5,
-            "retries":         5,
-            "sleep_requests":  1,
-            "sleep_interval":  5,
-            "max_sleep_interval": 10,
-            "geo_bypass":      True,
-            # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
-            "js_runtimes":     {"deno": {}, "node": {}},
-            "progress_hooks":  [progress_hook],
-            "quiet":           True,
-            "no_warnings":     True,
-            **_get_cookie_opts(),
-        }
-        if output_ext in _VALID_OUTPUT_EXTS:
-            ydl_opts["merge_output_format"] = output_ext
-        ffmpeg_path = shutil.which("ffmpeg")
-        if ffmpeg_path:
-            ydl_opts["ffmpeg_location"] = ffmpeg_path
+    def progress_hook(d):
+        if d["status"] == "finished":
+            completed[0] += 1
+            pct = (100.0 * completed[0] / total[0]) if total[0] else 0
+            with downloads_lock:
+                # Check if download was cancelled
+                if downloads.get(batch_id, {}).get("status") == "cancelled":
+                    raise yt_dlp.utils.DownloadCancelled("Download cancelled")
+                downloads[batch_id].update({"percent": pct, "status": "downloading"})
+            emit_from_thread(
+                "progress",
+                {"id": batch_id, "percent": pct,
+                 "line": f"Downloaded {completed[0]}/{total[0]} videos"},
+                room=batch_id,
+            )
 
+    ydl_opts = {
+        "format":          normalize_format_spec(format_spec),
+        "outtmpl":         output_template,
+        "noplaylist":      False,
+        "extractor_args":  _get_yt_extractor_args(),
+        "http_headers":    {"User-Agent": _CHROME_UA},
+        "extractor_retries": 5,
+        "retries":         5,
+        "sleep_requests":  1,
+        "sleep_interval":  5,
+        "max_sleep_interval": 10,
+        "geo_bypass":      True,
+        # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
+        "js_runtimes":     {"deno": {}, "node": {}},
+        "progress_hooks":  [progress_hook],
+        "quiet":           True,
+        "no_warnings":     True,
+        **_get_cookie_opts(),
+    }
+    if output_ext in _VALID_OUTPUT_EXTS:
+        ydl_opts["merge_output_format"] = output_ext
+    ffmpeg_path = shutil.which("ffmpeg")
+    if ffmpeg_path:
+        ydl_opts["ffmpeg_location"] = ffmpeg_path
+
+    def playlist_worker():
         with downloads_lock:
             downloads[batch_id]["status"]     = "downloading"
             downloads[batch_id]["start_time"] = time.time()
@@ -4155,14 +4157,6 @@ async def start_batch_download(
     cached_geo = ip_country_cache.get(ip, {})
 
     for url in url_list:
-        with downloads_lock:
-            active_count = sum(
-                1 for d in downloads.values()
-                if d["status"] in ("starting", "fetching_info", "queued", "downloading")
-            )
-            if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
-                break  # stop adding once limit reached
-
         # Use a placeholder title; each worker resolves the real title via
         # get_video_info() in the background and emits a title_update event.
         download_id     = str(uuid.uuid4())

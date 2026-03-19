@@ -71,7 +71,7 @@ function FileSelect({ label, value, onChange, files, multi, selected, onUploaded
   if (!files?.length) return (
     <div>
       <div className="text-sm text-gray-500 italic mb-1">No files available. Download some videos first.</div>
-      {!multi && <LocalFileUpload onUploaded={onUploaded} />}
+      <LocalFileUpload onUploaded={onUploaded} />
     </div>
   )
   if (multi) {
