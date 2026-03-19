@@ -8,7 +8,7 @@ function isMedia(name) {
   return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext)
 }
 
-const AUTO_CLOSE_SECONDS = 5
+const AUTO_CLOSE_SECONDS = 3 // quicker dismiss so the file list scrolls into view promptly
 
 /**
  * Centered popup shown during an active download.
