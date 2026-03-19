@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import socket from '../socket'
 import { cancelDownload, cancelAll } from '../api'
 import DownloadProgressPopup from './DownloadProgressPopup'
+import { playStartSound, playCompleteSound, playErrorSound } from '../sounds'
 
 function statusColor(status) {
   switch (status) {
@@ -72,17 +73,27 @@ function DownloadCard({ dl, onCancel }) {
   )
 }
 
-export default function ActiveDownloads({ onComplete }) {
+// How long (ms) to keep a completed card visible before removing it from the list.
+// Must be longer than AUTO_CLOSE_SECONDS in DownloadProgressPopup (3 s = 3000 ms).
+const COMPLETED_CARD_REMOVAL_DELAY_MS = 8000
+
+export default function ActiveDownloads({ onComplete, onDownloadDone }) {
   const [downloads, setDownloads] = useState({}) // id → dl
   const subscribedRef = useRef(new Set())
   // ID of the download currently shown in the centered progress popup
   const [popupId, setPopupId] = useState(null)
+  // Keep a ref so handlers always see the latest downloads without stale closure
+  const downloadsRef = useRef({})
+  // Track which download IDs have already had their start / end sounds played
+  const startedSoundRef   = useRef(new Set())
+  const completedSoundRef = useRef(new Set())
 
   const updateDl = (id, patch) => {
-    setDownloads(prev => ({
-      ...prev,
-      [id]: { ...(prev[id] || {}), id, ...patch },
-    }))
+    setDownloads(prev => {
+      const next = { ...prev, [id]: { ...(prev[id] || {}), id, ...patch } }
+      downloadsRef.current = next
+      return next
+    })
   }
 
   // Open the popup for `id` if nothing is already showing
@@ -94,27 +105,43 @@ export default function ActiveDownloads({ onComplete }) {
   useEffect(() => {
     const onProgress  = (data) => {
       if (data?.id) {
+        // Play start sound once per download (first progress event)
+        if (!startedSoundRef.current.has(data.id)) {
+          startedSoundRef.current.add(data.id)
+          playStartSound()
+        }
         updateDl(data.id, data)
         openPopupFor(data.id)
       }
     }
     const onCompleted = (data) => {
       if (data?.id) {
+        // Play completion sound once per download
+        if (!completedSoundRef.current.has(data.id)) {
+          completedSoundRef.current.add(data.id)
+          playCompleteSound()
+        }
         updateDl(data.id, { ...data, status: 'completed' })
         onComplete && onComplete(data.id)
         openPopupFor(data.id)
+        // Notify parent so it can scroll to the file list after a brief delay
+        setTimeout(() => {
+          onDownloadDone && onDownloadDone()
+        }, 800)
         // Remove the card after the popup auto-close window has passed
         setTimeout(() => {
           setDownloads(prev => {
             const n = { ...prev }
             delete n[data.id]
+            downloadsRef.current = n
             return n
           })
-        }, 8000)
+        }, COMPLETED_CARD_REMOVAL_DELAY_MS)
       }
     }
     const onFailed    = (data) => {
       if (data?.id) {
+        playErrorSound()
         updateDl(data.id, { ...data, status: 'failed' })
         openPopupFor(data.id)
       }
@@ -123,7 +150,12 @@ export default function ActiveDownloads({ onComplete }) {
       if (data?.id) {
         updateDl(data.id, { status: 'cancelled' })
         setTimeout(() => {
-          setDownloads(prev => { const n = {...prev}; delete n[data.id]; return n })
+          setDownloads(prev => {
+            const n = { ...prev }
+            delete n[data.id]
+            downloadsRef.current = n
+            return n
+          })
         }, 4000)
       }
     }
@@ -155,13 +187,11 @@ export default function ActiveDownloads({ onComplete }) {
 
   // When the popup closes, surface the next active download if any
   const handlePopupClose = useCallback(() => {
-    setPopupId(null)
-    setDownloads(prev => {
-      const next = Object.values(prev).find(
+    setPopupId(() => {
+      const next = Object.values(downloadsRef.current).find(
         d => d.status === 'downloading' || d.status === 'queued'
       )
-      if (next) setPopupId(next.id)
-      return prev
+      return next ? next.id : null
     })
   }, [])
 

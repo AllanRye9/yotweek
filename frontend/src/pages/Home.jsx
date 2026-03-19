@@ -149,6 +149,22 @@ export default function Home() {
 
   const refreshFiles = useCallback(() => setFileListVersion(v => v + 1), [])
 
+  // Ref attached to the file list section so we can scroll to it after a download completes
+  const fileListRef = useRef(null)
+  // Debounce timer for the scroll-to-file-list action so concurrent completions don't
+  // trigger multiple redundant scroll operations.
+  const scrollTimerRef = useRef(null)
+
+  const handleDownloadDone = useCallback(() => {
+    refreshFiles()
+    // Debounce: if several downloads finish close together, only scroll once.
+    // The 600 ms delay lets the file list re-render before we scroll to it.
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
+    scrollTimerRef.current = setTimeout(() => {
+      fileListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 600)
+  }, [refreshFiles])
+
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* ── Navbar ── */}
@@ -284,11 +300,11 @@ export default function Home() {
 
         {/* Active Downloads */}
         <div className="mt-6">
-          <ActiveDownloads onComplete={refreshFiles} />
+          <ActiveDownloads onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
         </div>
 
         {/* File List */}
-        <div className="mt-6">
+        <div className="mt-6" ref={fileListRef}>
           <FileList version={fileListVersion} />
         </div>
 
