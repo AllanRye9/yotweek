@@ -2563,8 +2563,6 @@ async def submit_review(request: Request):
 
     if not name:
         return JSONResponse({"error": "Name is required"}, status_code=400)
-    if not comment:
-        return JSONResponse({"error": "Comment is required"}, status_code=400)
     try:
         rating = int(rating)
         if rating < 1 or rating > 5:

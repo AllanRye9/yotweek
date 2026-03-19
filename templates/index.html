@@ -2670,7 +2670,7 @@
                                 <input type="text" id="review-name" placeholder="Your name" maxlength="50" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:0.85rem;font-family:inherit;">
                             </div>
                             <div class="form-group" style="margin-bottom:8px;">
-                                <textarea id="review-comment" placeholder="Write your review…" maxlength="500" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:0.85rem;font-family:inherit;resize:vertical;"></textarea>
+                                <textarea id="review-comment" placeholder="Write your review… (optional)" maxlength="500" rows="2" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:0.85rem;font-family:inherit;resize:vertical;"></textarea>
                             </div>
                             <button class="btn-primary" onclick="submitReview()" style="font-size:0.85rem;padding:8px 18px;">
                                 <i class="fas fa-paper-plane"></i> Submit Review
@@ -4715,7 +4715,6 @@
 
             if (!rating) { status.innerHTML = '<span style="color:#ef4444;">Please select a star rating.</span>'; return; }
             if (!name) { status.innerHTML = '<span style="color:#ef4444;">Please enter your name.</span>'; return; }
-            if (!comment) { status.innerHTML = '<span style="color:#ef4444;">Please write a review.</span>'; return; }
 
             status.innerHTML = '<span style="color:#6b7280;"><i class="fas fa-spinner fa-spin"></i> Submitting…</span>';
             try {
