@@ -1402,6 +1402,17 @@ def _get_yt_extractor_args() -> dict:
     return {"youtube": args}
 
 
+def _get_cookieless_extractor_args() -> dict:
+    """Build YouTube extractor args using only clients that work without authentication.
+
+    ``web_embedded`` and ``tv`` require no PO tokens and no cookies to fetch
+    publicly available videos.  These clients are used as a last-resort fallback
+    when the normal extraction attempt triggers bot-detection and no cookies file
+    is available, giving the best chance of downloading without authentication.
+    """
+    return {"youtube": {"player_client": ["web_embedded", "tv"]}}
+
+
 def _get_cookie_opts() -> dict:
     """Return yt-dlp ``cookiefile`` option when a valid cookies file exists.
 
@@ -1429,6 +1440,18 @@ _AUTH_PATTERNS = (
     "not authenticated",
 )
 
+
+def _is_auth_error(error_msg: str) -> bool:
+    """Return ``True`` if *error_msg* matches a known authentication/bot-detection pattern."""
+    lower = error_msg.lower()
+    if any(p in lower for p in _AUTH_PATTERNS):
+        return True
+    # Also catch cookie-specific failures (expired / invalid / missing cookies)
+    if "cookie" in lower and any(w in lower for w in ("invalid", "expired", "missing", "rejected")):
+        return True
+    return False
+
+
 def _friendly_cookie_error(error_msg: str) -> str:
     """Return a user-friendly message when YouTube bot-detection triggers.
 
@@ -1444,13 +1467,7 @@ def _friendly_cookie_error(error_msg: str) -> str:
     """
     lower = error_msg.lower()
 
-    is_auth_error = any(p in lower for p in _AUTH_PATTERNS)
-
-    # Also catch cookie-specific failures (expired / invalid / missing cookies)
-    if not is_auth_error and "cookie" in lower:
-        is_auth_error = any(w in lower for w in ("invalid", "expired", "missing", "rejected"))
-
-    if is_auth_error:
+    if _is_auth_error(error_msg):
         if os.path.isfile(COOKIES_FILE):
             # Cookies are present but still failing — likely stale/expired.
             # Site admin should re-upload a fresh cookies.txt (Admin → Cookies).
@@ -1459,12 +1476,11 @@ def _friendly_cookie_error(error_msg: str) -> str:
                 "The authentication session may have expired — please try "
                 "again in a few minutes."
             )
-        # No cookies configured at all.  Downloading should be retried once
-        # the site administrator uploads a valid cookies.txt (Admin → Cookies).
+        # No cookies configured and cookieless clients also failed.
         return (
-            "This video cannot be downloaded right now. YouTube\u2019s "
-            "bot-detection is active for this request. Please try again "
-            "in a few minutes, or try a different video."
+            "This video cannot be downloaded without authentication. "
+            "It may be age-restricted, private, or temporarily restricted by YouTube. "
+            "Please try again later or try a different video."
         )
 
     # Private / age-restricted videos
@@ -1519,58 +1535,88 @@ def normalize_format_spec(fmt: str) -> str:
     return f"{fmt}/best"
 
 
+def _build_info_dict(info: dict) -> dict:
+    """Convert a yt-dlp info dict to the shape returned by ``get_video_info``."""
+    return {
+        "title": info.get("title", "Unknown"),
+        "duration": info.get("duration", 0),
+        "uploader": info.get("uploader", "Unknown"),
+        "thumbnail": info.get("thumbnail", ""),
+        "formats": [
+            {
+                "format_id": f.get("format_id"),
+                "ext": f.get("ext"),
+                "resolution": f.get("resolution", "N/A"),
+                "filesize": f.get("filesize", 0),
+                "format_note": f.get("format_note", "")
+            }
+            for f in info.get("formats", [])
+            if f.get("vcodec") != "none"
+        ],
+        "audio_formats": [
+            {
+                "format_id": f.get("format_id"),
+                "ext": f.get("ext"),
+                "abr": f.get("abr", 0),
+                "filesize": f.get("filesize", 0),
+                "format_note": f.get("format_note", "")
+            }
+            for f in info.get("formats", [])
+            if f.get("acodec") != "none" and f.get("vcodec") == "none"
+        ]
+    }
+
+
 def get_video_info(url: str) -> dict:
-    """Get video information without downloading, using the yt-dlp Python API"""
+    """Get video information without downloading, using the yt-dlp Python API.
+
+    If the initial attempt fails with an authentication/bot-detection error and
+    no cookies file is present, a second attempt is made using only the
+    ``web_embedded`` and ``tv`` player clients which require no PO tokens or
+    authentication and can fetch publicly available videos without cookies.
+    """
+    _base_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "http_headers": {"User-Agent": _CHROME_UA},
+        "extractor_retries": 5,
+        "retries": 5,
+        "sleep_requests": 1,
+        "sleep_interval": 5,
+        "max_sleep_interval": 10,
+        "geo_bypass": True,
+        # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
+        "js_runtimes": {"deno": {}, "node": {}},
+    }
     try:
         ydl_opts = {
-            "quiet": True,
-            "no_warnings": True,
-            "noplaylist": True,
+            **_base_opts,
             "extractor_args": _get_yt_extractor_args(),
-            "http_headers": {"User-Agent": _CHROME_UA},
-            "extractor_retries": 5,
-            "retries": 5,
-            "sleep_requests": 1,
-            "sleep_interval": 5,
-            "max_sleep_interval": 10,
-            "geo_bypass": True,
-            # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
-            "js_runtimes": {"deno": {}, "node": {}},
             **_get_cookie_opts(),
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
 
-        return {
-            "title": info.get("title", "Unknown"),
-            "duration": info.get("duration", 0),
-            "uploader": info.get("uploader", "Unknown"),
-            "thumbnail": info.get("thumbnail", ""),
-            "formats": [
-                {
-                    "format_id": f.get("format_id"),
-                    "ext": f.get("ext"),
-                    "resolution": f.get("resolution", "N/A"),
-                    "filesize": f.get("filesize", 0),
-                    "format_note": f.get("format_note", "")
-                }
-                for f in info.get("formats", [])
-                if f.get("vcodec") != "none"
-            ],
-            "audio_formats": [
-                {
-                    "format_id": f.get("format_id"),
-                    "ext": f.get("ext"),
-                    "abr": f.get("abr", 0),
-                    "filesize": f.get("filesize", 0),
-                    "format_note": f.get("format_note", "")
-                }
-                for f in info.get("formats", [])
-                if f.get("acodec") != "none" and f.get("vcodec") == "none"
-            ]
-        }
+        return _build_info_dict(info)
     except yt_dlp.utils.DownloadError as e:
+        # When bot-detection fires and there are no cookies, retry with only
+        # the POT-free clients (web_embedded + tv) that work without auth.
+        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
+            logger.info("Auth error without cookies — retrying with cookieless clients")
+            try:
+                ydl_opts_retry = {
+                    **_base_opts,
+                    "extractor_args": _get_cookieless_extractor_args(),
+                }
+                with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                return _build_info_dict(info)
+            except yt_dlp.utils.DownloadError as retry_err:
+                logger.info("Cookieless retry also failed: %s", retry_err)
+            except Exception as retry_err:
+                logger.warning("Unexpected error during cookieless retry: %s", retry_err)
         error_msg = _friendly_cookie_error(str(e))
         return {"error": error_msg}
     except Exception as e:
@@ -1704,14 +1750,13 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
     if ffmpeg_path:
         ydl_opts["ffmpeg_location"] = ffmpeg_path
 
-    with downloads_lock:
-        downloads[download_id]["status"] = "downloading"
-        downloads[download_id]["start_time"] = time.time()
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    def _do_download(opts: dict) -> None:
+        """Run yt-dlp download with the given options."""
+        with yt_dlp.YoutubeDL(opts) as ydl:
             ydl.download([url])
 
+    def _finalize_completed() -> None:
+        """Update state and emit events after a successful download."""
         with downloads_lock:
             downloads[download_id].update({
                 "status": "completed",
@@ -1745,6 +1790,14 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         emit_from_thread("files_updated")
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
+    with downloads_lock:
+        downloads[download_id]["status"] = "downloading"
+        downloads[download_id]["start_time"] = time.time()
+
+    try:
+        _do_download(ydl_opts)
+        _finalize_completed()
+
     except yt_dlp.utils.DownloadCancelled:
         logger.info(f"Download cancelled via hook: {download_id}")
         with downloads_lock:
@@ -1756,7 +1809,47 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
-        error_msg = _friendly_cookie_error(str(e))
+        # When bot-detection fires and no cookies are present, retry using only
+        # the POT-free clients (web_embedded + tv) that work without authentication.
+        final_error: Exception = e
+        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
+            logger.info(
+                f"Auth error without cookies for {download_id} — "
+                "retrying with cookieless clients"
+            )
+            emit_from_thread(
+                "status_update",
+                {
+                    "id": download_id,
+                    "status": "downloading",
+                    "message": "Retrying without authentication…",
+                },
+                room=download_id,
+            )
+            ydl_opts_retry = {
+                **ydl_opts,
+                "extractor_args": _get_cookieless_extractor_args(),
+            }
+            # Defensive: ensure no cookiefile leaks into the cookieless retry
+            ydl_opts_retry.pop("cookiefile", None)
+            try:
+                _do_download(ydl_opts_retry)
+                _finalize_completed()
+                return
+            except yt_dlp.utils.DownloadCancelled:
+                logger.info(f"Download cancelled via hook (cookieless retry): {download_id}")
+                with downloads_lock:
+                    downloads[download_id].update({
+                        "status": "cancelled",
+                        "end_time": time.time(),
+                    })
+                emit_from_thread("cancelled", {"id": download_id}, room=download_id)
+                threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                return
+            except Exception as retry_err:
+                logger.info("Cookieless retry also failed for %s: %s", download_id, retry_err)
+                final_error = retry_err
+        error_msg = _friendly_cookie_error(str(final_error))
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
@@ -3941,8 +4034,72 @@ async def start_playlist_download(
             threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
         except Exception as exc:
-            logger.error("Playlist download error: %s", exc)
-            error_msg = _friendly_cookie_error(str(exc))
+            # When bot-detection fires and no cookies are present, retry using only
+            # the POT-free clients (web_embedded + tv) that work without authentication.
+            final_exc: Exception = exc
+            if _is_auth_error(str(exc)) and not os.path.isfile(COOKIES_FILE):
+                logger.info(
+                    f"Auth error without cookies for playlist {batch_id} — "
+                    "retrying with cookieless clients"
+                )
+                emit_from_thread(
+                    "status_update",
+                    {
+                        "id": batch_id,
+                        "status": "downloading",
+                        "message": "Retrying without authentication…",
+                    },
+                    room=batch_id,
+                )
+                ydl_opts_retry = {
+                    **ydl_opts,
+                    "extractor_args": _get_cookieless_extractor_args(),
+                }
+                # Defensive: ensure no cookiefile leaks into the cookieless retry
+                ydl_opts_retry.pop("cookiefile", None)
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts_retry) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if info:
+                            entries = info.get("entries") or [info]
+                            total[0] = len(entries)
+                            with downloads_lock:
+                                downloads[batch_id]["title"] = info.get("title", "Playlist")
+                        ydl.download([url])
+                    with downloads_lock:
+                        downloads[batch_id].update({
+                            "status":   "completed",
+                            "percent":  100,
+                            "end_time": time.time(),
+                        })
+                    emit_from_thread(
+                        "progress",
+                        {"id": batch_id, "line": "", "percent": 100, "speed": "", "eta": ""},
+                        room=batch_id,
+                    )
+                    emit_from_thread(
+                        "completed",
+                        {"id": batch_id, "title": downloads[batch_id].get("title")},
+                        room=batch_id,
+                    )
+                    emit_from_thread("files_updated")
+                    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                    return
+                except yt_dlp.utils.DownloadCancelled:
+                    logger.info(f"Playlist download cancelled via hook (cookieless retry): {batch_id}")
+                    with downloads_lock:
+                        downloads[batch_id].update({
+                            "status":   "cancelled",
+                            "end_time": time.time(),
+                        })
+                    emit_from_thread("cancelled", {"id": batch_id}, room=batch_id)
+                    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                    return
+                except Exception as retry_exc:
+                    logger.info("Cookieless retry also failed for playlist %s: %s", batch_id, retry_exc)
+                    final_exc = retry_exc
+            logger.error("Playlist download error: %s", final_exc)
+            error_msg = _friendly_cookie_error(str(final_exc))
             with downloads_lock:
                 downloads[batch_id].update({
                     "status":   "failed",
