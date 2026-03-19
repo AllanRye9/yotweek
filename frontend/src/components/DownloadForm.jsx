@@ -54,7 +54,7 @@ export default function DownloadForm({ onDownloadStarted }) {
       const data = await startDownload(url.trim(), format, ext, SESSION_ID)
       setNotice(data.title)
       if (data.warning) setError(`⚠ ${data.warning}`)
-      onDownloadStarted && onDownloadStarted(data.download_id)
+      onDownloadStarted && onDownloadStarted({ download_id: data.download_id, title: data.title })
     } catch (err) {
       setError(err.data?.error || err.message || 'Failed to start download')
     } finally {

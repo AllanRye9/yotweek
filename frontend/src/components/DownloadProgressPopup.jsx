@@ -8,12 +8,14 @@ function isMedia(name) {
   return AUDIO_EXTS.has(ext) || VIDEO_EXTS.has(ext)
 }
 
-const AUTO_CLOSE_SECONDS = 3 // quicker dismiss so the file list scrolls into view promptly
+const AUTO_CLOSE_SECONDS = 5 // seconds after a successful completion before auto-close
+// Width (%) of the shimmer overlay that sweeps across the active progress fill
+const SHIMMER_WIDTH_PCT = 20
 
 /**
  * Centered popup shown during an active download.
- * Progress bar is animated to match the real download percentage.
- * Auto-closes after the download finishes.
+ * Monitors real-time progress received via Socket.IO from the backend.
+ * Auto-closes after the download finishes with a brief completion popup.
  *
  * Props:
  *   dl       – download record (id, title, percent, speed, eta, status, filename, file_size_hr, error)
@@ -24,17 +26,19 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
   const [countdown, setCountdown] = useState(null)
   const timerRef = useRef(null)
 
-  const pct          = Math.round(dl?.percent || 0)
-  const isQueued     = dl?.status === 'queued' || dl?.status === null || dl?.status === undefined
+  const pct           = Math.round(dl?.percent || 0)
+  const isQueued      = !dl?.status || dl.status === 'queued'
+  const isFetching    = dl?.status === 'starting' || dl?.status === 'fetching_info'
   const isDownloading = dl?.status === 'downloading'
-  const isCompleted  = dl?.status === 'completed'
-  const isFailed     = dl?.status === 'failed'
-  const isCancelled  = dl?.status === 'cancelled'
-  const isDone       = isCompleted || isFailed || isCancelled
+  const isCompleted   = dl?.status === 'completed'
+  const isFailed      = dl?.status === 'failed'
+  const isCancelled   = dl?.status === 'cancelled'
+  const isDone        = isCompleted || isFailed || isCancelled
+  const isIndeterminate = isQueued || isFetching
 
   // Auto-close countdown once the download finishes
   useEffect(() => {
-    if (!isDone) return
+    if (!isCompleted) return
     let remaining = AUTO_CLOSE_SECONDS
     setCountdown(remaining)
     timerRef.current = setInterval(() => {
@@ -47,7 +51,7 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
       }
     }, 1000)
     return () => clearInterval(timerRef.current)
-  }, [isDone, onClose])
+  }, [isCompleted, onClose])
 
   if (!dl) return null
 
@@ -89,27 +93,29 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
       onClick={isDone ? onClose : undefined}
     >
       <div
-        className="popup-card w-full max-w-sm"
+        className="dl-popup-card w-full max-w-sm"
         onClick={e => e.stopPropagation()}
       >
         {/* ── Header ── */}
         <div className="flex items-start justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            {isCompleted   && <span className="text-green-400 text-xl">✓</span>}
-            {isFailed      && <span className="text-red-400 text-xl">✗</span>}
-            {isCancelled   && <span className="text-gray-500 text-xl">⊘</span>}
-            {isDownloading && <span className="spinner w-5 h-5 block" />}
-            {isQueued      && (
-              <span className="w-5 h-5 block rounded-full bg-yellow-500/30 border-2 border-yellow-500" />
+          <div className="flex items-center gap-3">
+            {isCompleted   && <span className="dl-status-icon dl-status-done">✓</span>}
+            {isFailed      && <span className="dl-status-icon dl-status-fail">✗</span>}
+            {isCancelled   && <span className="dl-status-icon dl-status-cancel">⊘</span>}
+            {isDownloading && <span className="spinner dl-status-spin" />}
+            {(isQueued || isFetching) && (
+              <span className="dl-status-icon dl-status-queued" />
             )}
             <h2 className="text-base font-semibold text-white">
-              {isCompleted  ? 'Download Complete'
+              {isCompleted  ? '✅ Download Complete!'
                : isFailed   ? 'Download Failed'
                : isCancelled? 'Download Cancelled'
+               : isFetching ? 'Preparing download…'
                : isQueued   ? 'Queued…'
                :              'Downloading…'}
             </h2>
@@ -122,33 +128,62 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
         </div>
 
         {/* ── Title ── */}
-        <p className="text-sm text-white truncate mb-4" title={title}>{title}</p>
+        <p className="text-sm text-white/80 truncate mb-5" title={title}>{title}</p>
 
         {/* ── Progress bar ── */}
-        <div className="mb-3">
-          <div className="progress-bar relative overflow-hidden">
-            {isQueued
-              ? <div className="progress-fill-indeterminate" />
-              : <div className="progress-fill" style={{ width: `${fillPct}%` }} />
-            }
+        <div className="mb-4">
+          <div className="dl-progress-track">
+            {isIndeterminate ? (
+              <div className="dl-progress-indeterminate" />
+            ) : (
+              <>
+                <div
+                  className={`dl-progress-fill${isCompleted ? ' dl-progress-complete' : ''}`}
+                  style={{ width: `${fillPct}%` }}
+                />
+                {isDownloading && fillPct > 0 && fillPct < 100 && (
+                  <div className="dl-progress-shimmer" style={{ left: `${Math.max(0, fillPct - SHIMMER_WIDTH_PCT)}%`, width: `${Math.min(SHIMMER_WIDTH_PCT, fillPct)}%` }} />
+                )}
+              </>
+            )}
           </div>
-          {!isQueued && (
-            <p className="text-xs text-gray-400 mt-1">{fillPct}%</p>
-          )}
+          <div className="flex justify-between mt-1.5">
+            {!isIndeterminate && (
+              <p className="text-xs font-semibold" style={{ color: isCompleted ? '#4ade80' : '#f87171' }}>
+                {fillPct}%
+              </p>
+            )}
+            {isIndeterminate && <p className="text-xs text-gray-500">{isFetching ? 'Fetching info…' : 'Waiting…'}</p>}
+          </div>
         </div>
 
         {/* ── Metadata (speed / ETA / size) ── */}
         {(dl.speed || dl.eta || dl.file_size_hr) && (
-          <div className="flex flex-wrap gap-3 text-xs text-gray-400 mb-4">
-            {dl.speed        && <span>⚡ {dl.speed}</span>}
-            {dl.eta          && <span>⏱ {dl.eta}</span>}
-            {dl.file_size_hr && <span>📦 {dl.file_size_hr}</span>}
+          <div className="dl-meta-row mb-5">
+            {dl.speed        && (
+              <span className="dl-meta-pill">
+                <span className="dl-meta-label">Speed</span>
+                <span className="dl-meta-value">⚡ {dl.speed}</span>
+              </span>
+            )}
+            {dl.eta          && (
+              <span className="dl-meta-pill">
+                <span className="dl-meta-label">ETA</span>
+                <span className="dl-meta-value">⏱ {dl.eta}</span>
+              </span>
+            )}
+            {dl.file_size_hr && (
+              <span className="dl-meta-pill">
+                <span className="dl-meta-label">Size</span>
+                <span className="dl-meta-value">📦 {dl.file_size_hr}</span>
+              </span>
+            )}
           </div>
         )}
 
         {/* ── Error ── */}
         {dl.error && (
-          <p className="text-xs text-red-400 mb-3 line-clamp-2">{dl.error}</p>
+          <p className="text-xs text-red-400 mb-4 bg-red-900/20 border border-red-800/40 rounded-lg px-3 py-2 line-clamp-3">{dl.error}</p>
         )}
 
         {/* ── Action buttons ── */}
@@ -184,10 +219,10 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
           <button className="btn-ghost w-full" onClick={onClose}>Close</button>
         ) : (
           <button
-            className="btn-ghost w-full text-red-400 hover:text-red-300"
+            className="btn-ghost w-full text-red-400 hover:text-red-300 border border-red-800/40"
             onClick={handleCancel}
           >
-            Cancel Download
+            ✕ Cancel Download
           </button>
         )}
       </div>

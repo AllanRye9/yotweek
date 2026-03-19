@@ -78,6 +78,9 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
 
+  // Ref to ActiveDownloads so we can call subscribeToDownload on it
+  const activeDownloadsRef = useRef(null)
+
   // Draggable help FAB state
   const fabRef = useRef(null)
   const fabDrag = useRef({ active: false, moved: false, startX: 0, startY: 0, origRight: 24, origBottom: 24 })
@@ -148,6 +151,15 @@ export default function Home() {
   }, [])
 
   const refreshFiles = useCallback(() => setFileListVersion(v => v + 1), [])
+
+  // Called by DownloadForm/PlaylistForm when a download is queued.
+  // Subscribes to the socket.io room for the download and shows the popup.
+  const handleDownloadStarted = useCallback(({ download_id, title } = {}) => {
+    if (download_id) {
+      activeDownloadsRef.current?.subscribeToDownload(download_id, title)
+    }
+    refreshFiles()
+  }, [refreshFiles])
 
   // Ref attached to the file list section so we can scroll to it after a download completes
   const fileListRef = useRef(null)
@@ -293,14 +305,14 @@ export default function Home() {
 
         {/* Tab panels */}
         <div className="card">
-          {tab === 'download' && <DownloadForm onDownloadStarted={refreshFiles} />}
-          {tab === 'playlist' && <PlaylistForm onDownloadStarted={refreshFiles} />}
+          {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
+          {tab === 'playlist' && <PlaylistForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'editing'  && <EditingPanel onJobDone={refreshFiles} />}
         </div>
 
         {/* Active Downloads */}
         <div className="mt-6">
-          <ActiveDownloads onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
+          <ActiveDownloads ref={activeDownloadsRef} onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
         </div>
 
         {/* File List */}

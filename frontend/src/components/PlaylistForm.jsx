@@ -61,7 +61,7 @@ export default function PlaylistForm({ onDownloadStarted }) {
     try {
       const data = await startPlaylist(url.trim(), format, ext, startIdx, endIdx, SESSION_ID)
       setNotice(`✓ Playlist download started — ${data.queued ?? ''} videos queued`)
-      onDownloadStarted && onDownloadStarted()
+      onDownloadStarted && onDownloadStarted({ download_id: data.download_id, title: data.title || 'Playlist Download' })
     } catch (err) {
       setError(err.data?.error || err.message || 'Failed to start playlist')
     } finally {
@@ -77,8 +77,10 @@ export default function PlaylistForm({ onDownloadStarted }) {
     setError(''); setNotice(''); setLoading(true)
     try {
       const data = await startBatch(found.join('\n'), format, ext, SESSION_ID)
-      setNotice(`✓ Batch started — ${data.queued ?? found.length} downloads queued`)
-      onDownloadStarted && onDownloadStarted()
+      setNotice(`✓ Batch started — ${data.total ?? found.length} downloads queued`)
+      for (const dl of data.started || []) {
+        onDownloadStarted && onDownloadStarted({ download_id: dl.download_id, title: dl.title })
+      }
     } catch (err) {
       setError(err.data?.error || err.message || 'Failed to start batch')
     } finally {

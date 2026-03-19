@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import socket from '../socket'
-import { cancelDownload, cancelAll } from '../api'
+import { cancelDownload, cancelAll, getActiveDownloads } from '../api'
 import DownloadProgressPopup from './DownloadProgressPopup'
 import { playStartSound, playCompleteSound, playErrorSound } from '../sounds'
 
@@ -17,14 +17,15 @@ function statusColor(status) {
 
 function DownloadCard({ dl, onCancel }) {
   const pct = Math.round(dl.percent || 0)
-  const isActive = dl.status === 'downloading' || dl.status === 'queued'
+  const isActive = ['starting', 'fetching_info', 'downloading', 'queued'].includes(dl.status)
+  const isSpinning = ['starting', 'fetching_info', 'downloading'].includes(dl.status)
 
   return (
     <div className="bg-gray-800/60 rounded-xl p-4">
       <div className="flex items-start gap-3">
         {/* Status icon */}
         <div className="mt-0.5 shrink-0">
-          {dl.status === 'downloading' && <span className="spinner w-4 h-4 block" />}
+          {isSpinning                  && <span className="spinner w-4 h-4 block" />}
           {dl.status === 'queued'      && <span className="w-4 h-4 block rounded-full bg-yellow-500/30 border-2 border-yellow-500" />}
           {dl.status === 'completed'   && <span className="text-green-400 text-base">✓</span>}
           {dl.status === 'failed'      && <span className="text-red-400 text-base">✗</span>}
@@ -46,10 +47,18 @@ function DownloadCard({ dl, onCancel }) {
           {/* Progress bar */}
           {dl.status === 'downloading' && (
             <div className="mt-2">
-              <div className="progress-bar">
+              <div className="progress-bar relative overflow-hidden">
                 <div className="progress-fill" style={{ width: `${pct}%` }} />
+                {pct > 0 && pct < 100 && <div className="progress-shimmer" />}
               </div>
               <p className="text-xs text-gray-600 mt-0.5">{pct}%</p>
+            </div>
+          )}
+          {(dl.status === 'starting' || dl.status === 'fetching_info' || dl.status === 'queued') && (
+            <div className="mt-2">
+              <div className="progress-bar relative overflow-hidden">
+                <div className="progress-fill-indeterminate" />
+              </div>
             </div>
           )}
 
@@ -77,7 +86,7 @@ function DownloadCard({ dl, onCancel }) {
 // Must be longer than AUTO_CLOSE_SECONDS in DownloadProgressPopup (3 s = 3000 ms).
 const COMPLETED_CARD_REMOVAL_DELAY_MS = 8000
 
-export default function ActiveDownloads({ onComplete, onDownloadDone }) {
+const ActiveDownloads = forwardRef(function ActiveDownloads({ onComplete, onDownloadDone }, ref) {
   const [downloads, setDownloads] = useState({}) // id → dl
   const subscribedRef = useRef(new Set())
   // ID of the download currently shown in the centered progress popup
@@ -88,21 +97,78 @@ export default function ActiveDownloads({ onComplete, onDownloadDone }) {
   const startedSoundRef   = useRef(new Set())
   const completedSoundRef = useRef(new Set())
 
-  const updateDl = (id, patch) => {
+  const updateDl = useCallback((id, patch) => {
     setDownloads(prev => {
       const next = { ...prev, [id]: { ...(prev[id] || {}), id, ...patch } }
       downloadsRef.current = next
       return next
     })
-  }
+  }, [])
 
   // Open the popup for `id` if nothing is already showing
   const openPopupFor = useCallback((id) => {
     setPopupId(prev => prev ?? id)
   }, [])
 
+  // Subscribe to socket.io room for a download, pre-populate state
+  const subscribeToDownload = useCallback((id, title) => {
+    if (!id) return
+    if (!subscribedRef.current.has(id)) {
+      subscribedRef.current.add(id)
+      // Pre-populate state so the card/popup appears immediately
+      setDownloads(prev => {
+        if (prev[id]) return prev // already exists, don't overwrite
+        const next = { ...prev, [id]: { id, title: title || `video_${id.slice(0, 8)}`, status: 'queued', percent: 0 } }
+        downloadsRef.current = next
+        return next
+      })
+      // Join the backend socket.io room so room-scoped events reach this client
+      socket.emit('subscribe', { download_id: id })
+    }
+    openPopupFor(id)
+  }, [openPopupFor])
+
+  // Expose subscribeToDownload to parent via ref
+  useImperativeHandle(ref, () => ({ subscribeToDownload }), [subscribeToDownload])
+
+  // On socket reconnect, re-subscribe to all tracked download rooms
+  useEffect(() => {
+    const onReconnect = () => {
+      for (const id of subscribedRef.current) {
+        socket.emit('subscribe', { download_id: id })
+      }
+    }
+    socket.on('connect', onReconnect)
+    return () => socket.off('connect', onReconnect)
+  }, [])
+
+  // On mount, fetch any already-running downloads and subscribe to each.
+  // subscribeToDownload and updateDl are stable (useCallback with no deps).
+  useEffect(() => {
+    getActiveDownloads()
+      .then(data => {
+        for (const dl of data.downloads || []) {
+          subscribeToDownload(dl.id, dl.title)
+          // Normalize size field and merge in live progress data
+          const patch = { ...dl }
+          if (dl.size && !dl.file_size_hr) patch.file_size_hr = dl.size
+          updateDl(dl.id, patch)
+        }
+      })
+      .catch(() => {})
+  }, [subscribeToDownload, updateDl])
+
   // Subscribe to socket events
   useEffect(() => {
+    const onStarted = (data) => {
+      if (data?.id) updateDl(data.id, { status: 'starting' })
+    }
+    const onStatusUpdate = (data) => {
+      if (data?.id) updateDl(data.id, { ...(data.status ? { status: data.status } : {}), message: data.message })
+    }
+    const onTitleUpdate = (data) => {
+      if (data?.id && data.title) updateDl(data.id, { title: data.title })
+    }
     const onProgress  = (data) => {
       if (data?.id) {
         // Play start sound once per download (first progress event)
@@ -110,8 +176,10 @@ export default function ActiveDownloads({ onComplete, onDownloadDone }) {
           startedSoundRef.current.add(data.id)
           playStartSound()
         }
-        updateDl(data.id, data)
-        openPopupFor(data.id)
+        // Normalize: backend sends `size` in progress events; popup expects `file_size_hr`
+        const patch = { ...data, status: 'downloading' }
+        if (data.size && !data.file_size_hr) patch.file_size_hr = data.size
+        updateDl(data.id, patch)
       }
     }
     const onCompleted = (data) => {
@@ -136,6 +204,7 @@ export default function ActiveDownloads({ onComplete, onDownloadDone }) {
             downloadsRef.current = n
             return n
           })
+          subscribedRef.current.delete(data.id)
         }, COMPLETED_CARD_REMOVAL_DELAY_MS)
       }
     }
@@ -156,22 +225,29 @@ export default function ActiveDownloads({ onComplete, onDownloadDone }) {
             downloadsRef.current = n
             return n
           })
+          subscribedRef.current.delete(data.id)
         }, 4000)
       }
     }
 
-    socket.on('progress',  onProgress)
-    socket.on('completed', onCompleted)
-    socket.on('failed',    onFailed)
-    socket.on('cancelled', onCancelled)
+    socket.on('started',       onStarted)
+    socket.on('status_update', onStatusUpdate)
+    socket.on('title_update',  onTitleUpdate)
+    socket.on('progress',      onProgress)
+    socket.on('completed',     onCompleted)
+    socket.on('failed',        onFailed)
+    socket.on('cancelled',     onCancelled)
 
     return () => {
-      socket.off('progress',  onProgress)
-      socket.off('completed', onCompleted)
-      socket.off('failed',    onFailed)
-      socket.off('cancelled', onCancelled)
+      socket.off('started',       onStarted)
+      socket.off('status_update', onStatusUpdate)
+      socket.off('title_update',  onTitleUpdate)
+      socket.off('progress',      onProgress)
+      socket.off('completed',     onCompleted)
+      socket.off('failed',        onFailed)
+      socket.off('cancelled',     onCancelled)
     }
-  }, [onComplete, openPopupFor])
+  }, [onComplete, onDownloadDone, openPopupFor, updateDl])
 
   const handleCancel = async (id) => {
     try {
@@ -189,14 +265,14 @@ export default function ActiveDownloads({ onComplete, onDownloadDone }) {
   const handlePopupClose = useCallback(() => {
     setPopupId(() => {
       const next = Object.values(downloadsRef.current).find(
-        d => d.status === 'downloading' || d.status === 'queued'
+        d => ['starting', 'fetching_info', 'downloading', 'queued'].includes(d.status)
       )
       return next ? next.id : null
     })
   }, [])
 
   const dls     = Object.values(downloads)
-  const active  = dls.filter(d => d.status === 'downloading' || d.status === 'queued')
+  const active  = dls.filter(d => ['starting', 'fetching_info', 'downloading', 'queued'].includes(d.status))
   const popupDl = popupId ? downloads[popupId] : null
 
   if (!dls.length && !popupDl) return null
@@ -237,4 +313,6 @@ export default function ActiveDownloads({ onComplete, onDownloadDone }) {
       )}
     </>
   )
-}
+})
+
+export default ActiveDownloads
