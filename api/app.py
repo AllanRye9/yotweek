@@ -1423,6 +1423,10 @@ _AUTH_PATTERNS = (
     "sign in to view",
     "session has been invalidated",
     "required to log in",
+    "use --cookies",
+    "use --cookies-from-browser",
+    "requires authentication",
+    "not authenticated",
 )
 
 def _friendly_cookie_error(error_msg: str) -> str:

@@ -142,11 +142,42 @@ yot_downloader/
 
 ---
 
+## Troubleshooting
+
+### ❌ "YouTube requires authentication" / bot detection error
+
+**Error message you may see:**
+> YouTube requires authentication. Please upload a cookies.txt file via the Admin panel (Admin → Cookies) to bypass bot detection.
+
+**Cause:**  
+YouTube detects automated download requests and challenges them with a *"Sign in to confirm you're not a bot"* gate. This happens even for fully public videos when too many unauthenticated requests are made from the same IP, or when YouTube updates its bot-detection thresholds. `yt-dlp` surfaces this as an authentication/sign-in error.
+
+**Fix:**  
+Supply a `cookies.txt` file exported from a logged-in YouTube session in your browser. The app reads this file and passes it to `yt-dlp` so YouTube treats the request as a real browser session rather than a bot.
+
+**Step-by-step:**
+
+1. **Export your cookies** from a browser where you are already signed in to YouTube.  
+   Use the browser extension recommended by yt-dlp:  
+   → [Get cookies.txt LOCALLY](https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) (Chrome/Edge) or equivalent for Firefox.  
+   See the [yt-dlp cookies FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) for full instructions.
+
+2. **Upload the file** via the Admin panel:
+   - Log in at `/admin`.
+   - Go to **Admin → Cookies** (or use the *Upload Cookies* button in the admin bar on the home page).
+   - Upload the exported `cookies.txt` file.
+
+3. **Retry the download.** The status dot in the admin bar will turn green once cookies are active, and the bot-detection error should no longer appear.
+
+> **Note:** Cookies expire. If you later see *"Your cookies file may be expired or invalid"*, simply export fresh cookies and re-upload via the Admin panel.
+
+---
+
 ## Tech Stack
 
-- **Backend** – Python, Flask, Flask-SocketIO, eventlet
+- **Backend** – Python, FastAPI, uvicorn
 - **Downloader** – yt-dlp
-- **Frontend** – Vanilla HTML/CSS/JavaScript, Socket.IO client
+- **Frontend** – React + Vite + Tailwind CSS (admin SPA), Vanilla HTML/CSS/JS (main UI), Socket.IO client
 - **Audio** – Web Audio API (no external audio files)
 - **Icons** – Font Awesome 6
 
