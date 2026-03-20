@@ -49,7 +49,7 @@ export default function AdminLogin({ register = false }) {
       <div className="mb-8 text-center">
         <Link to="/" className="inline-flex items-center gap-2 text-2xl font-bold text-white">
           <span className="text-3xl">📥</span>
-          <span className="gradient-text">YOT Downloader</span>
+          <span className="gradient-text">yotweek</span>
         </Link>
         <p className="text-gray-500 text-sm mt-1">Admin Panel</p>
       </div>

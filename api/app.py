@@ -4684,6 +4684,8 @@ _DOC_CONV_TARGETS = {
 # Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img"
 def _doc_conv_strategy(src_ext: str, target: str) -> str:
     src_ext = src_ext.lstrip(".")
+    if src_ext == target:
+        return "passthrough"
     if src_ext == "pdf" and target == "docx":
         return "pdf2docx"
     if src_ext == "pdf" and target in ("png", "jpg"):
@@ -4737,7 +4739,10 @@ async def api_doc_convert(
         strategy = _doc_conv_strategy(src_ext, target)
         err_msg = None
 
-        if strategy == "pdf2docx":
+        if strategy == "passthrough":
+            shutil.copy2(input_path, output_path)
+
+        elif strategy == "pdf2docx":
             try:
                 from pdf2docx import Converter
                 cv = Converter(input_path)
