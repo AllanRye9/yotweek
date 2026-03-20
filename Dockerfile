@@ -1,10 +1,16 @@
 FROM python:3.12-slim
 
 # Install Node.js (for building the React frontend) + ffmpeg + ca-certificates
-# + LibreOffice + pandoc + poppler-utils (pdftoppm) for document conversion
+# + LibreOffice (full headless suite) + JRE + pandoc + poppler-utils (pdftoppm)
+# for document conversion.
+# libreoffice-writer/calc/impress/java-common + default-jre are all required for
+# headless conversions; the plain `libreoffice` meta-package omits several of
+# these components and causes "no export filter found" / javaldx JRE warnings.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg ca-certificates curl \
-        libreoffice pandoc poppler-utils \
+        libreoffice-writer libreoffice-calc libreoffice-impress \
+        libreoffice-java-common default-jre \
+        pandoc poppler-utils \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
@@ -27,10 +33,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create data directory for persistent files (cookies, etc.)
-RUN mkdir -p /app/data
+# Also create a writable home directory for LibreOffice's user profile cache;
+# headless LibreOffice will fail with "no export filter found" if it cannot
+# write its profile directory.
+RUN mkdir -p /app/data /home/appuser && chmod 777 /home/appuser
 
 # Railway injects PORT at runtime; default to 5000 for local use
 ENV PORT=5000
+
+# Ensure LibreOffice can always write its user-profile directory.
+ENV HOME=/home/appuser
 
 # Point Python's SSL and requests libraries at the system CA bundle
 # so yt-dlp subprocesses can verify TLS connections successfully.

@@ -166,10 +166,12 @@ yot_downloader/
 
 ## Troubleshooting
 
-### ❌ "YouTube requires authentication" / bot detection error
+### ❌ "This video cannot be downloaded without authentication" / bot detection error
 
-**Error message you may see:**
-> YouTube requires authentication. Please upload a cookies.txt file via the Admin panel (Admin → Cookies) to bypass bot detection.
+**Error messages you may see:**
+> This video cannot be downloaded without authentication. It may be age-restricted, private, or temporarily restricted by YouTube. Site admin: upload a cookies.txt file via Admin → Cookies to enable authenticated downloads. See the README Troubleshooting section for instructions.
+
+> This video is temporarily unavailable due to bot detection. The authentication session may have expired. Site admin: please upload a fresh cookies.txt via Admin → Cookies.
 
 **Cause:**  
 YouTube detects automated download requests and challenges them with a *"Sign in to confirm you're not a bot"* gate. This happens even for fully public videos when too many unauthenticated requests are made from the same IP, or when YouTube updates its bot-detection thresholds. `yt-dlp` surfaces this as an authentication/sign-in error.

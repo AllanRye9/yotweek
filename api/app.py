@@ -4695,7 +4695,10 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
     if src_ext in ("png", "jpg", "jpeg", "tiff", "bmp") and target == "pdf":
         return "img2pdf"
     if target in ("html", "md", "txt", "rtf", "epub") or src_ext in ("md", "html", "txt", "rtf", "epub"):
-        return "pandoc"
+        # Pandoc does not support Excel as an input format – route xlsx/xls to
+        # LibreOffice regardless of target so we get the Python fallbacks too.
+        if src_ext not in ("xlsx", "xls"):
+            return "pandoc"
     # Default: LibreOffice for Office/ODF conversions
     return "libreoffice"
 
