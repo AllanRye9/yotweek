@@ -7,6 +7,13 @@ const INITIAL = {
   skills: '', projects: '', publications: '',
 }
 
+const CV_THEMES = [
+  { value: 'classic',   label: '🔵 Classic',   desc: 'Blue accent, professional' },
+  { value: 'modern',    label: '🌑 Modern',    desc: 'Dark header band, sleek' },
+  { value: 'minimal',   label: '⬜ Minimal',   desc: 'Clean black & white' },
+  { value: 'executive', label: '🏅 Executive', desc: 'Navy & gold, authoritative' },
+]
+
 // ── Auto-formatters ───────────────────────────────────────────────────────────
 
 /** Capitalise each word in a name (e.g. "jane smith" → "Jane Smith"). */
@@ -61,6 +68,7 @@ function normalizeLink(v) {
 export default function CVGenerator() {
   const [fields, setFields] = useState(INITIAL)
   const [logoFile, setLogoFile] = useState(null)
+  const [theme, setTheme] = useState('classic')
   const [status, setStatus] = useState(null) // null | { type: 'loading'|'success'|'error', msg: string }
   const submitRef = useRef(null)
 
@@ -85,7 +93,7 @@ export default function CVGenerator() {
     setStatus({ type: 'loading', msg: 'Generating CV…' })
     if (submitRef.current) submitRef.current.disabled = true
     try {
-      const res = await generateCV(fields, logoFile)
+      const res = await generateCV(fields, logoFile, theme)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -284,6 +292,28 @@ export default function CVGenerator() {
             accept="image/png,image/jpeg"
             onChange={(e) => setLogoFile(e.target.files[0] ?? null)}
           />
+        </div>
+
+        {/* Theme selector */}
+        <div className="space-y-2">
+          <label className="form-label">🎨 CV Theme</label>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {CV_THEMES.map(t => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setTheme(t.value)}
+                className={`rounded-lg border px-3 py-2 text-left transition-colors ${
+                  theme === t.value
+                    ? 'border-blue-500 bg-blue-950/40 text-white'
+                    : 'border-gray-600 bg-gray-800/40 text-gray-300 hover:border-gray-400'
+                }`}
+              >
+                <div className="text-sm font-medium">{t.label}</div>
+                <div className="text-xs text-gray-400 mt-0.5">{t.desc}</div>
+              </button>
+            ))}
+          </div>
         </div>
 
         <button ref={submitRef} type="submit" className="btn-primary w-full sm:w-auto">

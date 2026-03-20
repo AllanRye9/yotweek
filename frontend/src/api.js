@@ -168,14 +168,16 @@ export const adminDbUpload      = (file) => {
  * @param {Object} fields - CV fields (name, email, phone, location, link, summary,
  *   experience, education, skills, projects, publications)
  * @param {File|null} logoFile - Optional logo image file
+ * @param {string} theme - Theme name ('classic', 'modern', 'minimal', 'executive')
  * @returns {Promise<Response>} Raw response (blob) — caller should call res.blob()
  */
-export const generateCV = (fields, logoFile = null) => {
+export const generateCV = (fields, logoFile = null, theme = 'classic') => {
   const fd = new FormData()
   Object.entries(fields).forEach(([k, v]) => {
     if (v !== undefined && v !== null) fd.append(k, v)
   })
   if (logoFile) fd.append('logo', logoFile, logoFile.name)
+  fd.append('theme', theme)
   return request('POST', '/api/cv/generate', fd, false)
 }
 

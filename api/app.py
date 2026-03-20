@@ -4340,17 +4340,54 @@ def _build_cv_pdf(
     projects: str = "",
     publications: str = "",
     logo_path: str = "",
+    theme: str = "classic",
 ) -> None:
-    """Build a professional single-file PDF CV using fpdf2."""
+    """Build a professional single-file PDF CV using fpdf2.
+
+    Supported themes: 'classic' (blue), 'modern' (dark header), 'minimal' (B&W),
+    'executive' (navy/gold).
+    """
     from fpdf import FPDF, XPos, YPos
 
     _NL = dict(new_x=XPos.LMARGIN, new_y=YPos.NEXT)  # replaces deprecated ln=True
 
-    # ---- Colour palette ----
-    DARK   = (30,  30,  30)   # near-black for body text
-    ACCENT = (37,  99, 235)   # blue-600 accent for headings / dividers
-    LIGHT  = (107, 114, 128)  # gray-500 for sub-labels
-    WHITE  = (255, 255, 255)  # noqa: F841
+    # ---- Colour palettes ----
+    _THEMES = {
+        "classic": {
+            "dark":   (30,  30,  30),
+            "accent": (37,  99, 235),   # blue-600
+            "light":  (107, 114, 128),  # gray-500
+            "header_bg": None,          # no filled header band
+            "header_fg": (30, 30, 30),
+        },
+        "modern": {
+            "dark":   (20,  20,  20),
+            "accent": (15,  23,  42),   # slate-900 heading bar
+            "light":  (100, 116, 139),  # slate-500
+            "header_bg": (15, 23, 42),  # filled dark band
+            "header_fg": (255, 255, 255),
+        },
+        "minimal": {
+            "dark":   (0,   0,   0),
+            "accent": (0,   0,   0),    # pure black
+            "light":  (120, 120, 120),
+            "header_bg": None,
+            "header_fg": (0, 0, 0),
+        },
+        "executive": {
+            "dark":   (22,  36,  71),   # deep navy
+            "accent": (22,  36,  71),
+            "light":  (100, 100, 130),
+            "header_bg": (22, 36, 71),  # navy band
+            "header_fg": (212, 175, 55),  # gold text
+        },
+    }
+    t = _THEMES.get(theme, _THEMES["classic"])
+    DARK      = t["dark"]
+    ACCENT    = t["accent"]
+    LIGHT     = t["light"]
+    HEADER_BG = t["header_bg"]
+    HEADER_FG = t["header_fg"]
 
     # ---- Unicode → Latin-1 safe text normaliser ----
     # Helvetica is a core PDF font that uses Latin-1 encoding.  Any character
@@ -4413,20 +4450,29 @@ def _build_cv_pdf(
     # ================================================================
     # HEADER BLOCK
     # ================================================================
+    # Themed header: themes with HEADER_BG get a filled colour band.
+    header_top_y = 14
+    header_h = 28 + (5 if link else 0) + (5 if [p for p in (email, phone, location) if p] else 0)
+
+    if HEADER_BG:
+        pdf.set_fill_color(*HEADER_BG)
+        pdf.rect(0, header_top_y - 2, pdf.w, header_h + 4, style="F")
+
     logo_w = 0.0
     if logo_path and os.path.isfile(logo_path):
         try:
             logo_w = 22.0
-            pdf.image(logo_path, x=18, y=16, w=logo_w)
+            pdf.image(logo_path, x=18, y=header_top_y, w=logo_w)
         except Exception:
             logo_w = 0.0
 
     x_text = 18 + (logo_w + 4 if logo_w else 0)
     w_text = page_w - (logo_w + 4 if logo_w else 0)
 
-    pdf.set_xy(x_text, 16)
+    name_fg = HEADER_FG if HEADER_BG else DARK
+    pdf.set_xy(x_text, header_top_y)
     pdf.set_font("Helvetica", "B", 20)
-    pdf.set_text_color(*DARK)
+    pdf.set_text_color(*name_fg)
     pdf.cell(w_text, 10, _safe(name), **_NL)
 
     # Contact line
@@ -4434,21 +4480,29 @@ def _build_cv_pdf(
     if contact_parts:
         pdf.set_x(x_text)
         pdf.set_font("Helvetica", "", 9)
-        pdf.set_text_color(*LIGHT)
+        contact_fg = HEADER_FG if HEADER_BG else LIGHT
+        pdf.set_text_color(*contact_fg)
         pdf.cell(w_text, 5, _safe("  |  ".join(contact_parts)), **_NL)
 
     if link:
         pdf.set_x(x_text)
         pdf.set_font("Helvetica", "U", 9)
-        pdf.set_text_color(*ACCENT)
+        link_fg = HEADER_FG if HEADER_BG else ACCENT
+        pdf.set_text_color(*link_fg)
         pdf.cell(w_text, 5, _safe(link), **_NL)
 
-    # Separator after header
+    # Move below the header band
     pdf.ln(3)
+    if HEADER_BG:
+        # Ensure we're past the band before drawing the separator
+        band_bottom = header_top_y + header_h + 4
+        if pdf.get_y() < band_bottom:
+            pdf.set_y(band_bottom)
     pdf.set_draw_color(*ACCENT)
     pdf.set_line_width(0.8)
     pdf.line(18, pdf.get_y(), 18 + page_w, pdf.get_y())
     pdf.ln(4)
+    pdf.set_text_color(*DARK)
 
     # ================================================================
     # SUMMARY
@@ -4575,6 +4629,7 @@ async def api_cv_generate(
     projects: str = Form(""),
     publications: str = Form(""),
     logo: UploadFile = File(None),
+    theme: str = Form("classic"),
 ):
     """Generate a professional PDF CV using fpdf2 (pure Python, no LaTeX required)."""
     import tempfile
@@ -4589,6 +4644,10 @@ async def api_cv_generate(
 
     name = name.strip()
     email = email.strip()
+    theme = (theme or "").strip().lower() or "classic"
+    _VALID_THEMES = {"classic", "modern", "minimal", "executive"}
+    if theme not in _VALID_THEMES:
+        theme = "classic"
     if not name or not email:
         return JSONResponse({"error": "Name and email are required."}, status_code=400)
 
@@ -4626,6 +4685,7 @@ async def api_cv_generate(
             projects=projects,
             publications=publications,
             logo_path=logo_path,
+            theme=theme,
         )
 
         if not os.path.isfile(output_pdf):
@@ -4679,6 +4739,58 @@ async def api_cv_generate(
 _DOC_CONV_TARGETS = {
     "pdf", "docx", "xlsx", "pptx", "odt", "html", "md", "txt", "rtf", "csv", "png", "jpg", "epub",
 }
+
+# ---------------------------------------------------------------------------
+# LibreOffice filter helpers
+# ---------------------------------------------------------------------------
+# Document family sets (extension without leading dot)
+_LO_WRITER_EXTS  = frozenset({"docx", "doc", "odt", "fodt", "txt", "rtf", "html", "htm"})
+_LO_IMPRESS_EXTS = frozenset({"pptx", "ppt", "odp", "fodp"})
+_LO_CALC_EXTS    = frozenset({"xlsx", "xls", "ods", "fods", "csv"})
+
+# Explicit LibreOffice --convert-to filter strings: (family, target) → filter
+_LO_FILTER_MAP: dict = {
+    # Writer → various
+    ("writer",  "pdf"):  "pdf:writer_pdf_Export",
+    ("writer",  "docx"): "docx:MS Word 2007 XML",
+    ("writer",  "doc"):  "doc:MS Word 97",
+    ("writer",  "odt"):  "odt:writer8",
+    ("writer",  "txt"):  "txt:Text (encoded)",
+    ("writer",  "html"): "html:HTML (StarWriter)",
+    ("writer",  "rtf"):  "rtf:Rich Text Format",
+    # Impress → various
+    ("impress", "pdf"):  "pdf:impress_pdf_Export",
+    ("impress", "pptx"): "pptx:Impress MS PowerPoint 2007 XML",
+    ("impress", "ppt"):  "ppt:MS PowerPoint 97",
+    ("impress", "odp"):  "odp:impress8",
+    # Calc → various
+    ("calc",    "pdf"):  "pdf:calc_pdf_Export",
+    ("calc",    "xlsx"): "xlsx:Calc MS Excel 2007 XML",
+    ("calc",    "xls"):  "xls:MS Excel 97",
+    ("calc",    "ods"):  "ods:calc8",
+    ("calc",    "csv"):  "csv:Text - txt - csv (StarCalc)",
+    ("calc",    "html"): "html:HTML (StarCalc)",
+}
+
+
+def _lo_doc_family(ext: str) -> str:
+    """Return LibreOffice document family ('writer'/'impress'/'calc') for *ext*."""
+    e = ext.lstrip(".")
+    if e in _LO_IMPRESS_EXTS:
+        return "impress"
+    if e in _LO_CALC_EXTS:
+        return "calc"
+    return "writer"  # safe default
+
+
+def _lo_filter_str(src_ext: str, target: str) -> str:
+    """Return the proper ``--convert-to`` argument for LibreOffice.
+
+    Falls back to the bare extension when no explicit mapping is known.
+    """
+    family = _lo_doc_family(src_ext)
+    return _LO_FILTER_MAP.get((family, target), target)
+
 
 # Map of (input_ext → target_ext) → conversion strategy
 # Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img"
@@ -4810,29 +4922,145 @@ async def api_doc_convert(
                 err_msg = f"PDF→image conversion failed: {exc}"
 
         elif strategy == "pandoc":
+            pandoc_ok = False
             try:
                 import pypandoc
                 pypandoc.convert_file(input_path, target, outputfile=output_path)
+                pandoc_ok = True
             except ImportError:
                 err_msg = "pypandoc is not installed on this server."
             except Exception as exc:
                 err_msg = f"Pandoc conversion failed: {exc}"
+            # If pandoc failed and the source is a format LibreOffice can open,
+            # fall through to the LibreOffice path as a secondary attempt.
+            if not pandoc_ok:
+                lo_path = shutil.which("libreoffice") or shutil.which("soffice")
+                src_clean = src_ext.lstrip(".")
+                lo_capable = src_clean in (_LO_WRITER_EXTS | _LO_IMPRESS_EXTS | _LO_CALC_EXTS)
+                if lo_path and lo_capable:
+                    lo_filter = _lo_filter_str(src_ext, target)
+                    lo_result = subprocess.run(
+                        [lo_path, "--headless", "--convert-to", lo_filter,
+                         "--outdir", tmpdir, input_path],
+                        capture_output=True, text=True, timeout=300,
+                    )
+                    stem = os.path.splitext(os.path.basename(input_path))[0]
+                    lo_out = os.path.join(tmpdir, f"{stem}.{target}")
+                    if lo_result.returncode == 0 and os.path.isfile(lo_out):
+                        output_path = lo_out
+                        err_msg = None  # LO fallback succeeded
 
         else:  # libreoffice
             lo_path = shutil.which("libreoffice") or shutil.which("soffice")
             if lo_path:
-                lo_target = target
+                # Use an explicit filter string to avoid "no export filter" errors.
+                lo_filter = _lo_filter_str(src_ext, target)
                 result = subprocess.run(
-                    [lo_path, "--headless", "--convert-to", lo_target,
+                    [lo_path, "--headless", "--convert-to", lo_filter,
                      "--outdir", tmpdir, input_path],
                     capture_output=True, text=True, timeout=300,
                 )
                 # LibreOffice names output after input stem
                 stem = os.path.splitext(os.path.basename(input_path))[0]
-                lo_out = os.path.join(tmpdir, f"{stem}.{lo_target}")
+                lo_out = os.path.join(tmpdir, f"{stem}.{target}")
                 if result.returncode != 0 or not os.path.isfile(lo_out):
                     err_detail = (result.stderr or result.stdout or "").strip()[:300]
-                    err_msg = f"LibreOffice conversion failed: {err_detail}"
+                    lo_err = f"LibreOffice conversion failed: {err_detail}"
+                    # LibreOffice failed – attempt Python-only fallbacks before
+                    # giving up so that common conversions still work.
+                    src_clean = src_ext.lstrip(".")
+                    fb_done = False
+
+                    # docx/doc → txt or html via python-docx
+                    if src_clean in ("docx", "doc") and target in ("txt", "html"):
+                        try:
+                            import docx as python_docx
+                            doc = python_docx.Document(input_path)
+                            paragraphs = [p.text for p in doc.paragraphs]
+                            if target == "txt":
+                                with open(output_path, "w", encoding="utf-8") as out_f:
+                                    out_f.write("\n".join(paragraphs))
+                            else:
+                                html_body = "".join(f"<p>{p}</p>" for p in paragraphs if p.strip())
+                                with open(output_path, "w", encoding="utf-8") as out_f:
+                                    out_f.write(f"<!DOCTYPE html><html><body>{html_body}</body></html>")
+                            fb_done = True
+                        except Exception:
+                            pass
+
+                    # docx/doc → pdf via fpdf2 + python-docx (text-only)
+                    if not fb_done and src_clean in ("docx", "doc") and target == "pdf":
+                        try:
+                            import docx as python_docx
+                            from fpdf import FPDF
+                            doc = python_docx.Document(input_path)
+                            pdf = FPDF()
+                            pdf.set_auto_page_break(auto=True, margin=15)
+                            pdf.add_page()
+                            pdf.set_font("Helvetica", size=11)
+                            for para in doc.paragraphs:
+                                if para.text.strip():
+                                    pdf.multi_cell(0, 6, para.text.encode("latin-1", errors="replace").decode("latin-1"))
+                                else:
+                                    pdf.ln(3)
+                            pdf.output(output_path)
+                            fb_done = True
+                        except Exception:
+                            pass
+
+                    # pptx → txt or html via python-pptx
+                    if not fb_done and src_clean == "pptx" and target in ("txt", "html"):
+                        try:
+                            from pptx import Presentation
+                            prs = Presentation(input_path)
+                            lines = []
+                            for slide in prs.slides:
+                                for shape in slide.shapes:
+                                    if shape.has_text_frame:
+                                        for para in shape.text_frame.paragraphs:
+                                            txt = "".join(run.text for run in para.runs)
+                                            if txt.strip():
+                                                lines.append(txt)
+                            if target == "txt":
+                                with open(output_path, "w", encoding="utf-8") as out_f:
+                                    out_f.write("\n".join(lines))
+                            else:
+                                html_body = "".join(f"<p>{l}</p>" for l in lines)
+                                with open(output_path, "w", encoding="utf-8") as out_f:
+                                    out_f.write(f"<!DOCTYPE html><html><body>{html_body}</body></html>")
+                            fb_done = True
+                        except Exception:
+                            pass
+
+                    # pptx → pdf via fpdf2 + python-pptx (text-only)
+                    if not fb_done and src_clean == "pptx" and target == "pdf":
+                        try:
+                            from pptx import Presentation
+                            from fpdf import FPDF
+                            prs = Presentation(input_path)
+                            pdf = FPDF()
+                            pdf.set_auto_page_break(auto=True, margin=15)
+                            pdf.set_font("Helvetica", size=11)
+                            for slide_num, slide in enumerate(prs.slides, 1):
+                                pdf.add_page()
+                                pdf.set_font("Helvetica", "B", 13)
+                                pdf.cell(0, 8, f"Slide {slide_num}", new_x="LMARGIN", new_y="NEXT")
+                                pdf.set_font("Helvetica", size=10)
+                                for shape in slide.shapes:
+                                    if shape.has_text_frame:
+                                        for para in shape.text_frame.paragraphs:
+                                            txt = "".join(run.text for run in para.runs)
+                                            if txt.strip():
+                                                pdf.multi_cell(0, 6, txt.encode("latin-1", errors="replace").decode("latin-1"))
+                            pdf.output(output_path)
+                            fb_done = True
+                        except Exception:
+                            pass
+
+                    if fb_done:
+                        err_msg = None
+                    else:
+                        err_msg = lo_err
                 else:
                     output_path = lo_out
             else:
