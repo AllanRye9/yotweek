@@ -1,5 +1,27 @@
 # yot_downloader
-A simple, fast, and self-hosted web application for downloading videos from YouTube and hundreds of other sites. It provides a clean browser UI with real-time progress bars, audio notifications, and an instant file library to stream or save your videos.
+
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/e5663d6c-8ee6-4439-a3db-d08c407dfadf" alt="yot_downloader logo" width="180"/>
+</p>
+
+<p align="center">
+  A simple, fast, and self-hosted web application for downloading videos from YouTube and hundreds of other sites.<br>
+  It provides a clean browser UI with real-time progress bars, audio notifications, and an instant file library to stream or save your videos.
+</p>
+
+---
+
+## How It Works
+
+```mermaid
+flowchart LR
+    A([🌐 Browser]) -->|Paste URL + Format| B[FastAPI Server]
+    B -->|yt-dlp| C[(YouTube / 1000+ sites)]
+    C -->|Video / Audio stream| B
+    B -->|Real-time progress\nvia Socket.IO| A
+    B -->|Saves file| D[📁 downloads/]
+    D -->|Stream / Save| A
+```
 
 ---
 
