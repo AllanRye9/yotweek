@@ -4880,6 +4880,130 @@ async def api_doc_convert(
                         err_msg = f"Excel→CSV conversion failed: {exc}"
                         fallback_attempted = True
 
+                # .xlsx / .xls → PDF via fpdf2 + openpyxl (text/table representation)
+                elif src_clean in ("xlsx", "xls") and target == "pdf":
+                    try:
+                        import openpyxl
+                        from fpdf import FPDF
+                        _PDF_ROW_MAX_CHARS = 300  # truncate very wide rows
+                        _PDF_COL_SEP = "  |  "
+                        wb = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
+                        pdf = FPDF()
+                        pdf.set_auto_page_break(auto=True, margin=10)
+                        for sheet_name in wb.sheetnames:
+                            ws = wb[sheet_name]
+                            pdf.add_page()
+                            pdf.set_font("Helvetica", "B", 12)
+                            pdf.cell(0, 8, sheet_name, new_x="LMARGIN", new_y="NEXT")
+                            pdf.set_font("Helvetica", size=8)
+                            for row in ws.iter_rows(values_only=True):
+                                row_text = _PDF_COL_SEP.join(
+                                    "" if v is None else str(v) for v in row
+                                )
+                                pdf.multi_cell(0, 5, row_text[:_PDF_ROW_MAX_CHARS])
+                        pdf.output(output_path)
+                        fallback_attempted = True
+                    except ImportError:
+                        pass
+                    except Exception as exc:
+                        err_msg = f"Excel→PDF conversion failed: {exc}"
+                        fallback_attempted = True
+
+                # .xlsx / .xls → DOCX via openpyxl + python-docx
+                elif src_clean in ("xlsx", "xls") and target == "docx":
+                    try:
+                        import openpyxl
+                        import docx as python_docx
+                        wb = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
+                        doc = python_docx.Document()
+                        for sheet_name in wb.sheetnames:
+                            doc.add_heading(sheet_name, level=1)
+                            ws = wb[sheet_name]
+                            rows = list(ws.iter_rows(values_only=True))
+                            if rows:
+                                n_cols = max((len(r) for r in rows), default=1)
+                                table = doc.add_table(rows=len(rows), cols=n_cols)
+                                for r_idx, row in enumerate(rows):
+                                    for c_idx in range(n_cols):
+                                        val = row[c_idx] if c_idx < len(row) else None
+                                        table.cell(r_idx, c_idx).text = (
+                                            "" if val is None else str(val)
+                                        )
+                        doc.save(output_path)
+                        fallback_attempted = True
+                    except ImportError:
+                        pass
+                    except Exception as exc:
+                        err_msg = f"Excel→Word conversion failed: {exc}"
+                        fallback_attempted = True
+
+                # .xlsx / .xls → PNG/JPG via openpyxl + Pillow (table image)
+                elif src_clean in ("xlsx", "xls") and target in ("png", "jpg"):
+                    try:
+                        import openpyxl
+                        from PIL import Image, ImageDraw, ImageFont
+                        _IMG_CELL_W = 130     # pixels per column
+                        _IMG_CELL_H = 22      # pixels per row
+                        _IMG_PAD = 4          # border padding
+                        _IMG_MAX_H = 8000     # maximum image height (pixels)
+                        _IMG_MAX_CHARS = 20   # max chars displayed per cell
+                        _IMG_TEXT_OFFSET = (3, 4)   # (x, y) text offset within cell
+                        _COLOR_HEADER = "#d0e8ff"
+                        _COLOR_ROW_EVEN = "white"
+                        _COLOR_ROW_ODD = "#f5f5f5"
+                        _COLOR_GRID = "#cccccc"
+                        wb = openpyxl.load_workbook(input_path, read_only=True, data_only=True)
+                        ws = wb.active
+                        rows = list(ws.iter_rows(values_only=True))
+                        if not rows:
+                            raise ValueError("Spreadsheet has no data")
+                        n_cols = max((len(r) for r in rows), default=1)
+                        img_w = n_cols * _IMG_CELL_W + 2 * _IMG_PAD
+                        img_h = min(len(rows) * _IMG_CELL_H + 2 * _IMG_PAD, _IMG_MAX_H)
+                        img = Image.new("RGB", (img_w, img_h), "white")
+                        draw = ImageDraw.Draw(img)
+                        try:
+                            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                            bold_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+                            font = ImageFont.truetype(font_path, 11)
+                            header_font = ImageFont.truetype(bold_path, 11)
+                        except Exception:
+                            font = ImageFont.load_default()
+                            header_font = font
+                        for r_idx, row in enumerate(rows):
+                            y = _IMG_PAD + r_idx * _IMG_CELL_H
+                            if y + _IMG_CELL_H > img_h:
+                                break
+                            for c_idx in range(n_cols):
+                                x = _IMG_PAD + c_idx * _IMG_CELL_W
+                                val = (
+                                    str(row[c_idx])
+                                    if c_idx < len(row) and row[c_idx] is not None
+                                    else ""
+                                )
+                                if r_idx == 0:
+                                    bg = _COLOR_HEADER
+                                elif r_idx % 2 == 0:
+                                    bg = _COLOR_ROW_EVEN
+                                else:
+                                    bg = _COLOR_ROW_ODD
+                                draw.rectangle(
+                                    [x, y, x + _IMG_CELL_W - 1, y + _IMG_CELL_H - 1],
+                                    fill=bg, outline=_COLOR_GRID,
+                                )
+                                draw.text(
+                                    (x + _IMG_TEXT_OFFSET[0], y + _IMG_TEXT_OFFSET[1]),
+                                    val[:_IMG_MAX_CHARS], fill="black",
+                                    font=header_font if r_idx == 0 else font,
+                                )
+                        img.save(output_path)
+                        fallback_attempted = True
+                    except ImportError:
+                        pass
+                    except Exception as exc:
+                        err_msg = f"Excel→Image conversion failed: {exc}"
+                        fallback_attempted = True
+
                 # .pptx → txt via python-pptx (text extraction only)
                 elif src_clean == "pptx" and target in ("txt", "html"):
                     try:

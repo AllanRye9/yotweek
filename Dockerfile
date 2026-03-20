@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 
 # Install Node.js (for building the React frontend) + ffmpeg + ca-certificates
+# + LibreOffice + pandoc + poppler-utils (pdftoppm) for document conversion
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg ca-certificates curl \
+        libreoffice pandoc poppler-utils \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
