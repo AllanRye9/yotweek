@@ -4831,7 +4831,7 @@ async def api_doc_convert(
                 # LibreOffice is not available — attempt Python-only fallbacks
                 # for the most common Office→text/html conversions.
                 src_clean = src_ext.lstrip(".")
-                fallback_done = False
+                fallback_attempted = False
 
                 # .docx / .doc → plain-text via python-docx (text extraction only)
                 if src_clean in ("docx", "doc") and target in ("txt", "html"):
@@ -4850,12 +4850,12 @@ async def api_doc_convert(
                                 out_f.write(
                                     f"<!DOCTYPE html><html><body>{html_body}</body></html>"
                                 )
-                        fallback_done = True
+                        fallback_attempted = True
                     except ImportError:
                         pass
                     except Exception as exc:
                         err_msg = f"Word text extraction failed: {exc}"
-                        fallback_done = True
+                        fallback_attempted = True
 
                 # .xlsx / .xls → CSV via openpyxl
                 elif src_clean in ("xlsx", "xls") and target == "csv":
@@ -4868,12 +4868,12 @@ async def api_doc_convert(
                             writer = csv_mod.writer(out_f)
                             for row in ws.iter_rows(values_only=True):
                                 writer.writerow(["" if v is None else v for v in row])
-                        fallback_done = True
+                        fallback_attempted = True
                     except ImportError:
                         pass
                     except Exception as exc:
                         err_msg = f"Excel→CSV conversion failed: {exc}"
-                        fallback_done = True
+                        fallback_attempted = True
 
                 # .pptx → txt via python-pptx (text extraction only)
                 elif src_clean == "pptx" and target in ("txt", "html"):
@@ -4897,14 +4897,14 @@ async def api_doc_convert(
                                 out_f.write(
                                     f"<!DOCTYPE html><html><body>{html_body}</body></html>"
                                 )
-                        fallback_done = True
+                        fallback_attempted = True
                     except ImportError:
                         pass
                     except Exception as exc:
                         err_msg = f"PowerPoint text extraction failed: {exc}"
-                        fallback_done = True
+                        fallback_attempted = True
 
-                if not fallback_done and not err_msg:
+                if not fallback_attempted and not err_msg:
                     err_msg = (
                         "LibreOffice is not installed on this server. "
                         f"Converting {src_ext} → {target} requires LibreOffice. "

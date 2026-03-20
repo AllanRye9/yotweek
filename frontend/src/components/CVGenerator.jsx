@@ -39,7 +39,7 @@ function normalizeSkills(v) {
  * Normalise multiline text blocks:
  * - Trim leading/trailing blank lines
  * - Collapse 3+ consecutive blank lines into 2
- * - Replace bullet-like prefixes (--, *, o ) with •
+ * - Replace bullet-like prefixes (--, *) with •
  */
 function normalizeMultiline(v) {
   return v
