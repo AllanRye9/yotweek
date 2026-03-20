@@ -2038,6 +2038,14 @@ async def ads_txt():
     logger.warning("ads.txt file not found at %s", ads_txt_path)
     return JSONResponse({"error": "ads.txt not found"}, status_code=404)
 
+@fastapi_app.get("/yotweek.png")
+async def yotweek_icon():
+    """Serve the yotweek brand icon."""
+    icon_path = os.path.join(ROOT_DIR, "yotweek.png")
+    if os.path.exists(icon_path):
+        return FileResponse(icon_path, media_type="image/png")
+    return JSONResponse({"error": "Icon not found"}, status_code=404)
+
 @fastapi_app.get("/health")
 async def health():
     """Health check endpoint"""
@@ -4292,6 +4300,402 @@ async def download_zip(
 
 
 # =========================================================
+# CV GENERATION MODULE
+# =========================================================
+# CV GENERATION MODULE
+# =========================================================
+
+_MAX_CV_LOGO_BYTES = 5 * 1024 * 1024  # 5 MB max for CV logo uploads
+
+@fastapi_app.post("/api/cv/generate")
+async def api_cv_generate(
+    request: Request,
+    name: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    location: str = Form(""),
+    link: str = Form(""),
+    summary: str = Form(""),
+    experience: str = Form(""),
+    education: str = Form(""),
+    skills: str = Form(""),
+    projects: str = Form(""),
+    publications: str = Form(""),
+    logo: UploadFile = File(None),
+):
+    """Generate a professional PDF CV using cvcreator and return it for download."""
+    import tempfile
+
+    try:
+        import cvcreator  # noqa: F401
+    except ImportError:
+        return JSONResponse(
+            {"error": "CV generation is not available: cvcreator is not installed on this server."},
+            status_code=503,
+        )
+
+    name = name.strip()
+    email = email.strip()
+    if not name or not email:
+        return JSONResponse({"error": "Name and email are required."}, status_code=400)
+
+    ip = _get_real_ip(request)
+
+    tmpdir = tempfile.mkdtemp(prefix="cv_", dir=DOWNLOAD_FOLDER)
+    try:
+        # Save logo if provided
+        logo_path = None
+        if logo and logo.filename:
+            ext = os.path.splitext(logo.filename)[1].lower()
+            if ext not in (".png", ".jpg", ".jpeg"):
+                return JSONResponse({"error": "Logo must be PNG or JPG."}, status_code=400)
+            logo_path = os.path.join(tmpdir, f"logo{ext}")
+            content = await logo.read()
+            if len(content) > _MAX_CV_LOGO_BYTES:
+                return JSONResponse({"error": f"Logo file is too large (max {_MAX_CV_LOGO_BYTES // (1024*1024)} MB)."}, status_code=400)
+            with open(logo_path, "wb") as f:
+                f.write(content)
+
+        # Build TOML configuration for cvcreator
+        skill_list = [s.strip() for s in skills.split(",") if s.strip()]
+        toml_lines = [
+            '[personal]',
+            f'name = {json.dumps(name)}',
+            f'email = {json.dumps(email)}',
+        ]
+        if phone:
+            toml_lines.append(f'phone = {json.dumps(phone.strip())}')
+        if location:
+            toml_lines.append(f'location = {json.dumps(location.strip())}')
+        if link:
+            toml_lines.append(f'website = {json.dumps(link.strip())}')
+        if summary:
+            toml_lines.append(f'summary = {json.dumps(summary.strip())}')
+        if logo_path:
+            toml_lines.append(f'logo = {json.dumps(logo_path)}')
+
+        if skill_list:
+            toml_lines.append('\n[skills]')
+            toml_lines.append(f'items = {json.dumps(skill_list)}')
+
+        # Experience: parse "Company — Title — Dates\n• bullet" blocks
+        if experience.strip():
+            toml_lines.append('\n[[experience]]')
+            # Each blank-line-separated block becomes one entry
+            for block in re.split(r'\n\s*\n', experience.strip()):
+                lines = [l.strip() for l in block.split('\n') if l.strip()]
+                if not lines:
+                    continue
+                header = lines[0]
+                bullets = [l.lstrip('•- ') for l in lines[1:] if l]
+                toml_lines.append(f'title = {json.dumps(header)}')
+                if bullets:
+                    toml_lines.append(f'bullets = {json.dumps(bullets)}')
+                toml_lines.append('')
+
+        # Education
+        if education.strip():
+            toml_lines.append('\n[[education]]')
+            for block in re.split(r'\n\s*\n', education.strip()):
+                lines = [l.strip() for l in block.split('\n') if l.strip()]
+                if not lines:
+                    continue
+                toml_lines.append(f'title = {json.dumps(lines[0])}')
+                toml_lines.append('')
+
+        # Optional projects
+        if projects.strip():
+            toml_lines.append('\n[[projects]]')
+            for block in re.split(r'\n\s*\n', projects.strip()):
+                lines = [l.strip() for l in block.split('\n') if l.strip()]
+                if not lines:
+                    continue
+                toml_lines.append(f'title = {json.dumps(lines[0])}')
+                if len(lines) > 1:
+                    toml_lines.append(f'description = {json.dumps(" ".join(lines[1:]))}')
+                toml_lines.append('')
+
+        # Optional publications
+        if publications.strip():
+            toml_lines.append('\n[[publications]]')
+            for block in re.split(r'\n\s*\n', publications.strip()):
+                lines = [l.strip() for l in block.split('\n') if l.strip()]
+                if not lines:
+                    continue
+                toml_lines.append(f'title = {json.dumps(lines[0])}')
+                toml_lines.append('')
+
+        toml_content = '\n'.join(toml_lines)
+        toml_path = os.path.join(tmpdir, "cv.toml")
+        with open(toml_path, "w", encoding="utf-8") as f:
+            f.write(toml_content)
+
+        output_pdf = os.path.join(tmpdir, "cv.pdf")
+
+        # Run cvcreator CLI
+        result = subprocess.run(
+            ["python", "-m", "cvcreator", toml_path, "--output", output_pdf],
+            capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0 or not os.path.isfile(output_pdf):
+            err_detail = (result.stderr or result.stdout or "Unknown error").strip()[:500]
+            logger.error("cvcreator error: %s", err_detail)
+            return JSONResponse(
+                {"error": f"CV generation failed: {err_detail}"},
+                status_code=500,
+            )
+
+        # Track the CV generation as a download record
+        record_id = str(uuid.uuid4())
+        cached_geo = ip_country_cache.get(ip, {})
+        with downloads_lock:
+            downloads[record_id] = {
+                "id": record_id,
+                "url": "cv_generation",
+                "title": f"CV: {name}",
+                "safe_title": safe_filename(f"cv_{name}"),
+                "status": "complete",
+                "type": "cv_generation",
+                "percent": 100,
+                "created_at": time.time(),
+                "end_time": time.time(),
+                "filename": "cv.pdf",
+                "ip": ip,
+                "country": cached_geo.get("country", ""),
+                "country_code": cached_geo.get("code", ""),
+                "city": cached_geo.get("city", ""),
+                "region": cached_geo.get("region", ""),
+            }
+        threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
+        return FileResponse(
+            output_pdf,
+            filename="cv.pdf",
+            media_type="application/pdf",
+            background=None,
+        )
+    except subprocess.TimeoutExpired:
+        return JSONResponse({"error": "CV generation timed out."}, status_code=500)
+    except Exception as exc:
+        logger.error("CV generation error: %s", exc, exc_info=True)
+        return JSONResponse({"error": f"CV generation failed: {exc}"}, status_code=500)
+    finally:
+        # Clean up temp directory after a short delay to allow FileResponse to stream
+        def _delayed_rm(path, delay=30):
+            time.sleep(delay)
+            shutil.rmtree(path, ignore_errors=True)
+        threading.Thread(target=_delayed_rm, args=(tmpdir,), daemon=True).start()
+
+
+# =========================================================
+# DOCUMENT CONVERSION MODULE
+# =========================================================
+
+# Supported conversion targets
+_DOC_CONV_TARGETS = {
+    "pdf", "docx", "xlsx", "pptx", "odt", "html", "md", "txt", "rtf", "csv", "png", "jpg", "epub",
+}
+
+# Map of (input_ext → target_ext) → conversion strategy
+# Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img"
+def _doc_conv_strategy(src_ext: str, target: str) -> str:
+    src_ext = src_ext.lstrip(".")
+    if src_ext == "pdf" and target == "docx":
+        return "pdf2docx"
+    if src_ext == "pdf" and target in ("png", "jpg"):
+        return "pdf2img"
+    if src_ext == "pdf" and target == "xlsx":
+        return "tabula"
+    if src_ext in ("png", "jpg", "jpeg", "tiff", "bmp") and target == "pdf":
+        return "img2pdf"
+    if target in ("html", "md", "txt", "rtf", "epub") or src_ext in ("md", "html", "txt", "rtf", "epub"):
+        return "pandoc"
+    # Default: LibreOffice for Office/ODF conversions
+    return "libreoffice"
+
+
+@fastapi_app.post("/api/doc/convert")
+async def api_doc_convert(
+    request: Request,
+    file: UploadFile = File(...),
+    target: str = Form(...),
+):
+    """Convert an uploaded document to the requested target format."""
+    import tempfile
+
+    target = target.strip().lower()
+    if target not in _DOC_CONV_TARGETS:
+        return JSONResponse(
+            {"error": f"Unsupported target format '{target}'."},
+            status_code=400,
+        )
+
+    original_name = file.filename or "document"
+    src_ext = os.path.splitext(original_name)[1].lower()
+
+    content = await file.read()
+    if len(content) > Config.MAX_CONTENT_LENGTH:
+        return JSONResponse(
+            {"error": f"File is too large (max {Config.MAX_CONTENT_LENGTH // (1024 * 1024)} MB)."},
+            status_code=400,
+        )
+    if not content:
+        return JSONResponse({"error": "Uploaded file is empty."}, status_code=400)
+
+    ip = _get_real_ip(request)
+    tmpdir = tempfile.mkdtemp(prefix="docconv_", dir=DOWNLOAD_FOLDER)
+    try:
+        input_path = os.path.join(tmpdir, f"input{src_ext}")
+        with open(input_path, "wb") as f:
+            f.write(content)
+
+        output_path = os.path.join(tmpdir, f"output.{target}")
+        strategy = _doc_conv_strategy(src_ext, target)
+        err_msg = None
+
+        if strategy == "pdf2docx":
+            try:
+                from pdf2docx import Converter
+                cv = Converter(input_path)
+                cv.convert(output_path)
+                cv.close()
+            except ImportError:
+                err_msg = "pdf2docx is not installed on this server."
+            except Exception as exc:
+                err_msg = f"PDF→Word conversion failed: {exc}"
+
+        elif strategy == "tabula":
+            try:
+                import tabula
+                dfs = tabula.read_pdf(input_path, pages="all")
+                import openpyxl
+                wb = openpyxl.Workbook()
+                for i, df in enumerate(dfs):
+                    ws = wb.active if i == 0 else wb.create_sheet(f"Sheet{i+1}")
+                    ws.append(list(df.columns))
+                    for row in df.itertuples(index=False):
+                        ws.append(list(row))
+                wb.save(output_path)
+            except ImportError:
+                err_msg = "tabula-py or openpyxl is not installed on this server."
+            except Exception as exc:
+                err_msg = f"PDF→Excel conversion failed: {exc}"
+
+        elif strategy == "img2pdf":
+            try:
+                import img2pdf
+                with open(output_path, "wb") as out_f:
+                    out_f.write(img2pdf.convert(input_path))
+            except ImportError:
+                err_msg = "img2pdf is not installed on this server."
+            except Exception as exc:
+                err_msg = f"Image→PDF conversion failed: {exc}"
+
+        elif strategy == "pdf2img":
+            try:
+                result = subprocess.run(
+                    ["pdftoppm", f"-{target}", input_path, os.path.join(tmpdir, "page")],
+                    capture_output=True, timeout=120,
+                )
+                pages = sorted(
+                    p for p in os.listdir(tmpdir)
+                    if p.startswith("page") and p.endswith(f".{target}")
+                )
+                if not pages:
+                    err_msg = "PDF→image conversion produced no output (pdftoppm missing?)."
+                else:
+                    # Return first page; for multi-page return a zip
+                    if len(pages) == 1:
+                        output_path = os.path.join(tmpdir, pages[0])
+                    else:
+                        zip_out = os.path.join(tmpdir, "pages.zip")
+                        with zipfile.ZipFile(zip_out, "w") as zf:
+                            for p in pages:
+                                zf.write(os.path.join(tmpdir, p), p)
+                        output_path = zip_out
+                        target = "zip"
+            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+                err_msg = f"PDF→image conversion failed: {exc}"
+
+        elif strategy == "pandoc":
+            try:
+                import pypandoc
+                pypandoc.convert_file(input_path, target, outputfile=output_path)
+            except ImportError:
+                err_msg = "pypandoc is not installed on this server."
+            except Exception as exc:
+                err_msg = f"Pandoc conversion failed: {exc}"
+
+        else:  # libreoffice
+            lo_path = shutil.which("libreoffice") or shutil.which("soffice")
+            if not lo_path:
+                err_msg = "LibreOffice is not installed on this server."
+            else:
+                lo_target = target
+                result = subprocess.run(
+                    [lo_path, "--headless", "--convert-to", lo_target,
+                     "--outdir", tmpdir, input_path],
+                    capture_output=True, text=True, timeout=300,
+                )
+                # LibreOffice names output after input stem
+                stem = os.path.splitext(os.path.basename(input_path))[0]
+                lo_out = os.path.join(tmpdir, f"{stem}.{lo_target}")
+                if result.returncode != 0 or not os.path.isfile(lo_out):
+                    err_detail = (result.stderr or result.stdout or "").strip()[:300]
+                    err_msg = f"LibreOffice conversion failed: {err_detail}"
+                else:
+                    output_path = lo_out
+
+        if err_msg:
+            return JSONResponse({"error": err_msg}, status_code=500)
+
+        if not os.path.isfile(output_path):
+            return JSONResponse({"error": "Conversion produced no output file."}, status_code=500)
+
+        # Track the conversion as a record
+        record_id = str(uuid.uuid4())
+        cached_geo = ip_country_cache.get(ip, {})
+        with downloads_lock:
+            downloads[record_id] = {
+                "id": record_id,
+                "url": "doc_conversion",
+                "title": f"Convert: {original_name} → .{target}",
+                "safe_title": safe_filename(f"convert_{original_name}"),
+                "status": "complete",
+                "type": "doc_conversion",
+                "percent": 100,
+                "created_at": time.time(),
+                "end_time": time.time(),
+                "filename": os.path.basename(output_path),
+                "ip": ip,
+                "country": cached_geo.get("country", ""),
+                "country_code": cached_geo.get("code", ""),
+                "city": cached_geo.get("city", ""),
+                "region": cached_geo.get("region", ""),
+            }
+        threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
+        out_name = f"{os.path.splitext(original_name)[0]}.{target}"
+        media_type = mimetypes.guess_type(output_path)[0] or "application/octet-stream"
+        return FileResponse(
+            output_path,
+            filename=out_name,
+            media_type=media_type,
+        )
+
+    except subprocess.TimeoutExpired:
+        return JSONResponse({"error": "Conversion timed out."}, status_code=500)
+    except Exception as exc:
+        logger.error("Document conversion error: %s", exc, exc_info=True)
+        return JSONResponse({"error": f"Conversion error: {exc}"}, status_code=500)
+    finally:
+        def _delayed_rm(path, delay=30):
+            time.sleep(delay)
+            shutil.rmtree(path, ignore_errors=True)
+        threading.Thread(target=_delayed_rm, args=(tmpdir,), daemon=True).start()
+
+
+# =========================================================
 # SOCKET.IO EVENTS
 # =========================================================
 
@@ -4425,7 +4829,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             "/admin/cancel_download/", "/admin/delete_record/", "/admin/clear_visitors",
             "/admin/db/", "/admin/cookies", "/admin/auth_status", "/admin/has_admin",
             "/admin/api/", "/health", "/ads.txt", "/static/", "/assets/",
-            "/api/",
+            "/api/", "/yotweek.png",
         )
         if not any(path.startswith(p) for p in api_prefixes):
             return _react_index()

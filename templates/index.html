@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="google-adsense-account" content="ca-pub-9756287260068717">
-    <title>YOT Downloader</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Cpath d='M16 6v12m0 0l-5-5m5 5l5-5M8 24h16' stroke='white' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E">
+    <title>yotweek</title>
+    <link rel="icon" type="image/png" href="/yotweek.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -1936,9 +1936,9 @@
     <!-- Top navigation bar -->
     <nav class="top-nav" role="navigation" aria-label="Main navigation">
         <!-- Brand -->
-        <button class="nav-brand" onclick="showSectionPanel('download-panel')" aria-label="YOT Downloader home">
-            <i class="fas fa-download" aria-hidden="true"></i>
-            <span class="nav-brand-text">YOT Downloader</span>
+        <button class="nav-brand" onclick="showSectionPanel('download-panel')" aria-label="yotweek home">
+            <img src="/yotweek.png" alt="yotweek" style="width:22px;height:22px;border-radius:4px;margin-right:4px;vertical-align:middle;" aria-hidden="true">
+            <span class="nav-brand-text">yotweek</span>
         </button>
         <!-- Nav links -->
         <div class="nav-links">
@@ -1972,6 +1972,14 @@
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('editing-panel'); closeServicesDropdown();">
                         <i class="fas fa-tools" aria-hidden="true"></i> Edit &amp; Convert
+                    </button>
+                    <button class="nav-dd-item" role="menuitem"
+                            onclick="showSectionPanel('cv-panel'); closeServicesDropdown();">
+                        <i class="fas fa-id-card" aria-hidden="true"></i> CV Generator
+                    </button>
+                    <button class="nav-dd-item" role="menuitem"
+                            onclick="showSectionPanel('docconv-panel'); closeServicesDropdown();">
+                        <i class="fas fa-file-export" aria-hidden="true"></i> Doc Converter
                     </button>
                 </div>
             </div>
@@ -2027,12 +2035,18 @@
             <button class="mobile-nav-item" onclick="showSectionPanel('editing-panel'); closeMobileNav();">
                 <i class="fas fa-tools"></i> Edit &amp; Convert
             </button>
+            <button class="mobile-nav-item" onclick="showSectionPanel('cv-panel'); closeMobileNav();">
+                <i class="fas fa-id-card"></i> CV Generator
+            </button>
+            <button class="mobile-nav-item" onclick="showSectionPanel('docconv-panel'); closeMobileNav();">
+                <i class="fas fa-file-export"></i> Doc Converter
+            </button>
         </div>
     </nav>
 
     <!-- Page loader: shown for ~2.5 s while the page builds -->
     <div id="page-loader">
-        <div class="loader-title"><i class="fas fa-download"></i> YOT Downloader</div>
+        <div class="loader-title"><img src="/yotweek.png" alt="" style="width:22px;height:22px;border-radius:4px;vertical-align:middle;margin-right:8px;"> yotweek</div>
         <div class="loading-dots">
             <span>.</span><span>.</span><span>.</span><span>.</span><span>.</span><span>.</span>
         </div>
@@ -2092,8 +2106,8 @@
             </div>
             <div>
                 <h1 class="hero-title">
-                    <svg class="hero-title-icon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="6" fill="#2563eb"/><path d="M16 6v12m0 0l-5-5m5 5l5-5M8 24h16" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>
-                    YOT Downloader
+                    <img class="hero-title-icon" src="/yotweek.png" alt="yotweek" width="22" height="22" style="border-radius:4px;" aria-hidden="true">
+                    yotweek
                 </h1>
                 <p class="hero-subtitle">
                     <span id="conn-dot"></span>
@@ -2178,6 +2192,12 @@
                         </button>
                         <button class="main-tab-btn" id="main-tab-editing" onclick="switchMainSection('editing-panel', this)">
                             <i class="fas fa-tools"></i> Edit &amp; Convert
+                        </button>
+                        <button class="main-tab-btn" id="main-tab-cv" onclick="switchMainSection('cv-panel', this)">
+                            <i class="fas fa-id-card"></i> CV Generator
+                        </button>
+                        <button class="main-tab-btn" id="main-tab-docconv" onclick="switchMainSection('docconv-panel', this)">
+                            <i class="fas fa-file-export"></i> Doc Converter
                         </button>
                     </div>
                     <!-- Download Video panel (active by default) -->
@@ -2738,6 +2758,122 @@
                     </div>
                 </div>
 
+                    <!-- CV Generator panel (hidden by default) -->
+                    <div id="cv-panel" class="card-body" style="display:none;">
+                        <div class="section-header-row" style="margin-bottom:16px;">
+                            <h2 style="font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
+                                <i class="fas fa-id-card" style="color:#2563eb;"></i> CV Generator
+                            </h2>
+                            <p style="font-size:0.83rem;color:#64748b;margin-top:4px;">Fill in your details and download a professional PDF CV instantly.</p>
+                        </div>
+                        <form id="cv-form" onsubmit="submitCVForm(event)">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label><i class="fas fa-user"></i> Full Name <span style="color:#ef4444;">*</span></label>
+                                    <input type="text" id="cv-name" placeholder="e.g. Jane Smith" required>
+                                </div>
+                                <div class="form-group">
+                                    <label><i class="fas fa-envelope"></i> Email <span style="color:#ef4444;">*</span></label>
+                                    <input type="email" id="cv-email" placeholder="jane@example.com" required>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label><i class="fas fa-phone"></i> Phone</label>
+                                    <input type="text" id="cv-phone" placeholder="+1 555 123 4567">
+                                </div>
+                                <div class="form-group">
+                                    <label><i class="fas fa-map-marker-alt"></i> Location</label>
+                                    <input type="text" id="cv-location" placeholder="City, Country">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-link"></i> LinkedIn / Website</label>
+                                <input type="text" id="cv-link" placeholder="https://linkedin.com/in/janesmith">
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-align-left"></i> Professional Summary</label>
+                                <textarea id="cv-summary" rows="3" placeholder="A brief professional summary…" style="width:100%;resize:vertical;"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-briefcase"></i> Work Experience</label>
+                                <textarea id="cv-experience" rows="5" placeholder="Company — Title — Start-End year&#10;• Achievement or responsibility&#10;&#10;Company — Title — Start-End year&#10;• Achievement or responsibility" style="width:100%;resize:vertical;"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-graduation-cap"></i> Education</label>
+                                <textarea id="cv-education" rows="3" placeholder="University — Degree — Year&#10;University — Degree — Year" style="width:100%;resize:vertical;"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-star"></i> Skills <small style="color:#94a3b8;">(comma-separated)</small></label>
+                                <input type="text" id="cv-skills" placeholder="Python, FastAPI, React, Docker, …">
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-flask"></i> Projects <small style="color:#94a3b8;">(optional)</small></label>
+                                <textarea id="cv-projects" rows="3" placeholder="Project Name — Description — URL (optional)" style="width:100%;resize:vertical;"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-book"></i> Publications <small style="color:#94a3b8;">(optional)</small></label>
+                                <textarea id="cv-publications" rows="2" placeholder="Title — Journal — Year" style="width:100%;resize:vertical;"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label><i class="fas fa-image"></i> Logo / Branding Image <small style="color:#94a3b8;">(optional, PNG/JPG)</small></label>
+                                <input type="file" id="cv-logo" accept="image/png,image/jpeg">
+                            </div>
+                            <button type="submit" class="btn-primary" id="cv-submit-btn">
+                                <i class="fas fa-file-pdf"></i> Generate PDF CV
+                            </button>
+                        </form>
+                        <div id="cv-status" style="margin-top:10px;"></div>
+                    </div>
+
+                    <!-- Document Converter panel (hidden by default) -->
+                    <div id="docconv-panel" class="card-body" style="display:none;">
+                        <div class="section-header-row" style="margin-bottom:16px;">
+                            <h2 style="font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
+                                <i class="fas fa-file-export" style="color:#2563eb;"></i> Document Converter
+                            </h2>
+                            <p style="font-size:0.83rem;color:#64748b;margin-top:4px;">Convert between PDF, Word, Excel, PowerPoint, images, Markdown, HTML and more.</p>
+                        </div>
+                        <div class="form-group">
+                            <label><i class="fas fa-upload"></i> Upload File <span style="color:#ef4444;">*</span></label>
+                            <div id="docconv-dropzone" style="border:2px dashed #cbd5e1;border-radius:8px;padding:28px;text-align:center;cursor:pointer;background:#f8fafc;transition:border-color 0.2s;"
+                                 ondragover="event.preventDefault();this.style.borderColor='#2563eb';"
+                                 ondragleave="this.style.borderColor='#cbd5e1';"
+                                 ondrop="docconvHandleDrop(event);"
+                                 onclick="document.getElementById('docconv-file').click()">
+                                <i class="fas fa-file-upload" style="font-size:2rem;color:#94a3b8;display:block;margin-bottom:8px;"></i>
+                                <span style="color:#64748b;">Drag &amp; drop a file here, or <strong>click to browse</strong></span>
+                                <div id="docconv-file-name" style="margin-top:8px;font-size:0.82rem;color:#2563eb;"></div>
+                            </div>
+                            <input type="file" id="docconv-file" style="display:none;" onchange="docconvFileSelected(this)">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="docconv-target"><i class="fas fa-exchange-alt"></i> Convert To <span style="color:#ef4444;">*</span></label>
+                                <select id="docconv-target">
+                                    <option value="pdf">PDF</option>
+                                    <option value="docx">Word (.docx)</option>
+                                    <option value="xlsx">Excel (.xlsx)</option>
+                                    <option value="pptx">PowerPoint (.pptx)</option>
+                                    <option value="odt">OpenDocument Text (.odt)</option>
+                                    <option value="html">HTML (.html)</option>
+                                    <option value="md">Markdown (.md)</option>
+                                    <option value="txt">Plain Text (.txt)</option>
+                                    <option value="rtf">Rich Text (.rtf)</option>
+                                    <option value="csv">CSV (.csv)</option>
+                                    <option value="png">Image PNG (.png)</option>
+                                    <option value="jpg">Image JPG (.jpg)</option>
+                                    <option value="epub">e-Book (.epub)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button class="btn-primary" id="docconv-btn" onclick="submitDocConv()">
+                            <i class="fas fa-cog"></i> Convert &amp; Download
+                        </button>
+                        <div id="docconv-status" style="margin-top:10px;"></div>
+                    </div>
+                </div>
+
                 <!-- Active downloads (hidden when empty) -->
                 <div class="card" id="active-section">
                     <div class="card-header">
@@ -2861,11 +2997,11 @@
                 <i class="fas fa-times"></i>
             </button>
             <div class="info-modal-title">
-                <i class="fas fa-download"></i>
-                <span id="about-modal-title">About YOT Downloader</span>
+                <img src="/yotweek.png" alt="yotweek" style="width:22px;height:22px;border-radius:4px;margin-right:8px;vertical-align:middle;">
+                <span id="about-modal-title">About yotweek</span>
             </div>
             <p style="font-size:0.9rem; color:#475569; line-height:1.65;">
-                <strong>YOT Downloader</strong> is a powerful, browser-based video downloader and editor powered by
+                <strong>yotweek</strong> is a powerful, browser-based video downloader and editor powered by
                 <strong>yt-dlp</strong>. It lets you download videos from YouTube and 1000+ other platforms, then
                 convert, trim, or enhance them — all from one page.
             </p>
@@ -2961,12 +3097,12 @@
 
             <div class="terms-section">
                 <h3>1. Acceptance of Terms</h3>
-                <p>By accessing or using YOT Downloader ("the Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service. We reserve the right to update these terms at any time; continued use constitutes acceptance of any changes.</p>
+                <p>By accessing or using yotweek ("the Service"), you agree to be bound by these Terms of Service. If you do not agree to these terms, please do not use the Service. We reserve the right to update these terms at any time; continued use constitutes acceptance of any changes.</p>
             </div>
 
             <div class="terms-section">
                 <h3>2. Description of Service</h3>
-                <p>YOT Downloader is a free, browser-based tool that allows users to download publicly accessible video and audio content from supported platforms using the open-source yt-dlp library. The Service is provided "as-is" without warranties of any kind.</p>
+                <p>yotweek is a free, browser-based tool that allows users to download publicly accessible video and audio content from supported platforms using the open-source yt-dlp library. The Service is provided "as-is" without warranties of any kind.</p>
             </div>
 
             <div class="terms-section">
@@ -2981,7 +3117,7 @@
 
             <div class="terms-section">
                 <h3>5. Disclaimer of Liability</h3>
-                <p>YOT Downloader is not responsible for how users use downloaded content. The operators of this Service expressly disclaim any liability arising from copyright infringement, platform terms-of-service violations, or any other misuse by users. Use of this Service is entirely at your own risk.</p>
+                <p>yotweek is not responsible for how users use downloaded content. The operators of this Service expressly disclaim any liability arising from copyright infringement, platform terms-of-service violations, or any other misuse by users. Use of this Service is entirely at your own risk.</p>
             </div>
 
             <div class="terms-section">
@@ -3006,7 +3142,7 @@
 
             <div class="terms-section">
                 <h3>10. Contact</h3>
-                <p>If you have questions about these Terms or a DMCA takedown request, please open an issue on the project's GitHub repository.</p>
+                <p>If you have questions about these Terms or a DMCA takedown request, please contact us at <a href="mailto:support@yotweek.com">support@yotweek.com</a> or open an issue on the project's GitHub repository.</p>
             </div>
         </div>
     </div>
@@ -3015,7 +3151,7 @@
     <footer class="site-footer">
         <div class="footer-content">
             <div class="footer-brand">
-                <i class="fas fa-download"></i> YOT Downloader
+                <img src="/yotweek.png" alt="yotweek" style="width:18px;height:18px;border-radius:3px;margin-right:8px;vertical-align:middle;"> yotweek
             </div>
             <p class="footer-subtitle">
                 Download Any Video &mdash; Free &amp; Fast &bull; YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; No sign-up required
@@ -3042,6 +3178,8 @@
                 <span>&bull;</span>
                 <span>Powered by yt-dlp</span>
                 <span>&bull;</span>
+                <a href="mailto:support@yotweek.com"><i class="fas fa-envelope" style="margin-right:4px;"></i>support@yotweek.com</a>
+                <span>&bull;</span>
                 <a href="#" onclick="showTermsModal(); return false;">Privacy Policy</a>
                 <span>&bull;</span>
                 <a href="#" onclick="showTermsModal(); return false;">Terms of Service</a>
@@ -3049,7 +3187,7 @@
             <p style="font-size:0.73rem;color:rgba(255,255,255,0.45);margin-bottom:8px;">
                 Only download content you have the right to use, in accordance with copyright laws and the platform's terms of service.
             </p>
-            <p class="footer-copy">&copy; <span id="footer-year"></span> YOT Downloader. All rights reserved.</p>
+            <p class="footer-copy">&copy; <span id="footer-year"></span> yotweek. All rights reserved.</p>
         </div>
     </footer>
 
@@ -4750,6 +4888,8 @@
                 'download-panel': 'main-tab-download',
                 'playlist-panel': 'main-tab-playlist',
                 'editing-panel':  'main-tab-editing',
+                'cv-panel':       'main-tab-cv',
+                'docconv-panel':  'main-tab-docconv',
             };
             const btn = document.getElementById(tabBtnMap[panelId]);
             switchMainSection(panelId, btn);
@@ -5236,7 +5376,7 @@
     <div id="help-modal-overlay" role="dialog" aria-modal="true" aria-label="Help" onclick="if(event.target===this)closeHelpModal()">
         <div id="help-modal">
             <div class="help-modal-header">
-                <h2><i class="fas fa-circle-question" style="color:#2563eb;"></i> YOT Downloader — Help Guide</h2>
+                <h2><i class="fas fa-circle-question" style="color:#2563eb;"></i> yotweek — Help Guide</h2>
                 <button class="help-modal-close" onclick="closeHelpModal()" aria-label="Close help"><i class="fas fa-times"></i></button>
             </div>
             <div class="help-modal-body">
@@ -5400,6 +5540,108 @@
             if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openHelpModal(); }
         });
     })();
+
+    // ─── CV Generator ─────────────────────────────────────────────
+    async function submitCVForm(event) {
+        event.preventDefault();
+        const statusEl = document.getElementById('cv-status');
+        const submitBtn = document.getElementById('cv-submit-btn');
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating CV…';
+        submitBtn.disabled = true;
+
+        try {
+            const fd = new FormData();
+            fd.append('name',         document.getElementById('cv-name').value.trim());
+            fd.append('email',        document.getElementById('cv-email').value.trim());
+            fd.append('phone',        document.getElementById('cv-phone').value.trim());
+            fd.append('location',     document.getElementById('cv-location').value.trim());
+            fd.append('link',         document.getElementById('cv-link').value.trim());
+            fd.append('summary',      document.getElementById('cv-summary').value.trim());
+            fd.append('experience',   document.getElementById('cv-experience').value.trim());
+            fd.append('education',    document.getElementById('cv-education').value.trim());
+            fd.append('skills',       document.getElementById('cv-skills').value.trim());
+            fd.append('projects',     document.getElementById('cv-projects').value.trim());
+            fd.append('publications', document.getElementById('cv-publications').value.trim());
+            const logoFile = document.getElementById('cv-logo').files[0];
+            if (logoFile) fd.append('logo', logoFile, logoFile.name);
+
+            const res = await fetch('/api/cv/generate', { method: 'POST', body: fd });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'Server error' }));
+                throw new Error(err.error || 'Generation failed');
+            }
+            const blob = await res.blob();
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = 'cv.pdf';
+            a.click();
+            URL.revokeObjectURL(url);
+            statusEl.innerHTML = '<span style="color:#22c55e;"><i class="fas fa-check-circle"></i> CV generated and downloaded!</span>';
+        } catch (err) {
+            statusEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> ${escHtml(err.message)}</span>`;
+        } finally {
+            submitBtn.disabled = false;
+        }
+    }
+
+    // ─── Document Converter ────────────────────────────────────────
+    function docconvFileSelected(input) {
+        const nameEl = document.getElementById('docconv-file-name');
+        nameEl.textContent = input.files[0] ? input.files[0].name : '';
+    }
+
+    function docconvHandleDrop(event) {
+        event.preventDefault();
+        document.getElementById('docconv-dropzone').style.borderColor = '#cbd5e1';
+        const file = event.dataTransfer.files[0];
+        if (!file) return;
+        const input = document.getElementById('docconv-file');
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        document.getElementById('docconv-file-name').textContent = file.name;
+    }
+
+    async function submitDocConv() {
+        const input    = document.getElementById('docconv-file');
+        const target   = document.getElementById('docconv-target').value;
+        const statusEl = document.getElementById('docconv-status');
+        const btn      = document.getElementById('docconv-btn');
+
+        if (!input.files[0]) {
+            showToast('Please select a file to convert.', 'warning');
+            return;
+        }
+
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Converting…';
+        btn.disabled = true;
+
+        try {
+            const fd = new FormData();
+            fd.append('file',   input.files[0], input.files[0].name);
+            fd.append('target', target);
+
+            const res = await fetch('/api/doc/convert', { method: 'POST', body: fd });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'Conversion failed' }));
+                throw new Error(err.error || 'Conversion failed');
+            }
+            const blob     = await res.blob();
+            const url      = URL.createObjectURL(blob);
+            const origName = input.files[0].name.replace(/\.[^.]+$/, '');
+            const a        = document.createElement('a');
+            a.href         = url;
+            a.download     = `${origName}.${target}`;
+            a.click();
+            URL.revokeObjectURL(url);
+            statusEl.innerHTML = '<span style="color:#22c55e;"><i class="fas fa-check-circle"></i> Converted and downloaded!</span>';
+        } catch (err) {
+            statusEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> ${escHtml(err.message)}</span>`;
+        } finally {
+            btn.disabled = false;
+        }
+    }
     </script>
 </body>
 </html>
