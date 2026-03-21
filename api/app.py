@@ -4791,6 +4791,11 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
         return "pdf2img"
     if src_ext == "pdf" and target == "xlsx":
         return "tabula"
+    # PDF is not a valid Pandoc input format. Conversions from PDF to text-based
+    # document formats must be caught here before reaching the pandoc branch so
+    # the user gets a clean, readable error instead of Pandoc's raw format list.
+    if src_ext == "pdf" and target in ("html", "md", "txt", "epub", "rst"):
+        return "unsupported"
     if src_ext in _IMAGE_EXTS and target == "pdf":
         return "img2pdf"
     # Image files cannot be converted to document/text formats.
@@ -4818,6 +4823,12 @@ def _unsupported_conversion_error(src_ext: str, target: str) -> str:
         return (
             f"Image files (.{src_clean}) can only be converted to PDF. "
             f"Converting to .{target} is not supported."
+        )
+    if src_clean == "pdf" and target in ("html", "md", "txt", "epub", "rst"):
+        return (
+            f"Cannot convert .pdf files to .{target}. "
+            f"The source format is not supported for document conversion. "
+            f"Supported text-based formats include: md, html, txt, docx, odt, epub, rst."
         )
     return f"Converting .{src_clean} files to .{target} is not supported."
 

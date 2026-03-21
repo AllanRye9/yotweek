@@ -128,6 +128,77 @@ def test_pdf_to_xlsx_uses_tabula():
 
 
 # ---------------------------------------------------------------------------
+# PDF -> text-based formats must be unsupported (not pandoc)
+#
+# PDF is not a valid Pandoc input format. Without this guard, Pandoc would
+# receive "pdf" as its --from argument and throw a cryptic format-list error
+# instead of the clean, readable message the user deserves.
+# ---------------------------------------------------------------------------
+
+def test_pdf_to_html_is_unsupported():
+    assert _doc_conv_strategy(".pdf", "html") == "unsupported"
+
+
+def test_pdf_to_md_is_unsupported():
+    assert _doc_conv_strategy(".pdf", "md") == "unsupported"
+
+
+def test_pdf_to_txt_is_unsupported():
+    assert _doc_conv_strategy(".pdf", "txt") == "unsupported"
+
+
+def test_pdf_to_epub_is_unsupported():
+    assert _doc_conv_strategy(".pdf", "epub") == "unsupported"
+
+
+def test_pdf_to_rst_is_unsupported():
+    assert _doc_conv_strategy(".pdf", "rst") == "unsupported"
+
+
+def test_pdf_to_text_formats_never_use_pandoc():
+    """PDF must never be routed to Pandoc regardless of target."""
+    pandoc_targets = ("html", "md", "txt", "epub", "rst")
+    for tgt in pandoc_targets:
+        strategy = _doc_conv_strategy(".pdf", tgt)
+        assert strategy != "pandoc", (
+            f"_doc_conv_strategy('.pdf', '{tgt}') returned 'pandoc' "
+            "but PDF is not a valid Pandoc input format"
+        )
+        assert strategy == "unsupported", (
+            f"_doc_conv_strategy('.pdf', '{tgt}') should return 'unsupported', "
+            f"got {strategy!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Error message quality for PDF -> text-based formats
+# ---------------------------------------------------------------------------
+
+def test_pdf_to_html_error_message_is_readable():
+    from api.app import _unsupported_conversion_error
+    msg = _unsupported_conversion_error(".pdf", "html")
+    assert "pdf" in msg.lower()
+    assert "html" in msg.lower()
+    assert "Invalid input format!" not in msg
+    assert "biblatex" not in msg
+
+
+def test_pdf_to_html_error_mentions_supported_formats():
+    from api.app import _unsupported_conversion_error
+    msg = _unsupported_conversion_error(".pdf", "html")
+    # The message should list the text-based formats that ARE supported
+    assert "md" in msg or "docx" in msg or "txt" in msg, (
+        "Error for pdf→html should mention which formats ARE supported"
+    )
+
+
+def test_pdf_to_html_error_matches_expected_wording():
+    from api.app import _unsupported_conversion_error
+    msg = _unsupported_conversion_error(".pdf", "html")
+    assert "Cannot convert .pdf files to .html" in msg
+
+
+# ---------------------------------------------------------------------------
 # Document -> text/markup conversions use pandoc
 # ---------------------------------------------------------------------------
 

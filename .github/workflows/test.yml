@@ -26,4 +26,4 @@ jobs:
         run: pip install -r requirements.txt pytest
 
       - name: Run document-converter tests
-        run: python -m pytest tests/test_doc_converter.py -v --tb=short
+        run: python -m pytest tests/ -v --tb=short

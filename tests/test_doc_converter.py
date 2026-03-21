@@ -85,6 +85,31 @@ class TestImageInputStrategy:
 # ---------------------------------------------------------------------------
 
 class TestKnownStrategies:
+    def test_pdf_to_html(self):
+        # PDF is not a valid Pandoc input; must return "unsupported" not "pandoc"
+        assert _doc_conv_strategy(".pdf", "html") == "unsupported"
+
+    def test_pdf_to_md(self):
+        assert _doc_conv_strategy(".pdf", "md") == "unsupported"
+
+    def test_pdf_to_txt(self):
+        assert _doc_conv_strategy(".pdf", "txt") == "unsupported"
+
+    def test_pdf_to_epub(self):
+        assert _doc_conv_strategy(".pdf", "epub") == "unsupported"
+
+    def test_pdf_to_rst(self):
+        assert _doc_conv_strategy(".pdf", "rst") == "unsupported"
+
+    @pytest.mark.parametrize("tgt", ["html", "md", "txt", "epub", "rst"])
+    def test_pdf_to_text_format_never_uses_pandoc(self, tgt):
+        strategy = _doc_conv_strategy(".pdf", tgt)
+        assert strategy != "pandoc", (
+            f"_doc_conv_strategy('.pdf', '{tgt}') returned 'pandoc' "
+            "but PDF is not a valid Pandoc input format"
+        )
+        assert strategy == "unsupported"
+
     def test_pdf_to_docx(self):
         assert _doc_conv_strategy(".pdf", "docx") == "pdf2docx"
 
@@ -169,4 +194,28 @@ class TestErrorMessages:
         msg = _unsupported_conversion_error(src, "html")
         assert "PDF" in msg or "pdf" in msg, (
             "The error for image→non-pdf should tell the user PDF is the only option."
+        )
+
+    @pytest.mark.parametrize("tgt", ["html", "md", "txt", "epub", "rst"])
+    def test_pdf_to_text_format_error_is_readable(self, tgt):
+        """Error for pdf→text must NOT expose Pandoc internals."""
+        msg = _unsupported_conversion_error("pdf", tgt)
+        assert "pdf" in msg.lower()
+        assert tgt in msg.lower()
+        assert "Invalid input format!" not in msg
+        assert "expected one of these" not in msg.lower()
+        for fmt in self.PANDOC_RAW_FORMATS:
+            assert fmt not in msg, (
+                f"Error must not expose Pandoc internals. Found {fmt!r} in: {msg!r}"
+            )
+
+    def test_pdf_to_html_error_matches_expected_wording(self):
+        msg = _unsupported_conversion_error("pdf", "html")
+        assert "Cannot convert .pdf files to .html" in msg
+
+    def test_pdf_to_html_error_mentions_supported_formats(self):
+        msg = _unsupported_conversion_error("pdf", "html")
+        # Should tell the user which text-based formats are actually supported
+        assert "md" in msg or "docx" in msg or "txt" in msg, (
+            "Error for pdf→html should mention which formats ARE supported"
         )
