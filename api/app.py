@@ -4,6 +4,7 @@ import sys
 import secrets
 import subprocess
 import threading
+import queue as _queue_module
 import time
 import uuid
 import shutil
@@ -51,9 +52,10 @@ class Config:
     DOWNLOAD_FOLDER = "downloads"
     TEMPLATES_FOLDER = "templates"
     STATIC_FOLDER = "static"
-    MAX_DOWNLOADS_PER_IP = 5
+    MAX_DOWNLOADS_PER_IP = 10
     MAX_REVIEWS_PER_IP = 1
-    MAX_CONCURRENT_DOWNLOADS = 3
+    MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 10))
+    MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", 50))
     DOWNLOAD_TIMEOUT = 3600  # 1 hour
     CLEANUP_INTERVAL = 60    # Run cleanup every 60 seconds
     FILE_RETENTION_MINUTES = 5  # Delete files that are older than this many minutes (up to 1 extra minute until the next cleanup cycle)
@@ -186,6 +188,12 @@ downloads_lock = RLock()  # Reentrant lock for nested access
 downloads = {}            # download_id -> metadata
 active_threads = {}       # download_id -> thread
 ip_download_count = {}    # ip -> count
+
+# ── Download queue infrastructure ──────────────────────────────────────────
+# Pending downloads wait in this queue until a concurrency slot opens.
+_download_queue: _queue_module.Queue = _queue_module.Queue(maxsize=Config.MAX_QUEUE_SIZE)
+# BoundedSemaphore limits how many downloads run simultaneously.
+_active_semaphore = threading.BoundedSemaphore(Config.MAX_CONCURRENT_DOWNLOADS)
 
 visitors_lock = Lock()
 visitors = []             # List of visitor dicts tracked on page visits
@@ -1688,6 +1696,58 @@ def get_video_info(url: str) -> dict:
         return {"error": _friendly_cookie_error(str(e))}
 
 # =========================================================
+# DOWNLOAD QUEUE DISPATCHER
+# =========================================================
+
+def _queue_dispatcher():
+    """Daemon thread that drains _download_queue and dispatches workers
+    as concurrency slots become available via _active_semaphore.
+
+    Each item in the queue is a 5-tuple:
+        (download_id, url, output_template, format_spec, output_ext)
+
+    The dispatcher blocks on _active_semaphore.acquire() until a running
+    download finishes and releases its slot.  Cancelled-while-queued items
+    are skipped without consuming a slot.
+    """
+    while True:
+        item = _download_queue.get()  # blocks until an item is available
+        download_id, url, output_template, format_spec, output_ext = item
+
+        # Wait for a free concurrency slot
+        _active_semaphore.acquire()
+
+        # If the download was cancelled while waiting in the queue, skip it
+        with downloads_lock:
+            if downloads.get(download_id, {}).get("status") == "cancelled":
+                _active_semaphore.release()
+                _download_queue.task_done()
+                continue
+            downloads[download_id]["status"] = "starting"
+
+        # Notify the frontend that this download is now starting
+        emit_from_thread("status_update", {"id": download_id, "status": "starting"}, room=download_id)
+
+        def _worker_with_release(did, u, ot, fs, oe):
+            try:
+                download_worker(did, u, ot, fs, oe)
+            finally:
+                _active_semaphore.release()
+                _download_queue.task_done()
+
+        t = threading.Thread(
+            target=_worker_with_release,
+            args=(download_id, url, output_template, format_spec, output_ext),
+            daemon=True,
+        )
+        t.start()
+        with downloads_lock:
+            active_threads[download_id] = t
+
+# Start the dispatcher as a daemon thread so it runs for the lifetime of the process
+threading.Thread(target=_queue_dispatcher, daemon=True, name="download-queue-dispatcher").start()
+
+# =========================================================
 # DOWNLOAD WORKER
 # =========================================================
 
@@ -2105,14 +2165,11 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
     if not url:
         return JSONResponse({"error": "URL is required"}, status_code=400)
 
-    # Check concurrent downloads
-    with downloads_lock:
-        active_count = sum(1 for d in downloads.values()
-                          if d["status"] in ("starting", "fetching_info", "queued", "downloading"))
-        if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
-            return JSONResponse({
-                "error": f"Maximum concurrent downloads reached ({Config.MAX_CONCURRENT_DOWNLOADS})"
-            }, status_code=429)
+    # Reject only if the queue is already full
+    if _download_queue.full():
+        return JSONResponse({
+            "error": f"Download queue is full ({Config.MAX_QUEUE_SIZE} items). Please try again later."
+        }, status_code=429)
 
     download_id = str(uuid.uuid4())
 
@@ -2137,7 +2194,7 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
             "url": url,
             "title": title,
             "safe_title": safe_title,
-            "status": "starting",
+            "status": "queued",
             "percent": 0,
             "output_template": output_template,
             "format": format_spec,
@@ -2159,24 +2216,15 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
             target=_lookup_country_async, args=(ip, accept_lang), daemon=True
         ).start()
 
-    # Start download thread immediately — returns download_id to the client
-    # right away so the frontend can subscribe and show real-time progress.
-    thread = threading.Thread(
-        target=download_worker,
-        args=(download_id, url, output_template, format_spec, output_ext),
-        daemon=True,
-    )
-    thread.start()
-
-    with downloads_lock:
-        active_threads[download_id] = thread
+    # Enqueue the download; the dispatcher will start it when a slot is free.
+    _download_queue.put((download_id, url, output_template, format_spec, output_ext))
 
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     return JSONResponse({
         "download_id": download_id,
         "title": title,
-        "status": "starting",
+        "status": "queued",
     })
 
 @fastapi_app.get("/status/{download_id}")
@@ -2391,20 +2439,38 @@ async def get_stats():
 async def active_downloads_list():
     """Return count and details of active/queued downloads"""
     with downloads_lock:
-        active = [
-            {
-                "id": d["id"],
-                "title": d.get("title"),
-                "status": d["status"],
-                "percent": d.get("percent", 0),
-                "speed": d.get("speed", ""),
-                "eta": d.get("eta", ""),
-                "size": d.get("size", "")
-            }
-            for d in downloads.values()
+        all_active = [
+            d for d in downloads.values()
             if d["status"] in ("starting", "fetching_info", "queued", "downloading")
         ]
-    return JSONResponse({"count": len(active), "downloads": active})
+
+    # Assign queue positions to items still waiting (status == "queued"),
+    # ordered by creation time so position 1 is the next to be dispatched.
+    queued_sorted = sorted(
+        [d for d in all_active if d["status"] == "queued"],
+        key=lambda d: d.get("created_at", 0),
+    )
+    queue_pos = {d["id"]: i + 1 for i, d in enumerate(queued_sorted)}
+
+    active = [
+        {
+            "id": d["id"],
+            "title": d.get("title"),
+            "status": d["status"],
+            "percent": d.get("percent", 0),
+            "speed": d.get("speed", ""),
+            "eta": d.get("eta", ""),
+            "size": d.get("size", ""),
+            "queue_position": queue_pos.get(d["id"]),
+        }
+        for d in all_active
+    ]
+    return JSONResponse({
+        "count": len(active),
+        "downloads": active,
+        "queue_size": _download_queue.qsize(),
+        "max_concurrent": Config.MAX_CONCURRENT_DOWNLOADS,
+    })
 
 @fastapi_app.post("/cancel/{download_id}")
 async def cancel_download(download_id: str):
@@ -3431,16 +3497,6 @@ async def start_playlist_download(
     if not url:
         return JSONResponse({"error": "URL is required"}, status_code=400)
 
-    with downloads_lock:
-        active_count = sum(
-            1 for d in downloads.values()
-            if d["status"] in ("starting", "fetching_info", "queued", "downloading")
-        )
-        if active_count >= Config.MAX_CONCURRENT_DOWNLOADS:
-            return JSONResponse({
-                "error": f"Maximum concurrent downloads reached ({Config.MAX_CONCURRENT_DOWNLOADS})"
-            }, status_code=429)
-
     batch_id = str(uuid.uuid4())
     ip = _get_real_ip(request)
     hdr_country, hdr_code = _get_country_from_headers(request)
@@ -3670,6 +3726,10 @@ async def start_batch_download(
     if len(url_list) > 20:
         return JSONResponse({"error": "Maximum 20 URLs per batch"}, status_code=400)
 
+    # Reject only when the shared queue would overflow
+    if _download_queue.full():
+        return JSONResponse({"error": f"Download queue is full ({Config.MAX_QUEUE_SIZE} items). Please try again later."}, status_code=429)
+
     started = []
     ip = _get_real_ip(request)
     hdr_country, hdr_code = _get_country_from_headers(request)
@@ -3679,11 +3739,10 @@ async def start_batch_download(
         ip_country_cache[ip] = {"country": "Local", "code": "", "city": "", "region": ""}
     cached_geo = ip_country_cache.get(ip, {})
 
-    batch_items = []  # (download_id, url, output_template, format_spec, output_ext)
     for url in url_list:
-        # Register all downloads immediately with "queued" status so the UI
-        # can show them.  The sequential orchestration thread will start them
-        # one at a time in order.
+        # Register each download immediately with "queued" status so the UI
+        # can show them.  The shared dispatcher will start them concurrently
+        # as slots become available.
         download_id     = str(uuid.uuid4())
         title           = f"video_{download_id[:8]}"
         safe_title      = safe_filename(title)
@@ -3710,33 +3769,19 @@ async def start_batch_download(
                 "owner_session":   session_id or "",
             }
 
-        batch_items.append((download_id, url, output_template, format_spec, output_ext))
+        # Enqueue to shared dispatcher (skip if queue would overflow mid-batch)
+        try:
+            _download_queue.put_nowait((download_id, url, output_template, format_spec, output_ext))
+        except _queue_module.Full:
+            # Remove the orphaned record so it doesn't linger in memory
+            with downloads_lock:
+                downloads.pop(download_id, None)
+            continue
+
         started.append({"download_id": download_id, "url": url, "title": title})
 
     if not started:
-        return JSONResponse({"error": "Could not start any downloads (concurrent limit reached)"}, status_code=429)
-
-    # Orchestration thread: run each download_worker sequentially so downloads
-    # complete one at a time rather than all at once.
-    def _batch_orchestrator(items):
-        for dl_id, dl_url, dl_template, dl_format, dl_ext in items:
-            # Skip if cancelled while waiting in queue
-            with downloads_lock:
-                if downloads.get(dl_id, {}).get("status") == "cancelled":
-                    continue
-                active_threads[dl_id] = threading.current_thread()
-            try:
-                download_worker(dl_id, dl_url, dl_template, dl_format, dl_ext)
-            finally:
-                with downloads_lock:
-                    active_threads.pop(dl_id, None)
-
-    orch_thread = threading.Thread(
-        target=_batch_orchestrator,
-        args=(batch_items,),
-        daemon=True,
-    )
-    orch_thread.start()
+        return JSONResponse({"error": "Could not start any downloads (queue full)"}, status_code=429)
 
     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
     if ip not in ip_country_cache:

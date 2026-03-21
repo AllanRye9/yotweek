@@ -39,6 +39,9 @@ function DownloadCard({ dl, onCancel }) {
           </p>
           <div className="mt-0.5 flex flex-wrap gap-2 text-xs">
             <span className={statusColor(dl.status)}>{dl.status}</span>
+            {dl.status === 'queued' && dl.queue_position != null && (
+              <span className="text-yellow-500/80">#{dl.queue_position} in queue</span>
+            )}
             {dl.speed    && <span className="text-gray-500">⚡ {dl.speed}</span>}
             {dl.eta      && <span className="text-gray-500">⏱ {dl.eta}</span>}
             {dl.file_size_hr && <span className="text-gray-500">📦 {dl.file_size_hr}</span>}

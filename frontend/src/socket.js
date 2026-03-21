@@ -10,7 +10,9 @@ const socket = io('/', {
   autoConnect: true,
   reconnection: true,
   reconnectionAttempts: 10,
-  reconnectionDelay: 2000,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 8000,
+  timeout: 20000,
 })
 
 export default socket

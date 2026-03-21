@@ -116,7 +116,7 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
                : isFailed   ? 'Download Failed'
                : isCancelled? 'Download Cancelled'
                : isFetching ? 'Preparing download…'
-               : isQueued   ? 'Queued…'
+               : isQueued   ? (dl.queue_position != null ? `Queued — #${dl.queue_position}` : 'Queued…')
                :              'Downloading…'}
             </h2>
           </div>
@@ -153,7 +153,7 @@ export default function DownloadProgressPopup({ dl, onClose, onDelete }) {
                 {fillPct}%
               </p>
             )}
-            {isIndeterminate && <p className="text-xs text-gray-500">{isFetching ? 'Fetching info…' : 'Waiting…'}</p>}
+            {isIndeterminate && <p className="text-xs text-gray-500">{isFetching ? 'Fetching info…' : (dl.queue_position != null ? `Position #${dl.queue_position} in queue` : 'Waiting…')}</p>}
           </div>
         </div>
 
