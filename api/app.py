@@ -4777,7 +4777,7 @@ def _lo_filter_str(src_ext: str, target: str) -> str:
 
 # Image extensions that cannot be used as Pandoc input and cannot be
 # converted to document formats (only image→PDF via img2pdf is supported).
-_IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "tiff", "bmp", "gif", "webp"})
+_IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "tiff", "tif", "bmp", "gif", "webp"})
 
 # Map of (input_ext → target_ext) → conversion strategy
 # Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img", "unsupported"
