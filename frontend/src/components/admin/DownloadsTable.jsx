@@ -11,14 +11,37 @@ function StatusBadge({ status }) {
   return <span className={cls}>{status}</span>
 }
 
+function TypeBadge({ type }) {
+  const map = {
+    video:          { cls: 'badge-info',    label: '🎬 Video'    },
+    playlist:       { cls: 'badge-info',    label: '📋 Playlist' },
+    doc_conversion: { cls: 'badge-warning', label: '📁 Document' },
+    cv_generation:  { cls: 'badge-warning', label: '📄 CV'       },
+    upload:         { cls: 'badge-gray',    label: '📤 Upload'   },
+    edit_output:    { cls: 'badge-gray',    label: '✂ Edit'      },
+  }
+  const { cls, label } = map[type] || { cls: 'badge-gray', label: type || '—' }
+  return <span className={cls}>{label}</span>
+}
+
+// Classify a record into a broad category for the type filter
+function _category(r) {
+  const t = r.type || ''
+  if (t === 'doc_conversion' || t === 'cv_generation') return 'document'
+  if (t === 'playlist') return 'playlist'
+  if (t === 'edit_output' || t === 'upload') return 'edit'
+  return 'video'
+}
+
 export default function DownloadsTable({ downloads, loading, onCancel, onDelete }) {
-  const [search, setSearch]         = useState('')
-  const [sortBy, setSortBy]         = useState('created_at')
-  const [sortDir, setSortDir]       = useState('desc')
-  const [filter, setFilter]         = useState('all')
+  const [search, setSearch]               = useState('')
+  const [sortBy, setSortBy]               = useState('created_at')
+  const [sortDir, setSortDir]             = useState('desc')
+  const [filter, setFilter]               = useState('all')
+  const [typeFilter, setTypeFilter]       = useState('all')
   const [countryFilter, setCountryFilter] = useState('all')
-  const [dateFrom, setDateFrom]     = useState('')
-  const [dateTo, setDateTo]         = useState('')
+  const [dateFrom, setDateFrom]           = useState('')
+  const [dateTo, setDateTo]               = useState('')
 
   const countries = useMemo(() => {
     const set = new Set((downloads || []).map(r => r.country).filter(Boolean))
@@ -28,6 +51,7 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
   const filtered = useMemo(() => {
     let rows = [...(downloads || [])]
     if (filter !== 'all') rows = rows.filter(r => r.status === filter)
+    if (typeFilter !== 'all') rows = rows.filter(r => _category(r) === typeFilter)
     if (countryFilter !== 'all') rows = rows.filter(r => r.country === countryFilter)
     if (search) {
       const q = search.toLowerCase()
@@ -52,7 +76,7 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
       return sortDir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va))
     })
     return rows
-  }, [downloads, search, sortBy, sortDir, filter, countryFilter, dateFrom, dateTo])
+  }, [downloads, search, sortBy, sortDir, filter, typeFilter, countryFilter, dateFrom, dateTo])
 
   const toggleSort = (col) => {
     if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -80,6 +104,17 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
           value={search}
           onChange={e => setSearch(e.target.value)}
         />
+        <select
+          className="input sm:w-44 text-sm"
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+        >
+          <option value="all">All types</option>
+          <option value="video">🎬 Video / Audio</option>
+          <option value="playlist">📋 Playlist</option>
+          <option value="document">📁 Documents &amp; CV</option>
+          <option value="edit">✂ Edits / Uploads</option>
+        </select>
         <select
           className="input sm:w-44 text-sm"
           value={filter}
@@ -123,6 +158,7 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
           <thead className="bg-gray-900 border-b border-gray-800">
             <tr>
               <Th col="title"      label="Title" />
+              <Th col="type"       label="Type" />
               <Th col="status"     label="Status" />
               <Th col="file_size_hr" label="Size" />
               <Th col="created_at" label="Date" />
@@ -136,13 +172,14 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
               <tr key={row.id} className="hover:bg-gray-800/40 transition-colors">
                 <td className="px-3 py-3 max-w-xs">
                   <p className="font-medium text-white truncate" title={row.title}>{row.title || '—'}</p>
-                  {row.url && (
+                  {row.url && row.url !== 'doc_conversion' && row.url !== 'cv_generation' && (
                     <a href={row.url} target="_blank" rel="noopener noreferrer"
                       className="text-xs text-gray-500 hover:text-blue-400 truncate block max-w-xs">
                       {row.url}
                     </a>
                   )}
                 </td>
+                <td className="px-3 py-3"><TypeBadge type={row.type} /></td>
                 <td className="px-3 py-3"><StatusBadge status={row.status} /></td>
                 <td className="px-3 py-3 text-gray-400">{row.file_size_hr || '—'}</td>
                 <td className="px-3 py-3 text-gray-500 whitespace-nowrap">
@@ -161,7 +198,7 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
               </tr>
             ))}
             {!filtered.length && (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-600">No records found</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-600">No records found</td></tr>
             )}
           </tbody>
         </table>
@@ -173,7 +210,10 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
           <div key={row.id} className="card">
             <div className="flex items-start justify-between gap-2 mb-2">
               <p className="font-medium text-white text-sm leading-snug flex-1">{row.title || row.url || row.id}</p>
-              <StatusBadge status={row.status} />
+              <div className="flex flex-col gap-1 items-end">
+                <TypeBadge type={row.type} />
+                <StatusBadge status={row.status} />
+              </div>
             </div>
             <div className="text-xs text-gray-500 space-y-0.5 mb-3">
               {row.file_size_hr && <p>📦 {row.file_size_hr}</p>}

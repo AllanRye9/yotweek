@@ -2245,6 +2245,7 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
             "percent": 0,
             "output_template": output_template,
             "format": format_spec,
+            "type": "video",
             "created_at": time.time(),
             "filename": None,
             "ip": ip,
@@ -2917,7 +2918,7 @@ async def admin_downloads_api(request: Request):
     _fields = (
         "id", "title", "url", "status", "percent", "filename",
         "file_size_hr", "created_at", "end_time", "error", "ip",
-        "country", "country_code", "city", "region", "format",
+        "country", "country_code", "city", "region", "format", "type",
     )
 
     def _pick(d: dict) -> dict:

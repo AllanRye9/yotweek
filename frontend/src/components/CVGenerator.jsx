@@ -90,11 +90,33 @@ export default function CVGenerator() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setStatus({ type: 'loading', msg: 'Generating CV…' })
+    // Client-side validation
+    if (!fields.name.trim()) {
+      setStatus({ type: 'error', msg: 'Full Name is required.' })
+      return
+    }
+    if (!fields.email.trim()) {
+      setStatus({ type: 'error', msg: 'Email is required.' })
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(fields.email.trim())) {
+      setStatus({ type: 'error', msg: 'Please enter a valid email address.' })
+      return
+    }
+    setStatus({ type: 'loading', msg: 'Generating CV… please wait.' })
     if (submitRef.current) submitRef.current.disabled = true
     try {
       const res = await generateCV(fields, logoFile, theme)
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`
+        try {
+          const json = await res.json()
+          if (json.error) errMsg = json.error
+        } catch {}
+        throw new Error(errMsg)
+      }
       const blob = await res.blob()
+      if (blob.size === 0) throw new Error('CV generation produced an empty file. Please verify your input data and try again.')
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -330,6 +352,15 @@ export default function CVGenerator() {
           {status.type === 'success' && '✅ '}
           {status.type === 'error'   && '❌ '}
           {status.msg}
+          {status.type === 'error' && (
+            <button
+              type="button"
+              className="ml-3 text-xs underline text-gray-400 hover:text-gray-200"
+              onClick={() => { setStatus(null); if (submitRef.current) submitRef.current.disabled = false }}
+            >
+              ↩ Try Again
+            </button>
+          )}
         </div>
       )}
     </div>

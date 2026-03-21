@@ -16,6 +16,9 @@ const FORMAT_OPTIONS = [
   { value: 'epub', label: 'e-Book (.epub)' },
 ]
 
+// Maximum upload size displayed to the user (must match Config.MAX_CONTENT_LENGTH on backend)
+const MAX_FILE_MB = 50
+
 // Supported target formats for each source file extension.
 // Image files can only be converted to PDF; all other formats follow the
 // backend strategy table.  Keeping this in sync with _doc_conv_strategy in
@@ -37,6 +40,12 @@ function getSupportedTargets(srcExt) {
   return ['pdf', 'docx', 'xlsx', 'odt', 'html', 'md', 'txt', 'epub']
 }
 
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export default function DocConverter() {
   const [file, setFile] = useState(null)
   const [target, setTarget] = useState('pdf')
@@ -48,6 +57,7 @@ export default function DocConverter() {
   const srcExt = file ? file.name.split('.').pop() : null
   const supportedTargets = getSupportedTargets(srcExt)
   const isUnsupported = file && !supportedTargets.includes(target)
+  const isOversized = file && file.size > MAX_FILE_MB * 1024 * 1024
 
   // When a new file is selected, reset target to the first supported format.
   useEffect(() => {
@@ -74,6 +84,10 @@ export default function DocConverter() {
       setStatus({ type: 'error', msg: 'Please select a file to convert.' })
       return
     }
+    if (isOversized) {
+      setStatus({ type: 'error', msg: `File is too large (${formatBytes(file.size)}). Maximum size is ${MAX_FILE_MB} MB.` })
+      return
+    }
     if (isUnsupported) {
       const ext = srcExt ? `.${srcExt.toLowerCase()}` : 'this file type'
       setStatus({
@@ -82,11 +96,20 @@ export default function DocConverter() {
       })
       return
     }
-    setStatus({ type: 'loading', msg: 'Converting…' })
+    setStatus({ type: 'loading', msg: 'Converting… this may take a moment for large files.' })
     if (btnRef.current) btnRef.current.disabled = true
     try {
       const res = await convertDoc(file, target)
+      if (!res.ok) {
+        let errMsg = `Server error (${res.status})`
+        try {
+          const json = await res.json()
+          if (json.error) errMsg = json.error
+        } catch {}
+        throw new Error(errMsg)
+      }
       const blob = await res.blob()
+      if (blob.size === 0) throw new Error('Conversion produced an empty file. The file may be corrupt or the conversion failed on the server.')
       const url = URL.createObjectURL(blob)
       const origName = file.name.replace(/\.[^.]+$/, '')
       const a = document.createElement('a')
@@ -100,6 +123,12 @@ export default function DocConverter() {
     } finally {
       if (btnRef.current) btnRef.current.disabled = false
     }
+  }
+
+  const handleClear = () => {
+    setFile(null)
+    setStatus(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   return (
@@ -118,12 +147,15 @@ export default function DocConverter() {
         <div className="space-y-1">
           <label className="form-label">
             📤 Upload File <span className="text-red-500">*</span>
+            <span className="text-gray-500 text-xs ml-1">(max {MAX_FILE_MB} MB)</span>
           </label>
           <div
             className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
               dragging
                 ? 'border-blue-500 bg-blue-950/30'
-                : 'border-gray-600 hover:border-gray-500'
+                : isOversized
+                  ? 'border-red-500 bg-red-950/20'
+                  : 'border-gray-600 hover:border-gray-500'
             }`}
             onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
             onDragLeave={() => setDragging(false)}
@@ -139,7 +171,12 @@ export default function DocConverter() {
               Drag &amp; drop a file here, or <strong className="text-gray-200">click to browse</strong>
             </p>
             {file && (
-              <p className="mt-2 text-xs text-blue-400 font-medium">{file.name}</p>
+              <div className="mt-2">
+                <p className="text-xs text-blue-400 font-medium">{file.name}</p>
+                <p className={`text-xs mt-0.5 ${isOversized ? 'text-red-400' : 'text-gray-500'}`}>
+                  {formatBytes(file.size)}{isOversized ? ` — exceeds ${MAX_FILE_MB} MB limit` : ''}
+                </p>
+              </div>
             )}
           </div>
           <input
@@ -148,6 +185,15 @@ export default function DocConverter() {
             className="hidden"
             onChange={(e) => setSelectedFile(e.target.files[0])}
           />
+          {file && (
+            <button
+              type="button"
+              className="text-xs text-gray-500 hover:text-gray-300 underline mt-1"
+              onClick={handleClear}
+            >
+              ✕ Clear file
+            </button>
+          )}
         </div>
 
         {/* Target format */}
@@ -176,14 +222,25 @@ export default function DocConverter() {
           )}
         </div>
 
-        <button
-          ref={btnRef}
-          className="btn-primary w-full sm:w-auto"
-          onClick={handleConvert}
-          disabled={!!isUnsupported}
-        >
-          ⚙ Convert &amp; Download
-        </button>
+        <div className="flex gap-3 flex-wrap">
+          <button
+            ref={btnRef}
+            className="btn-primary"
+            onClick={handleConvert}
+            disabled={!!isUnsupported || !!isOversized}
+          >
+            ⚙ Convert &amp; Download
+          </button>
+          {status?.type === 'error' && (
+            <button
+              type="button"
+              className="btn-secondary text-sm"
+              onClick={() => { setStatus(null); if (btnRef.current) btnRef.current.disabled = false }}
+            >
+              ↩ Try Again
+            </button>
+          )}
+        </div>
 
         {status && (
           <div className={`text-sm ${

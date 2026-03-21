@@ -69,13 +69,17 @@ const TABS = [
   { id: 'download', label: '⬇ Download',       icon: '⬇' },
   { id: 'playlist', label: '📋 Playlist',        icon: '📋' },
   { id: 'editing',  label: '✂ Edit / Convert',  icon: '✂' },
-  { id: 'cv',       label: '📄 CV Generator',   icon: '📄' },
-  { id: 'docconv',  label: '📁 Doc Converter',  icon: '📁' },
+]
+
+const TOOL_TABS = [
+  { id: 'cv',      label: '📄 CV Generator',  icon: '📄' },
+  { id: 'docconv', label: '📁 Doc Converter', icon: '📁' },
 ]
 
 export default function Home() {
   const { admin } = useAuth()
   const [tab, setTab] = useState('download')
+  const [toolTab, setToolTab] = useState('cv')
   const [stats, setStats] = useState(null)
   const [connected, setConnected] = useState(false)
   const [fileListVersion, setFileListVersion] = useState(0)
@@ -312,8 +316,6 @@ export default function Home() {
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'playlist' && <PlaylistForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'editing'  && <EditingPanel onJobDone={refreshFiles} />}
-          {tab === 'cv'       && <CVGenerator />}
-          {tab === 'docconv'  && <DocConverter />}
         </div>
 
         {/* Active Downloads */}
@@ -324,6 +326,25 @@ export default function Home() {
         {/* File List */}
         <div className="mt-6" ref={fileListRef}>
           <FileList version={fileListVersion} />
+        </div>
+
+        {/* ── Tools: CV Generator & Doc Converter ── */}
+        <div className="mt-10">
+          <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin">
+            {TOOL_TABS.map(t => (
+              <button
+                key={t.id}
+                className={toolTab === t.id ? 'tab-btn-active whitespace-nowrap' : 'tab-btn-inactive whitespace-nowrap'}
+                onClick={() => setToolTab(t.id)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="card">
+            {toolTab === 'cv'      && <CVGenerator />}
+            {toolTab === 'docconv' && <DocConverter />}
+          </div>
         </div>
 
         {/* Reviews */}
