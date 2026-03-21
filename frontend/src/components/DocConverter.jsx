@@ -22,17 +22,19 @@ const FORMAT_OPTIONS = [
 // api/app.py prevents users from selecting a combination that would fail.
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif', 'webp'])
 const TEXT_LIKE_EXTS = new Set(['md', 'html', 'htm', 'txt', 'epub'])
+// Image formats that can be converted to other image formats via Pillow
+const IMG2IMG_FORMATS = ['png', 'jpg', 'jpeg']
 
 function getSupportedTargets(srcExt) {
   if (!srcExt) return FORMAT_OPTIONS.map(o => o.value)
   const ext = srcExt.toLowerCase().replace(/^\./, '')
-  if (IMAGE_EXTS.has(ext)) return ['pdf']
+  if (IMAGE_EXTS.has(ext)) return ['pdf', ...IMG2IMG_FORMATS.filter(e => e !== ext)]
   if (ext === 'pdf') return ['docx', 'png', 'jpg', 'xlsx', 'txt', 'html', 'md', 'epub']
   if (TEXT_LIKE_EXTS.has(ext)) return ['pdf', 'docx', 'html', 'md', 'txt', 'epub', 'odt']
   if (['xlsx', 'xls'].includes(ext)) return ['pdf', 'csv', 'html', 'odt', 'docx']
   if (['pptx', 'ppt', 'odp'].includes(ext)) return ['pdf', 'txt', 'html']
-  // Office / ODF text formats
-  return ['pdf', 'docx', 'odt', 'html', 'md', 'txt', 'epub']
+  // Office / ODF text formats (docx, doc, odt, etc.) — include xlsx so Word → Excel works
+  return ['pdf', 'docx', 'xlsx', 'odt', 'html', 'md', 'txt', 'epub']
 }
 
 export default function DocConverter() {

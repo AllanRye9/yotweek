@@ -4776,11 +4776,11 @@ def _lo_filter_str(src_ext: str, target: str) -> str:
 
 
 # Image extensions that cannot be used as Pandoc input and cannot be
-# converted to document formats (only image→PDF via img2pdf is supported).
+# converted to document formats (only image→PDF and image→image via img2pdf/Pillow are supported).
 _IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "tiff", "tif", "bmp", "gif", "webp"})
 
 # Map of (input_ext → target_ext) → conversion strategy
-# Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img", "unsupported"
+# Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img", "img2img", "unsupported"
 def _doc_conv_strategy(src_ext: str, target: str) -> str:
     src_ext = src_ext.lstrip(".")
     if src_ext == target:
@@ -4798,6 +4798,9 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
         return "unsupported"
     if src_ext in _IMAGE_EXTS and target == "pdf":
         return "img2pdf"
+    # Image-to-image format conversion (e.g. PNG ↔ JPEG) using Pillow.
+    if src_ext in _IMAGE_EXTS and target in _IMAGE_EXTS:
+        return "img2img"
     # Image files cannot be converted to document/text formats.
     # Returning "unsupported" prevents Pandoc from receiving an image format
     # as its --from argument, which would produce a cryptic format-list error.
@@ -4932,6 +4935,20 @@ async def api_doc_convert(
                 err_msg = "img2pdf is not installed on this server."
             except Exception as exc:
                 err_msg = f"Image→PDF conversion failed: {exc}"
+
+        elif strategy == "img2img":
+            try:
+                from PIL import Image
+                img = Image.open(input_path)
+                # JPEG does not support transparency; convert to RGB if needed.
+                if target in ("jpg", "jpeg") and img.mode in ("RGBA", "P", "LA"):
+                    img = img.convert("RGB")
+                save_fmt = "JPEG" if target in ("jpg", "jpeg") else target.upper()
+                img.save(output_path, format=save_fmt)
+            except ImportError:
+                err_msg = "Pillow is not installed on this server."
+            except Exception as exc:
+                err_msg = f"Image conversion failed: {exc}"
 
         elif strategy == "pdf2img":
             try:
