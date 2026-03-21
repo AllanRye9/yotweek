@@ -369,7 +369,7 @@
             border-radius: 12px;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
             overflow: hidden;
-            margin-bottom: 16px;
+            margin-bottom: 15px;
             animation: slideUp 0.5s ease-out;
             border: 1px solid #e5e7eb;
         }
@@ -384,10 +384,10 @@
             gap: 10px;
             letter-spacing: -0.01em;
         }
-        .card-body { padding: 18px; }
+        .card-body { padding: 17px; }
 
         /* ── Form ── */
-        .form-group { margin-bottom: 12px; }
+        .form-group { margin-bottom: 11px; }
         label {
             display: block;
             font-weight: 600;
@@ -2038,16 +2038,12 @@
                         <i class="fas fa-download" aria-hidden="true"></i> Download
                     </button>
                     <button class="nav-dd-item" role="menuitem"
-                            onclick="showSectionPanel('playlist-panel'); closeServicesDropdown();">
-                        <i class="fas fa-list" aria-hidden="true"></i> Playlist
+                            onclick="showSectionPanel('cv-panel'); closeServicesDropdown();">
+                        <i class="fas fa-id-card" aria-hidden="true"></i> CV Generator
                     </button>
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('editing-panel'); closeServicesDropdown();">
                         <i class="fas fa-tools" aria-hidden="true"></i> Edit &amp; Convert
-                    </button>
-                    <button class="nav-dd-item" role="menuitem"
-                            onclick="showSectionPanel('cv-panel'); closeServicesDropdown();">
-                        <i class="fas fa-id-card" aria-hidden="true"></i> CV Generator
                     </button>
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('docconv-panel'); closeServicesDropdown();">
@@ -2101,14 +2097,11 @@
             <button class="mobile-nav-item" onclick="showSectionPanel('download-panel'); closeMobileNav();">
                 <i class="fas fa-download"></i> Download
             </button>
-            <button class="mobile-nav-item" onclick="showSectionPanel('playlist-panel'); closeMobileNav();">
-                <i class="fas fa-list"></i> Playlist
+            <button class="mobile-nav-item" onclick="showSectionPanel('cv-panel'); closeMobileNav();">
+                <i class="fas fa-id-card"></i> CV Generator
             </button>
             <button class="mobile-nav-item" onclick="showSectionPanel('editing-panel'); closeMobileNav();">
                 <i class="fas fa-tools"></i> Edit &amp; Convert
-            </button>
-            <button class="mobile-nav-item" onclick="showSectionPanel('cv-panel'); closeMobileNav();">
-                <i class="fas fa-id-card"></i> CV Generator
             </button>
             <button class="mobile-nav-item" onclick="showSectionPanel('docconv-panel'); closeMobileNav();">
                 <i class="fas fa-file-export"></i> Doc Converter
@@ -2259,14 +2252,11 @@
                         <button class="main-tab-btn active" id="main-tab-download" onclick="switchMainSection('download-panel', this)">
                             <i class="fas fa-link"></i> Download
                         </button>
-                        <button class="main-tab-btn" id="main-tab-playlist" onclick="switchMainSection('playlist-panel', this)">
-                            <i class="fas fa-list"></i> Playlist
+                        <button class="main-tab-btn" id="main-tab-cv" onclick="switchMainSection('cv-panel', this)">
+                            <i class="fas fa-id-card"></i> CV Generator
                         </button>
                         <button class="main-tab-btn" id="main-tab-editing" onclick="switchMainSection('editing-panel', this)">
                             <i class="fas fa-tools"></i> Edit &amp; Convert
-                        </button>
-                        <button class="main-tab-btn" id="main-tab-cv" onclick="switchMainSection('cv-panel', this)">
-                            <i class="fas fa-id-card"></i> CV Generator
                         </button>
                         <button class="main-tab-btn" id="main-tab-docconv" onclick="switchMainSection('docconv-panel', this)">
                             <i class="fas fa-file-export"></i> Doc Converter
@@ -2274,6 +2264,7 @@
                     </div>
                     <!-- Download Video panel (active by default) -->
                     <div id="download-panel" class="card-body active-panel">
+                        <p style="font-size:0.82rem;color:#64748b;margin-bottom:14px;"><i class="fas fa-bolt" style="color:#f59e0b;"></i> Download Any Video — Free &amp; Fast YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites. No sign-up required.</p>
                         <form id="download-form">
                             <div class="form-group">
                                 <label><i class="fas fa-globe"></i> Video URL <span style="color:#ef4444;">*</span></label>
@@ -2411,119 +2402,6 @@
                                 <i class="fas fa-cloud-download-alt"></i> Start Download
                             </button>
                         </form>
-                    </div>
-                    <!-- Playlist & Bulk Download panel (hidden by default) -->
-                    <div id="playlist-panel" class="card-body" style="display:none;">
-                        <div class="tab-nav-scroll">
-                        <div class="tab-nav">
-                            <button class="tab-btn active" onclick="switchFeatureTab('playlist-tab', this, 'playlist-tabs')"><i class="fas fa-play-circle"></i> Playlist / Channel</button>
-                            <button class="tab-btn" onclick="switchFeatureTab('batch-tab', this, 'playlist-tabs')"><i class="fas fa-layer-group"></i> Batch URLs</button>
-                            <button class="tab-btn" onclick="switchFeatureTab('zip-tab', this, 'playlist-tabs')"><i class="fas fa-file-archive"></i> Export as ZIP</button>
-                        </div>
-                        </div><!-- /.tab-nav-scroll -->
-
-                        <!-- Playlist/Channel tab -->
-                        <div id="playlist-tab" class="tab-pane active" data-tabgroup="playlist-tabs">
-                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
-                                Paste a YouTube playlist, channel, or any supported playlist URL.
-                            </p>
-                            <div class="form-group">
-                                <label for="playlist-url"><i class="fas fa-globe"></i> Playlist / Channel URL</label>
-                                <input type="url" id="playlist-url" placeholder="https://www.youtube.com/playlist?list=…">
-                            </div>
-                            <div class="form-group">
-                                <label for="playlist-format"><i class="fas fa-sliders-h"></i> Quality</label>
-                                <select id="playlist-format">
-                                    <option value="bestvideo[height<=720]+bestaudio/best" selected>HD (720p) — Recommended</option>
-                                    <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
-                                    <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="playlist-ext"><i class="fas fa-file-video"></i> File Format</label>
-                                <select id="playlist-ext">
-                                    <option value="mp4" selected>.mp4 — Universal (recommended)</option>
-                                    <option value="webm">.webm — Open format</option>
-                                    <option value="mkv">.mkv — Flexible container</option>
-                                    <option value="avi">.avi — Legacy compatibility</option>
-                                </select>
-                            </div>
-                            <button class="btn-primary" id="playlist-btn" onclick="startPlaylistDownload()">
-                                <i class="fas fa-cloud-download-alt"></i> Download Playlist
-                            </button>
-                        </div>
-
-                        <!-- Batch URLs tab -->
-                        <div id="batch-tab" class="tab-pane" data-tabgroup="playlist-tabs">
-                            <p style="font-size:0.85rem;color:#64748b;margin-bottom:12px;">
-                                Enter up to 20 video URLs. Paste any text containing URLs — they will be detected and arranged automatically.
-                            </p>
-                            <div class="form-group">
-                                <label><i class="fas fa-list-ul"></i> Video URLs <span style="font-size:0.75rem;color:#94a3b8;font-weight:400;">(one per line, or paste freely)</span></label>
-                                <textarea id="batch-url-textarea"
-                                    rows="6"
-                                    placeholder="Paste one or more URLs here — from YouTube, TikTok, Instagram, Twitter, Facebook, or any of 1,000+ supported sites. URLs will be detected and listed automatically."
-                                    style="width:100%;resize:vertical;font-family:inherit;font-size:0.82rem;padding:8px 10px;border:1px solid #e2e8f0;border-radius:8px;outline:none;color:#1e293b;line-height:1.6;transition:border-color 0.2s;"
-                                    spellcheck="false"
-                                    oninput="normaliseBatchUrls(this)"
-                                    onpaste="setTimeout(()=>normaliseBatchUrls(this),0)"
-                                ></textarea>
-                                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px;">
-                                    <span id="batch-url-count" style="font-size:0.75rem;color:#94a3b8;">0 URLs detected</span>
-                                    <button type="button" class="btn-secondary btn-small" onclick="clearBatchUrlFields()" style="padding:4px 10px;font-size:0.75rem;">
-                                        <i class="fas fa-times"></i> Clear
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label for="batch-format"><i class="fas fa-sliders-h"></i> Quality</label>
-                                <select id="batch-format">
-                                    <option value="bestvideo[height<=720]+bestaudio/best" selected>HD (720p) — Recommended</option>
-                                    <option value="bestvideo[height<=480]+bestaudio/best">Standard (480p)</option>
-                                    <option value="bestvideo[height<=1080]+bestaudio/best">Full HD (1080p)</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label for="batch-ext"><i class="fas fa-file-video"></i> File Format</label>
-                                <select id="batch-ext">
-                                    <option value="mp4" selected>.mp4 — Universal (recommended)</option>
-                                    <option value="webm">.webm — Open format</option>
-                                    <option value="mkv">.mkv — Flexible container</option>
-                                    <option value="avi">.avi — Legacy compatibility</option>
-                                </select>
-                            </div>
-                            <button class="btn-primary" id="batch-btn" onclick="startBatchDownload()">
-                                <i class="fas fa-cloud-download-alt"></i> Start Batch Download
-                            </button>
-                        </div>
-
-                        <!-- Export as ZIP tab -->
-                        <div id="zip-tab" class="tab-pane" data-tabgroup="playlist-tabs">
-                            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;padding:10px 14px;background:linear-gradient(135deg,#eff6ff,#f0f9ff);border:1px solid #bfdbfe;border-radius:10px;">
-                                <i class="fas fa-file-archive" style="font-size:1.5rem;color:#2563eb;"></i>
-                                <div>
-                                    <div style="font-size:0.9rem;font-weight:700;color:#1e40af;">Export as ZIP</div>
-                                    <p style="font-size:0.8rem;color:#64748b;margin:0;">Select files below to package into a single ZIP download.</p>
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label style="font-size:0.82rem;font-weight:600;color:#334155;margin-bottom:6px;display:flex;align-items:center;gap:6px;"><i class="fas fa-check-square" style="color:#2563eb;"></i> Select Files</label>
-                                <div class="file-checklist" id="zip-file-checklist">
-                                    <div style="text-align:center;color:#94a3b8;padding:16px 8px;font-size:0.82rem;">
-                                        <i class="fas fa-inbox" style="font-size:1.2rem;display:block;margin-bottom:6px;opacity:0.5;"></i>
-                                        No files available — download some files first
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">
-                                <button class="btn-secondary btn-small" onclick="loadEditFileSelectors()">
-                                    <i class="fas fa-sync-alt"></i> Refresh list
-                                </button>
-                                <button class="btn-primary" onclick="downloadZip()" style="padding:8px 18px;">
-                                    <i class="fas fa-file-archive"></i> Download as ZIP
-                                </button>
-                            </div>
-                        </div>
                     </div>
                     <!-- Video Editing & Conversion panel (hidden by default) -->
                     <div id="editing-panel" class="card-body" style="display:none;">
@@ -2832,70 +2710,201 @@
 
                     <!-- CV Generator panel (hidden by default) -->
                     <div id="cv-panel" class="card-body" style="display:none;">
-                        <div class="section-header-row" style="margin-bottom:16px;">
-                            <h2 style="font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
+                        <!-- CV Wizard Header -->
+                        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px;">
+                            <h2 style="font-size:1.05rem;font-weight:700;display:flex;align-items:center;gap:8px;margin:0;">
                                 <i class="fas fa-id-card" style="color:#2563eb;"></i> CV Generator
                             </h2>
-                            <p style="font-size:0.83rem;color:#64748b;margin-top:4px;">Fill in your details and download a professional PDF CV instantly.</p>
+                            <p style="font-size:0.8rem;color:#64748b;margin:0;">Build your professional CV step by step — download as PDF instantly.</p>
                         </div>
-                        <form id="cv-form" onsubmit="submitCVForm(event)">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label><i class="fas fa-user"></i> Full Name <span style="color:#ef4444;">*</span></label>
-                                    <input type="text" id="cv-name" placeholder="e.g. Jane Smith" required>
+
+                        <!-- Step progress bar -->
+                        <div id="cv-step-bar" style="display:flex;gap:4px;margin-bottom:14px;">
+                            <div class="cv-step-dot cv-step-active" data-step="1">1</div>
+                            <div class="cv-step-connector"></div>
+                            <div class="cv-step-dot" data-step="2">2</div>
+                            <div class="cv-step-connector"></div>
+                            <div class="cv-step-dot" data-step="3">3</div>
+                            <div class="cv-step-connector"></div>
+                            <div class="cv-step-dot" data-step="4">4</div>
+                        </div>
+
+                        <!-- Theme selector (visible on all steps) -->
+                        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap;">
+                            <span style="font-size:0.78rem;font-weight:600;color:#64748b;">Theme:</span>
+                            <div id="cv-theme-swatches" style="display:flex;gap:6px;flex-wrap:wrap;">
+                                <button class="cv-theme-swatch active" data-theme="classic" title="Classic" style="background:linear-gradient(135deg,#1e3a5f,#2563eb);"></button>
+                                <button class="cv-theme-swatch" data-theme="modern" title="Modern" style="background:linear-gradient(135deg,#111827,#374151);"></button>
+                                <button class="cv-theme-swatch" data-theme="creative" title="Creative" style="background:linear-gradient(135deg,#7c3aed,#a78bfa);"></button>
+                                <button class="cv-theme-swatch" data-theme="executive" title="Executive" style="background:linear-gradient(135deg,#065f46,#10b981);"></button>
+                                <button class="cv-theme-swatch" data-theme="warm" title="Warm" style="background:linear-gradient(135deg,#92400e,#f59e0b);"></button>
+                            </div>
+                        </div>
+
+                        <!-- Main 2-column layout: form left, preview right -->
+                        <div id="cv-main-layout" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start;">
+
+                            <!-- Left: Wizard form -->
+                            <div id="cv-wizard-col" style="min-width:0;">
+
+                                <!-- Step 1: Personal Info -->
+                                <div class="cv-step-pane" id="cv-step-1" data-step="1">
+                                    <div class="cv-step-title"><i class="fas fa-user"></i> Step 1 — Personal Info</div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-user"></i> Full Name <span style="color:#ef4444;">*</span></label>
+                                        <input type="text" id="cv-name" placeholder="e.g. Jane Smith" oninput="cvUpdatePreview()" required>
+                                    </div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-briefcase"></i> Job Title <span style="color:#ef4444;">*</span></label>
+                                        <input type="text" id="cv-title" placeholder="e.g. Senior Software Engineer" oninput="cvUpdatePreview()" required>
+                                    </div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                        <div class="form-group">
+                                            <label><i class="fas fa-envelope"></i> Email <span style="color:#ef4444;">*</span></label>
+                                            <input type="email" id="cv-email" placeholder="jane@example.com" oninput="cvUpdatePreview()" required>
+                                        </div>
+                                        <div class="form-group">
+                                            <label><i class="fas fa-phone"></i> Phone</label>
+                                            <input type="text" id="cv-phone" placeholder="+1 555 123 4567" oninput="cvUpdatePreview()">
+                                        </div>
+                                    </div>
+                                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                        <div class="form-group">
+                                            <label><i class="fas fa-map-marker-alt"></i> Location</label>
+                                            <input type="text" id="cv-location" placeholder="City, Country" oninput="cvUpdatePreview()">
+                                        </div>
+                                        <div class="form-group">
+                                            <label><i class="fas fa-link"></i> LinkedIn / Website</label>
+                                            <input type="text" id="cv-link" placeholder="linkedin.com/in/…" oninput="cvUpdatePreview()">
+                                        </div>
+                                    </div>
+                                    <div id="cv-step-1-error" class="cv-step-error" style="display:none;"></div>
                                 </div>
-                                <div class="form-group">
-                                    <label><i class="fas fa-envelope"></i> Email <span style="color:#ef4444;">*</span></label>
-                                    <input type="email" id="cv-email" placeholder="jane@example.com" required>
+
+                                <!-- Step 2: Summary & Skills -->
+                                <div class="cv-step-pane" id="cv-step-2" data-step="2" style="display:none;">
+                                    <div class="cv-step-title"><i class="fas fa-align-left"></i> Step 2 — Summary &amp; Skills</div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-align-left"></i> Professional Summary <span style="color:#ef4444;">*</span></label>
+                                        <textarea id="cv-summary" rows="4" placeholder="A concise overview of your professional background and goals…" style="width:100%;resize:vertical;" oninput="cvUpdatePreview()" required></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-star"></i> Skills <span style="color:#ef4444;">*</span> <small style="color:#94a3b8;">(comma-separated)</small></label>
+                                        <input type="text" id="cv-skills" placeholder="Python, React, Docker, SQL, …" oninput="cvUpdatePreview()" required>
+                                    </div>
+                                    <div id="cv-step-2-error" class="cv-step-error" style="display:none;"></div>
+                                </div>
+
+                                <!-- Step 3: Experience & Education -->
+                                <div class="cv-step-pane" id="cv-step-3" data-step="3" style="display:none;">
+                                    <div class="cv-step-title"><i class="fas fa-briefcase"></i> Step 3 — Experience &amp; Education</div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-briefcase"></i> Work Experience <span style="color:#ef4444;">*</span></label>
+                                        <textarea id="cv-experience" rows="5" placeholder="Company — Title — Start–End&#10;• Achievement or responsibility&#10;&#10;Company — Title — Start–End&#10;• Achievement" style="width:100%;resize:vertical;" oninput="cvUpdatePreview()" required></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-graduation-cap"></i> Education <span style="color:#ef4444;">*</span></label>
+                                        <textarea id="cv-education" rows="3" placeholder="University — Degree — Year&#10;University — Degree — Year" style="width:100%;resize:vertical;" oninput="cvUpdatePreview()" required></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-flask"></i> Projects <small style="color:#94a3b8;">(optional)</small></label>
+                                        <textarea id="cv-projects" rows="2" placeholder="Project Name — Description — URL" style="width:100%;resize:vertical;" oninput="cvUpdatePreview()"></textarea>
+                                    </div>
+                                    <div id="cv-step-3-error" class="cv-step-error" style="display:none;"></div>
+                                </div>
+
+                                <!-- Step 4: Final & Download -->
+                                <div class="cv-step-pane" id="cv-step-4" data-step="4" style="display:none;">
+                                    <div class="cv-step-title"><i class="fas fa-download"></i> Step 4 — Review &amp; Download</div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-book"></i> Publications <small style="color:#94a3b8;">(optional)</small></label>
+                                        <textarea id="cv-publications" rows="2" placeholder="Title — Journal — Year" style="width:100%;resize:vertical;" oninput="cvUpdatePreview()"></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label><i class="fas fa-image"></i> Logo / Photo <small style="color:#94a3b8;">(optional, PNG/JPG)</small></label>
+                                        <input type="file" id="cv-logo" accept="image/png,image/jpeg" onchange="cvLogoPreview(this)">
+                                    </div>
+                                    <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:0.82rem;color:#0c4a6e;">
+                                        <i class="fas fa-check-circle" style="color:#0ea5e9;"></i> Everything looks good! Review your CV preview on the right, then download.
+                                    </div>
+                                    <button type="button" class="btn-primary" id="cv-submit-btn" onclick="submitCVForm(event)" style="width:100%;">
+                                        <i class="fas fa-file-pdf"></i> Generate &amp; Download PDF CV
+                                    </button>
+                                    <div id="cv-status" style="margin-top:10px;"></div>
+                                </div>
+
+                                <!-- Wizard navigation buttons -->
+                                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;gap:8px;" id="cv-nav-btns">
+                                    <button type="button" id="cv-prev-btn" class="btn-secondary" onclick="cvPrevStep()" style="display:none;flex:1;max-width:120px;">
+                                        <i class="fas fa-chevron-left"></i> Back
+                                    </button>
+                                    <div style="flex:1;"></div>
+                                    <button type="button" id="cv-next-btn" class="btn-primary" onclick="cvNextStep()" style="flex:1;max-width:140px;">
+                                        Next <i class="fas fa-chevron-right"></i>
+                                    </button>
                                 </div>
                             </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label><i class="fas fa-phone"></i> Phone</label>
-                                    <input type="text" id="cv-phone" placeholder="+1 555 123 4567">
+
+                            <!-- Right: Live CV preview -->
+                            <div id="cv-preview-col" style="min-width:0;position:sticky;top:80px;">
+                                <div style="font-size:0.78rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;text-align:center;">
+                                    Live Preview
                                 </div>
-                                <div class="form-group">
-                                    <label><i class="fas fa-map-marker-alt"></i> Location</label>
-                                    <input type="text" id="cv-location" placeholder="City, Country">
+                                <div id="cv-preview-frame" style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.1);transform-origin:top center;transition:all 0.3s;">
+                                    <!-- Preview rendered by JS -->
                                 </div>
                             </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-link"></i> LinkedIn / Website</label>
-                                <input type="text" id="cv-link" placeholder="https://linkedin.com/in/janesmith">
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-align-left"></i> Professional Summary</label>
-                                <textarea id="cv-summary" rows="3" placeholder="A brief professional summary…" style="width:100%;resize:vertical;"></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-briefcase"></i> Work Experience</label>
-                                <textarea id="cv-experience" rows="5" placeholder="Company — Title — Start-End year&#10;• Achievement or responsibility&#10;&#10;Company — Title — Start-End year&#10;• Achievement or responsibility" style="width:100%;resize:vertical;"></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-graduation-cap"></i> Education</label>
-                                <textarea id="cv-education" rows="3" placeholder="University — Degree — Year&#10;University — Degree — Year" style="width:100%;resize:vertical;"></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-star"></i> Skills <small style="color:#94a3b8;">(comma-separated)</small></label>
-                                <input type="text" id="cv-skills" placeholder="Python, FastAPI, React, Docker, …">
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-flask"></i> Projects <small style="color:#94a3b8;">(optional)</small></label>
-                                <textarea id="cv-projects" rows="3" placeholder="Project Name — Description — URL (optional)" style="width:100%;resize:vertical;"></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-book"></i> Publications <small style="color:#94a3b8;">(optional)</small></label>
-                                <textarea id="cv-publications" rows="2" placeholder="Title — Journal — Year" style="width:100%;resize:vertical;"></textarea>
-                            </div>
-                            <div class="form-group">
-                                <label><i class="fas fa-image"></i> Logo / Branding Image <small style="color:#94a3b8;">(optional, PNG/JPG)</small></label>
-                                <input type="file" id="cv-logo" accept="image/png,image/jpeg">
-                            </div>
-                            <button type="submit" class="btn-primary" id="cv-submit-btn">
-                                <i class="fas fa-file-pdf"></i> Generate PDF CV
-                            </button>
-                        </form>
-                        <div id="cv-status" style="margin-top:10px;"></div>
+                        </div>
+
+                        <!-- Responsive: stack on small screens -->
+                        <style>
+                        @media (max-width: 800px) {
+                            #cv-main-layout { grid-template-columns: 1fr !important; }
+                            #cv-preview-col { position: static !important; }
+                        }
+                        .cv-step-dot {
+                            width: 28px; height: 28px; border-radius: 50%;
+                            background: #e2e8f0; color: #94a3b8;
+                            display: flex; align-items: center; justify-content: center;
+                            font-size: 0.75rem; font-weight: 700; cursor: default;
+                            transition: background 0.3s, color 0.3s, transform 0.3s;
+                            flex-shrink: 0;
+                        }
+                        .cv-step-dot.cv-step-active {
+                            background: #2563eb; color: #fff;
+                            transform: scale(1.15);
+                            box-shadow: 0 0 0 3px rgba(37,99,235,0.2);
+                        }
+                        .cv-step-dot.cv-step-done {
+                            background: #22c55e; color: #fff;
+                        }
+                        .cv-step-connector {
+                            flex: 1; height: 2px; background: #e2e8f0; align-self: center;
+                            transition: background 0.3s;
+                        }
+                        .cv-step-connector.cv-conn-done { background: #22c55e; }
+                        .cv-step-title {
+                            font-size: 0.9rem; font-weight: 700; color: #1e293b;
+                            margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+                        }
+                        .cv-step-error {
+                            color: #ef4444; font-size: 0.8rem; padding: 6px 10px;
+                            background: #fef2f2; border-radius: 6px; border: 1px solid #fecaca;
+                            margin-top: 6px;
+                        }
+                        .cv-step-pane { animation: cvStepIn 0.35s ease-out; }
+                        @keyframes cvStepIn {
+                            from { opacity: 0; transform: translateX(20px); }
+                            to   { opacity: 1; transform: translateX(0); }
+                        }
+                        .cv-theme-swatch {
+                            width: 22px; height: 22px; border-radius: 50%;
+                            border: 2px solid transparent; cursor: pointer;
+                            transition: transform 0.2s, border-color 0.2s;
+                        }
+                        .cv-theme-swatch:hover { transform: scale(1.2); }
+                        .cv-theme-swatch.active { border-color: #1e293b; transform: scale(1.15); }
+                        </style>
                     </div>
 
                     <!-- Document Converter panel (hidden by default) -->
@@ -3105,13 +3114,6 @@
                     <div>
                         <strong>HD Video Download</strong>
                         <span>Download videos in Full HD, HD, or Standard quality from YouTube and 1000+ sites.</span>
-                    </div>
-                </li>
-                <li>
-                    <i class="fas fa-list"></i>
-                    <div>
-                        <strong>Playlist &amp; Channel Downloads</strong>
-                        <span>Paste a YouTube playlist or channel URL and download all videos in one go.</span>
                     </div>
                 </li>
                 <li>
@@ -3353,86 +3355,6 @@
             const infoBtn = document.getElementById('get-info-btn');
             if (infoBtn) infoBtn.style.display = '';
             document.getElementById('video-preview').classList.remove('visible');
-        }
-
-        // ─── Batch URL field helpers ──────────────────────────────
-        function addBatchUrlField() {
-            // Legacy stub — no-op with the new textarea-based approach
-        }
-
-        function removeBatchUrlField(btn) {
-            // Legacy stub — no-op with the new textarea-based approach
-        }
-
-        /**
-         * normaliseBatchUrls – Smart URL extractor.
-         * Parses the raw text pasted into the batch textarea, extracts every
-         * URL starting from https:// (or http://) to its end, regardless of
-         * surrounding text or delimiters, and rewrites the textarea with one
-         * URL per line (capped at 20).
-         *
-         * Handles parentheses in URLs (e.g. Wikipedia) and common trailing
-         * punctuation that is unlikely to be part of the URL.
-         */
-        function normaliseBatchUrls(textarea) {
-            const raw = textarea.value;
-            // Match from https:// (or http://) to the first whitespace or
-            // hard delimiter. Use \S+ so we capture everything including
-            // characters like (, ), [, ] that can appear in real URLs.
-            const urlRegex = /https?:\/\/\S+/gi;
-            const found = [];
-            const seen = new Set();
-            let m;
-            while ((m = urlRegex.exec(raw)) !== null) {
-                let url = m[0];
-                // Strip trailing punctuation unlikely to be part of a URL
-                url = url.replace(/[.,;!?\]>'"]+$/, '');
-                // Strip unbalanced trailing ')' — keep ')' that close an
-                // opening '(' that is itself part of the URL
-                while (url.endsWith(')')) {
-                    const opens  = (url.match(/\(/g) || []).length;
-                    const closes = (url.match(/\)/g) || []).length;
-                    if (closes > opens) {
-                        url = url.slice(0, -1);
-                    } else {
-                        break;
-                    }
-                }
-                if (url.length > 8 && !seen.has(url)) {
-                    seen.add(url);
-                    found.push(url);
-                    if (found.length >= 20) break;
-                }
-            }
-            // Only rewrite if the normalised form differs from the current value
-            // (avoids fighting the user while they are typing a fresh URL)
-            const normalised = found.join('\n');
-            if (found.length > 0 && raw.trim() !== normalised) {
-                textarea.value = normalised;
-            }
-            const count = found.length;
-            const counter = document.getElementById('batch-url-count');
-            if (counter) {
-                counter.textContent = count === 0 ? '0 URLs detected'
-                    : count === 1 ? '1 URL detected'
-                    : `${count} URLs detected${count >= 20 ? ' (max)' : ''}`;
-                counter.style.color = count > 0 ? '#16a34a' : '#94a3b8';
-            }
-        }
-
-        function getBatchUrlValues() {
-            const ta = document.getElementById('batch-url-textarea');
-            if (!ta) return [];
-            // Re-run normalise to make sure we have the latest parsed state
-            normaliseBatchUrls(ta);
-            return ta.value.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 20);
-        }
-
-        function clearBatchUrlFields() {
-            const ta = document.getElementById('batch-url-textarea');
-            if (ta) ta.value = '';
-            const counter = document.getElementById('batch-url-count');
-            if (counter) { counter.textContent = '0 URLs detected'; counter.style.color = '#94a3b8'; }
         }
 
         // ─── Animated counter with easing & comma formatting ──────
@@ -4762,100 +4684,6 @@
                 'Extract Clip');
         }
 
-        // ─── Playlist download ────────────────────────────────────
-        async function startPlaylistDownload() {
-            const url = document.getElementById('playlist-url').value.trim();
-            const btn = document.getElementById('playlist-btn');
-            if (!url) { showToast('Playlist URL is required', 'warning'); return; }
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Starting…';
-            try {
-                const fd = new FormData();
-                fd.append('url',    url);
-                fd.append('format', document.getElementById('playlist-format').value);
-                fd.append('ext',    document.getElementById('playlist-ext').value || 'mp4');
-                const res  = await fetch('/start_playlist_download', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!res.ok || data.error) throw new Error(data.error || 'Failed to start');
-                const id = data.download_id;
-                activeDownloads.set(id, { title: 'Playlist Download', status: 'queued', percent: 0, speed: '', eta: '', size: '' });
-                socket?.emit('subscribe', { download_id: id });
-                renderActiveDownloads();
-                openProgressModal();
-                showToast('▶ Playlist download started', 'info');
-                document.getElementById('playlist-url').value = '';
-                beep(440, 200);
-            } catch (err) {
-                showToast('Error: ' + err.message, 'error', 6000);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Download Playlist';
-            }
-        }
-
-        // ─── Batch URL download ───────────────────────────────────
-        async function startBatchDownload() {
-            const urlValues = getBatchUrlValues();
-            const btn  = document.getElementById('batch-btn');
-            if (urlValues.length === 0) { showToast('Please enter at least one URL', 'warning'); return; }
-            btn.disabled = true;
-            btn.innerHTML = '<span class="spinner"></span> Starting…';
-            try {
-                const fd = new FormData();
-                fd.append('urls',   urlValues.join('\n'));
-                fd.append('format', document.getElementById('batch-format').value);
-                fd.append('ext',    document.getElementById('batch-ext').value || 'mp4');
-                const res  = await fetch('/start_batch_download', { method: 'POST', body: fd });
-                const data = await res.json();
-                if (!res.ok || data.error) throw new Error(data.error || 'Failed to start');
-                for (const item of (data.started || [])) {
-                    activeDownloads.set(item.download_id, {
-                        title:   item.title || item.url,
-                        status:  'queued',
-                        percent: 0, speed: '', eta: '', size: '',
-                    });
-                    socket?.emit('subscribe', { download_id: item.download_id });
-                }
-                renderActiveDownloads();
-                openProgressModal();
-                showToast(`▶ ${data.total} download(s) started`, 'success');
-                clearBatchUrlFields();
-                beep(440, 200);
-            } catch (err) {
-                showToast('Error: ' + err.message, 'error', 6000);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-cloud-download-alt"></i> Start Batch Download';
-            }
-        }
-
-        // ─── Download ZIP ─────────────────────────────────────────
-        async function downloadZip() {
-            const checked = [...document.querySelectorAll('#zip-file-checklist .file-check:checked')]
-                             .map(c => c.value);
-            if (checked.length === 0) { showToast('Select at least one file', 'warning'); return; }
-            try {
-                const fd = new FormData();
-                fd.append('filenames', JSON.stringify(checked));
-                const res = await fetch('/download_zip', { method: 'POST', body: fd });
-                if (!res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    throw new Error(data.error || 'Failed to create ZIP');
-                }
-                // Trigger browser download
-                const blob = await res.blob();
-                const a    = document.createElement('a');
-                a.href     = URL.createObjectURL(blob);
-                a.download = `downloads_${new Date().toISOString().slice(0,10)}.zip`;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-                showToast(`✅ ZIP ready for ${checked.length} file(s)`, 'success');
-            } catch (err) {
-                showToast('Error: ' + err.message, 'error', 6000);
-            }
-        }
-
         // ─── Download All files as ZIP (one-click) ───────────────
         async function downloadAllFiles() {
             // Collect all filenames currently shown in the file list
@@ -5035,7 +4863,6 @@
         function showSectionPanel(panelId) {
             const tabBtnMap = {
                 'download-panel': 'main-tab-download',
-                'playlist-panel': 'main-tab-playlist',
                 'editing-panel':  'main-tab-editing',
                 'cv-panel':       'main-tab-cv',
                 'docconv-panel':  'main-tab-docconv',
@@ -5073,6 +4900,8 @@
         document.addEventListener('DOMContentLoaded', () => {
             const footerYear = document.getElementById('footer-year');
             if (footerYear) footerYear.textContent = new Date().getFullYear();
+            _initCvThemeSwatches();
+            cvUpdatePreview();
         });
 
         // ─── Client hints: report browser timezone/language for better geo-detection ───
@@ -5544,40 +5373,6 @@
                 <hr class="help-divider">
 
                 <div class="help-section">
-                    <div class="help-section-title"><i class="fas fa-list-ol"></i> Playlist Download</div>
-                    <div class="help-section-body">
-                        <ol>
-                            <li>Switch to the <strong>Playlist / Batch</strong> tab, then select the <strong>Playlist</strong> sub-tab.</li>
-                            <li>Paste a YouTube playlist URL (or any playlist-capable URL).</li>
-                            <li>Set the maximum number of videos to download, plus quality and format.</li>
-                            <li>Click <strong>Download Playlist</strong>. Each video is queued and processed concurrently.</li>
-                        </ol>
-                    </div>
-                </div>
-                <hr class="help-divider">
-
-                <div class="help-section">
-                    <div class="help-section-title"><i class="fas fa-layer-group"></i> Batch Download</div>
-                    <div class="help-section-body">
-                        <ol>
-                            <li>Switch to the <strong>Playlist / Batch</strong> tab, then select the <strong>Batch URLs</strong> sub-tab.</li>
-                            <li>Paste any text containing video URLs — from one site or many. URLs are detected automatically and arranged one per line regardless of how they were copied.</li>
-                            <li>Up to <strong>20 URLs</strong> are supported per batch. Extra URLs beyond 20 are discarded.</li>
-                            <li>Choose quality and format, then click <strong>Start Batch Download</strong>.</li>
-                        </ol>
-                    </div>
-                </div>
-                <hr class="help-divider">
-
-                <div class="help-section">
-                    <div class="help-section-title"><i class="fas fa-file-archive"></i> Export as ZIP</div>
-                    <div class="help-section-body">
-                        Download multiple already-processed files at once. Select files from your download list using the checkboxes, then click <strong>Download ZIP</strong> to receive them in a single archive.
-                    </div>
-                </div>
-                <hr class="help-divider">
-
-                <div class="help-section">
                     <div class="help-section-title"><i class="fas fa-tools"></i> Edit &amp; Convert</div>
                     <div class="help-section-body">
                         <ul>
@@ -5691,8 +5486,171 @@
     })();
 
     // ─── CV Generator ─────────────────────────────────────────────
+    let _cvStep = 1;
+    let _cvTheme = 'classic';
+    const _cvTotalSteps = 4;
+
+    const _cvThemeStyles = {
+        classic: {
+            headerBg: '#1e3a5f', headerColor: '#fff', accentColor: '#2563eb',
+            bodyBg: '#fff', textColor: '#1e293b', borderColor: '#bfdbfe',
+            sectionTitle: '#1e3a5f', pillBg: '#dbeafe', pillColor: '#1e40af'
+        },
+        modern: {
+            headerBg: '#111827', headerColor: '#f9fafb', accentColor: '#6b7280',
+            bodyBg: '#f9fafb', textColor: '#111827', borderColor: '#d1d5db',
+            sectionTitle: '#111827', pillBg: '#f3f4f6', pillColor: '#374151'
+        },
+        creative: {
+            headerBg: '#7c3aed', headerColor: '#fff', accentColor: '#a78bfa',
+            bodyBg: '#faf5ff', textColor: '#1e1b4b', borderColor: '#ddd6fe',
+            sectionTitle: '#6d28d9', pillBg: '#ede9fe', pillColor: '#5b21b6'
+        },
+        executive: {
+            headerBg: '#065f46', headerColor: '#ecfdf5', accentColor: '#10b981',
+            bodyBg: '#f0fdf4', textColor: '#064e3b', borderColor: '#a7f3d0',
+            sectionTitle: '#065f46', pillBg: '#d1fae5', pillColor: '#065f46'
+        },
+        warm: {
+            headerBg: '#92400e', headerColor: '#fffbeb', accentColor: '#f59e0b',
+            bodyBg: '#fffbeb', textColor: '#451a03', borderColor: '#fde68a',
+            sectionTitle: '#78350f', pillBg: '#fef3c7', pillColor: '#92400e'
+        }
+    };
+
+    function cvGetField(id) {
+        const el = document.getElementById(id);
+        return el ? el.value.trim() : '';
+    }
+
+    function cvUpdatePreview() {
+        const t = _cvThemeStyles[_cvTheme] || _cvThemeStyles.classic;
+        const name     = cvGetField('cv-name') || 'Your Name';
+        const title    = cvGetField('cv-title') || 'Professional Title';
+        const email    = cvGetField('cv-email');
+        const phone    = cvGetField('cv-phone');
+        const location = cvGetField('cv-location');
+        const link     = cvGetField('cv-link');
+        const summary  = cvGetField('cv-summary');
+        const skills   = cvGetField('cv-skills');
+        const exp      = cvGetField('cv-experience');
+        const edu      = cvGetField('cv-education');
+        const proj     = cvGetField('cv-projects');
+        const pub      = cvGetField('cv-publications');
+
+        function escP(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function nl2br(s) { return escP(s).replace(/\n/g,'<br>'); }
+
+        const contactParts = [email, phone, location, link].filter(Boolean).map(escP);
+        const skillPills = skills ? skills.split(',').map(s=>s.trim()).filter(Boolean)
+            .map(s=>`<span style="display:inline-block;background:${t.pillBg};color:${t.pillColor};border-radius:20px;padding:2px 9px;font-size:0.7rem;font-weight:600;margin:2px;">${escP(s)}</span>`).join('') : '';
+
+        function section(icon, heading, content) {
+            if (!content) return '';
+            return `<div style="margin-bottom:10px;">
+                <div style="font-size:0.72rem;font-weight:800;color:${t.sectionTitle};text-transform:uppercase;letter-spacing:.07em;border-bottom:1.5px solid ${t.borderColor};padding-bottom:3px;margin-bottom:5px;display:flex;align-items:center;gap:5px;"><i class="fas ${icon}"></i>${heading}</div>
+                <div style="font-size:0.72rem;color:${t.textColor};line-height:1.5;">${content}</div>
+            </div>`;
+        }
+
+        const html = `<div style="font-family:'Segoe UI',Arial,sans-serif;background:${t.bodyBg};min-height:300px;font-size:0.72rem;">
+            <div style="background:${t.headerBg};color:${t.headerColor};padding:14px 16px 10px;">
+                <div style="font-size:1.05rem;font-weight:800;letter-spacing:-.01em;">${escP(name)}</div>
+                <div style="font-size:0.8rem;opacity:.85;margin-bottom:6px;">${escP(title)}</div>
+                <div style="font-size:0.68rem;opacity:.75;display:flex;flex-wrap:wrap;gap:8px;">${contactParts.map(c=>`<span>${c}</span>`).join('')}</div>
+            </div>
+            <div style="padding:10px 16px;">
+                ${summary ? section('fa-align-left','Summary',`<p style="margin:0;">${nl2br(summary)}</p>`) : ''}
+                ${skillPills ? section('fa-star','Skills',skillPills) : ''}
+                ${exp ? section('fa-briefcase','Experience',`<pre style="margin:0;font-family:inherit;white-space:pre-wrap;">${nl2br(exp)}</pre>`) : ''}
+                ${edu ? section('fa-graduation-cap','Education',`<pre style="margin:0;font-family:inherit;white-space:pre-wrap;">${nl2br(edu)}</pre>`) : ''}
+                ${proj ? section('fa-flask','Projects',`<pre style="margin:0;font-family:inherit;white-space:pre-wrap;">${nl2br(proj)}</pre>`) : ''}
+                ${pub ? section('fa-book','Publications',`<pre style="margin:0;font-family:inherit;white-space:pre-wrap;">${nl2br(pub)}</pre>`) : ''}
+            </div>
+        </div>`;
+
+        const frame = document.getElementById('cv-preview-frame');
+        if (frame) frame.innerHTML = html;
+    }
+
+    function cvLogoPreview(input) {
+        cvUpdatePreview();
+    }
+
+    function cvValidateStep(step) {
+        const errors = [];
+        if (step === 1) {
+            if (!cvGetField('cv-name')) errors.push('Full Name is required.');
+            if (!cvGetField('cv-title')) errors.push('Job Title is required.');
+            if (!cvGetField('cv-email')) errors.push('Email is required.');
+        } else if (step === 2) {
+            if (!cvGetField('cv-summary')) errors.push('Professional Summary is required.');
+            if (!cvGetField('cv-skills')) errors.push('Skills are required.');
+        } else if (step === 3) {
+            if (!cvGetField('cv-experience')) errors.push('Work Experience is required.');
+            if (!cvGetField('cv-education')) errors.push('Education is required.');
+        }
+        const errEl = document.getElementById(`cv-step-${step}-error`);
+        if (errEl) {
+            if (errors.length) {
+                errEl.innerHTML = '<i class="fas fa-exclamation-circle"></i> ' + errors.join(' ');
+                errEl.style.display = '';
+            } else {
+                errEl.style.display = 'none';
+            }
+        }
+        return errors.length === 0;
+    }
+
+    function cvUpdateStepBar() {
+        document.querySelectorAll('.cv-step-dot').forEach((dot, i) => {
+            const s = i + 1;
+            dot.classList.remove('cv-step-active', 'cv-step-done');
+            if (s < _cvStep) dot.classList.add('cv-step-done');
+            else if (s === _cvStep) dot.classList.add('cv-step-active');
+        });
+        document.querySelectorAll('.cv-step-connector').forEach((conn, i) => {
+            conn.classList.toggle('cv-conn-done', i + 1 < _cvStep);
+        });
+        const prevBtn = document.getElementById('cv-prev-btn');
+        const nextBtn = document.getElementById('cv-next-btn');
+        if (prevBtn) prevBtn.style.display = _cvStep > 1 ? '' : 'none';
+        if (nextBtn) nextBtn.style.display = _cvStep < _cvTotalSteps ? '' : 'none';
+    }
+
+    function cvNextStep() {
+        if (!cvValidateStep(_cvStep)) return;
+        if (_cvStep >= _cvTotalSteps) return;
+        document.getElementById(`cv-step-${_cvStep}`).style.display = 'none';
+        _cvStep++;
+        const next = document.getElementById(`cv-step-${_cvStep}`);
+        if (next) { next.style.display = ''; }
+        cvUpdateStepBar();
+        const col = document.getElementById('cv-wizard-col');
+        if (col) col.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function cvPrevStep() {
+        if (_cvStep <= 1) return;
+        document.getElementById(`cv-step-${_cvStep}`).style.display = 'none';
+        _cvStep--;
+        document.getElementById(`cv-step-${_cvStep}`).style.display = '';
+        cvUpdateStepBar();
+    }
+
+    function _initCvThemeSwatches() {
+        document.querySelectorAll('.cv-theme-swatch').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.cv-theme-swatch').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                _cvTheme = btn.dataset.theme;
+                cvUpdatePreview();
+            });
+        });
+    }
+
     async function submitCVForm(event) {
-        event.preventDefault();
+        if (event && event.preventDefault) event.preventDefault();
         const statusEl = document.getElementById('cv-status');
         const submitBtn = document.getElementById('cv-submit-btn');
         statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating CV…';
@@ -5700,17 +5658,18 @@
 
         try {
             const fd = new FormData();
-            fd.append('name',         document.getElementById('cv-name').value.trim());
-            fd.append('email',        document.getElementById('cv-email').value.trim());
-            fd.append('phone',        document.getElementById('cv-phone').value.trim());
-            fd.append('location',     document.getElementById('cv-location').value.trim());
-            fd.append('link',         document.getElementById('cv-link').value.trim());
-            fd.append('summary',      document.getElementById('cv-summary').value.trim());
-            fd.append('experience',   document.getElementById('cv-experience').value.trim());
-            fd.append('education',    document.getElementById('cv-education').value.trim());
-            fd.append('skills',       document.getElementById('cv-skills').value.trim());
-            fd.append('projects',     document.getElementById('cv-projects').value.trim());
-            fd.append('publications', document.getElementById('cv-publications').value.trim());
+            fd.append('name',         cvGetField('cv-name'));
+            fd.append('email',        cvGetField('cv-email'));
+            fd.append('phone',        cvGetField('cv-phone'));
+            fd.append('location',     cvGetField('cv-location'));
+            fd.append('link',         cvGetField('cv-link'));
+            fd.append('summary',      cvGetField('cv-summary'));
+            fd.append('experience',   cvGetField('cv-experience'));
+            fd.append('education',    cvGetField('cv-education'));
+            fd.append('skills',       cvGetField('cv-skills'));
+            fd.append('projects',     cvGetField('cv-projects'));
+            fd.append('publications', cvGetField('cv-publications'));
+            fd.append('theme',        _cvTheme);
             const logoFile = document.getElementById('cv-logo').files[0];
             if (logoFile) fd.append('logo', logoFile, logoFile.name);
 
