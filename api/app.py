@@ -4775,12 +4775,11 @@ def _lo_filter_str(src_ext: str, target: str) -> str:
     return _LO_FILTER_MAP.get((family, target), target)
 
 
-# Binary pixel-based image formats that pandoc cannot process as input.
-# Any conversion FROM one of these formats must be handled by img2pdf (to PDF)
-# or rejected early -- never routed to pandoc.
-_IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "tiff", "tif", "bmp", "gif", "webp"})
+# Image extensions that cannot be used as Pandoc input and cannot be
+# converted to document formats (only image→PDF via img2pdf is supported).
+_IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "tiff", "bmp", "gif", "webp"})
 
-# Map of (input_ext -> target_ext) -> conversion strategy
+# Map of (input_ext → target_ext) → conversion strategy
 # Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img", "unsupported"
 def _doc_conv_strategy(src_ext: str, target: str) -> str:
     src_ext = src_ext.lstrip(".")
@@ -4794,8 +4793,9 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
         return "tabula"
     if src_ext in _IMAGE_EXTS and target == "pdf":
         return "img2pdf"
-    # Images cannot be converted to document formats -- return early so they
-    # never reach pandoc (which only accepts markup/text input formats).
+    # Image files cannot be converted to document/text formats.
+    # Returning "unsupported" prevents Pandoc from receiving an image format
+    # as its --from argument, which would produce a cryptic format-list error.
     if src_ext in _IMAGE_EXTS:
         return "unsupported"
     if target in ("html", "md", "txt", "epub") or src_ext in ("md", "html", "txt", "epub"):
@@ -4805,6 +4805,21 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
             return "pandoc"
     # Default: LibreOffice for Office/ODF conversions
     return "libreoffice"
+
+
+def _unsupported_conversion_error(src_ext: str, target: str) -> str:
+    """Return a readable error message for an unsupported source→target combination.
+
+    Used both in ``api_doc_convert`` and in the test suite so the wording
+    stays consistent between the production path and the tests.
+    """
+    src_clean = src_ext.lstrip(".") or "unknown"
+    if src_clean in _IMAGE_EXTS:
+        return (
+            f"Image files (.{src_clean}) can only be converted to PDF. "
+            f"Converting to .{target} is not supported."
+        )
+    return f"Converting .{src_clean} files to .{target} is not supported."
 
 
 @fastapi_app.post("/api/doc/convert")
@@ -4825,6 +4840,15 @@ async def api_doc_convert(
 
     original_name = file.filename or "document"
     src_ext = os.path.splitext(original_name)[1].lower()
+
+    # Validate the source→target combination before doing any I/O so the user
+    # gets a clear, readable error instead of a cryptic library message.
+    strategy_check = _doc_conv_strategy(src_ext, target)
+    if strategy_check == "unsupported":
+        return JSONResponse(
+            {"error": _unsupported_conversion_error(src_ext, target)},
+            status_code=400,
+        )
 
     content = await file.read()
     if len(content) > Config.MAX_CONTENT_LENGTH:
@@ -4934,18 +4958,19 @@ async def api_doc_convert(
                 err_msg = "pypandoc is not installed on this server."
             except Exception as exc:
                 exc_str = str(exc)
-                # pypandoc error messages can include raw pandoc output with
-                # technical details (e.g. "Invalid input format! Got 'jpg'...").
-                # Provide a clear human-readable message instead.
-                if "invalid input format" in exc_str.lower():
-                    src_clean = src_ext.lstrip(".")
+                exc_str_lower = exc_str.lower()
+                # Pandoc raises a cryptic error listing all supported formats when
+                # given an unsupported input type (e.g. an image extension).
+                # Replace it with a readable message.
+                if "invalid input format" in exc_str_lower or "expected one of these" in exc_str_lower:
+                    src_clean = src_ext.lstrip(".") or "unknown"
                     err_msg = (
-                        f"The file format '{src_clean}' cannot be used as input for "
-                        f"this conversion. Supported input formats include: "
-                        "DOCX, ODT, HTML, Markdown, RST, LaTeX, EPUB, and plain text."
+                        f"Cannot convert .{src_clean} files to .{target}. "
+                        f"The source format is not supported for document conversion. "
+                        f"Supported text-based formats include: md, html, txt, docx, odt, epub, rst."
                     )
                 else:
-                    err_msg = f"Document conversion failed: {exc_str}"
+                    err_msg = f"Pandoc conversion failed: {exc}"
             # If pandoc failed and the source is a format LibreOffice can open,
             # fall through to the LibreOffice path as a secondary attempt.
             if not pandoc_ok:
