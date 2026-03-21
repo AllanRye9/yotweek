@@ -33,7 +33,81 @@ function _category(r) {
   return 'video'
 }
 
-export default function DownloadsTable({ downloads, loading, onCancel, onDelete }) {
+function ClearAllModal({ total, onBackup, onConfirm, onClose }) {
+  const [backupDone, setBackupDone] = useState(false)
+  const [confirmed, setConfirmed]   = useState(false)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl max-w-md w-full p-6">
+        <div className="flex items-start gap-3 mb-4">
+          <span className="text-3xl">⚠️</span>
+          <div>
+            <h2 className="text-lg font-bold text-white">Clear All Download Data</h2>
+            <p className="text-sm text-gray-400 mt-1">
+              This will permanently delete all&nbsp;
+              <span className="font-semibold text-white">{total.toLocaleString()}</span> download
+              records — including queued and active downloads — from both memory and the database.
+              This action <span className="text-red-400 font-semibold">cannot be undone</span>.
+            </p>
+          </div>
+        </div>
+
+        {/* Backup option */}
+        <div className="bg-gray-800 rounded-xl p-4 mb-4 space-y-3">
+          <p className="text-sm font-medium text-gray-200">Step 1 — Back up your data (recommended)</p>
+          <button
+            className="btn-secondary w-full text-sm"
+            onClick={() => { onBackup(); setBackupDone(true) }}
+          >
+            ⬇ Download Backup Now
+          </button>
+          {backupDone && (
+            <p className="text-xs text-green-400 flex items-center gap-1">
+              ✓ Backup download started — check your downloads folder.
+            </p>
+          )}
+        </div>
+
+        {/* Confirmation checkbox */}
+        <label className="flex items-start gap-2 mb-5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            className="mt-0.5 accent-red-500"
+            checked={confirmed}
+            onChange={e => setConfirmed(e.target.checked)}
+          />
+          <span className="text-sm text-gray-300">
+            I have backed up my data, or I do not need a backup and understand this is permanent.
+          </span>
+        </label>
+
+        {/* Action buttons */}
+        <div className="flex gap-3">
+          <button
+            className="flex-1 btn-ghost text-sm"
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className={`flex-1 text-sm rounded-lg px-4 py-2 font-medium transition-colors ${
+              confirmed
+                ? 'bg-red-600 hover:bg-red-700 text-white'
+                : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+            }`}
+            disabled={!confirmed}
+            onClick={() => confirmed && onConfirm()}
+          >
+            🗑 Delete All Records
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function DownloadsTable({ downloads, loading, onCancel, onDelete, onClearAll, onBackupDb }) {
   const [search, setSearch]               = useState('')
   const [sortBy, setSortBy]               = useState('created_at')
   const [sortDir, setSortDir]             = useState('desc')
@@ -42,6 +116,7 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
   const [countryFilter, setCountryFilter] = useState('all')
   const [dateFrom, setDateFrom]           = useState('')
   const [dateTo, setDateTo]               = useState('')
+  const [showClearModal, setShowClearModal] = useState(false)
 
   const countries = useMemo(() => {
     const set = new Set((downloads || []).map(r => r.country).filter(Boolean))
@@ -96,6 +171,15 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
 
   return (
     <div>
+      {showClearModal && (
+        <ClearAllModal
+          total={(downloads || []).length}
+          onBackup={() => onBackupDb?.()}
+          onConfirm={() => { setShowClearModal(false); onClearAll?.() }}
+          onClose={() => setShowClearModal(false)}
+        />
+      )}
+
       {/* Controls */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4 flex-wrap">
         <input
@@ -150,7 +234,19 @@ export default function DownloadsTable({ downloads, loading, onCancel, onDelete 
           onChange={e => setDateTo(e.target.value)}
         />
       </div>
-      <p className="text-xs text-gray-600 mb-3">{filtered.length} records</p>
+
+      {/* Record count + Clear All */}
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs text-gray-600">{filtered.length} records</p>
+        {(downloads || []).length > 0 && (
+          <button
+            className="btn-danger btn-sm text-xs"
+            onClick={() => setShowClearModal(true)}
+          >
+            🗑 Clear All Data
+          </button>
+        )}
+      </div>
 
       {/* Table (desktop) */}
       <div className="hidden md:block overflow-x-auto rounded-xl border border-gray-800">

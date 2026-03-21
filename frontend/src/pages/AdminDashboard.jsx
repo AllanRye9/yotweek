@@ -4,11 +4,13 @@ import { useAuth } from '../App'
 import {
   getAdminDownloads, getAdminVisitors, getAdminAnalytics,
   adminCancelDownload, adminDeleteRecord, adminClearVisitors,
+  adminClearAllDownloads,
   adminLogout, adminDbDownloadUrl, adminDbUpload,
   getCookieStatus, uploadCookies, deleteCookies,
 } from '../api'
 import AdminStats from '../components/admin/AdminStats'
 import AnalyticsCharts from '../components/admin/AnalyticsCharts'
+import ActivitySummary from '../components/admin/ActivitySummary'
 import DownloadsTable from '../components/admin/DownloadsTable'
 import VisitorsTable from '../components/admin/VisitorsTable'
 import ThemeSelector from '../components/ThemeSelector'
@@ -96,6 +98,13 @@ export default function AdminDashboard() {
   const handleDeleteDl = async (id) => {
     if (!confirm('Delete this record?')) return
     try { await adminDeleteRecord(id); await fetchDownloads() } catch (e) { setError(e.message) }
+  }
+  const handleClearAllDl = async () => {
+    try {
+      await adminClearAllDownloads()
+      setDownloads([])
+      setNotice('All download records cleared')
+    } catch (e) { setError(e.message) }
   }
   const handleClearVisitors = async () => {
     if (!confirm('Clear all visitor records?')) return
@@ -222,7 +231,10 @@ export default function AdminDashboard() {
             <div>
               {loadingAnalytics && !analytics
                 ? <div className="flex justify-center py-20"><span className="spinner w-10 h-10" /></div>
-                : <AdminStats analytics={analytics} />
+                : <>
+                    <AdminStats analytics={analytics} />
+                    <ActivitySummary downloads={downloads} analytics={analytics} />
+                  </>
               }
             </div>
           )}
@@ -244,6 +256,8 @@ export default function AdminDashboard() {
               loading={loadingDl}
               onCancel={handleCancelDl}
               onDelete={handleDeleteDl}
+              onClearAll={handleClearAllDl}
+              onBackupDb={handleDbDownload}
             />
           )}
 
