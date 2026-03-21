@@ -184,7 +184,7 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* ── Navbar ── */}
-      <nav className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800">
+      <nav className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800 colorful-nav">
         <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-4">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2 text-xl font-bold text-white shrink-0">
@@ -197,9 +197,9 @@ export default function Home() {
           <div className="hidden md:flex items-center gap-3 text-xs ml-4">
             {stats && (
               <>
-                <span className="badge-info">{stats.active_downloads ?? 0} active</span>
-                <span className="badge-gray">{stats.file_count ?? 0} files</span>
-                {stats.total_size_hr && <span className="badge-gray">{stats.total_size_hr}</span>}
+                <span className="badge-active-count">{stats.active_downloads ?? 0} active</span>
+                <span className="badge-file-count">{stats.file_count ?? 0} files</span>
+                {stats.total_size_hr && <span className="badge-size">{stats.total_size_hr}</span>}
               </>
             )}
           </div>
@@ -208,8 +208,8 @@ export default function Home() {
 
           {/* Connection dot */}
           <div className="flex items-center gap-1.5 text-xs">
-            <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-400' : 'bg-red-500'}`} />
-            <span className="text-gray-500 hidden sm:inline">{connected ? 'Live' : 'Offline'}</span>
+            <span className={`w-2.5 h-2.5 rounded-full ${connected ? 'bg-green-400 conn-dot-live' : 'bg-red-500'}`} />
+            <span className="text-gray-400 hidden sm:inline font-medium">{connected ? 'Live' : 'Offline'}</span>
           </div>
 
           {/* Theme selector */}
@@ -217,8 +217,8 @@ export default function Home() {
 
           {/* Admin link */}
           {admin && (
-            <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex">
-              Dashboard
+            <Link to="/const" aria-label="Admin Dashboard" className="btn-secondary btn-sm hidden sm:inline-flex">
+              🛠 Dashboard
             </Link>
           )}
 
@@ -234,17 +234,18 @@ export default function Home() {
 
         {/* Mobile dropdown */}
         {menuOpen && (
-          <div className="sm:hidden border-t border-gray-800 bg-gray-900 px-4 py-3 space-y-2">
+          <div className="sm:hidden border-t border-gray-800 bg-gray-900 px-4 py-3 space-y-1.5">
             {stats && (
               <div className="flex gap-2 flex-wrap pb-2 border-b border-gray-800">
-                <span className="badge-info">{stats.active_downloads ?? 0} active</span>
-                <span className="badge-gray">{stats.file_count ?? 0} files</span>
+                <span className="badge-active-count">{stats.active_downloads ?? 0} active</span>
+                <span className="badge-file-count">{stats.file_count ?? 0} files</span>
               </div>
             )}
             {admin && (
               <Link
                 to="/const"
-                className="block text-sm text-gray-400 hover:text-white py-1"
+                aria-label="Admin Dashboard"
+                className="mobile-nav-active block text-sm py-2 px-2 transition-all"
                 onClick={() => setMenuOpen(false)}
               >
                 🛠 Admin Dashboard
@@ -253,10 +254,11 @@ export default function Home() {
             {!admin && (
               <Link
                 to="/admin/login"
-                className="block text-sm text-gray-500 hover:text-white py-1"
+                aria-label="Admin Login"
+                className="block text-sm text-gray-400 hover:text-white py-2 px-2 rounded-lg hover:bg-gray-800 transition-all"
                 onClick={() => setMenuOpen(false)}
               >
-                Admin Login
+                🔑 Admin Login
               </Link>
             )}
           </div>
@@ -264,7 +266,7 @@ export default function Home() {
       </nav>
 
       {/* ── Hero ── */}
-      <div className="bg-gradient-to-b from-gray-900 to-gray-950 border-b border-gray-800 py-6 sm:py-8 px-4">
+      <div className="hero-section py-6 sm:py-8 px-4">
         <div className="max-w-2xl mx-auto text-center">
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
             Download <span className="gradient-text">Any Video</span> — Free &amp; Fast
@@ -299,6 +301,7 @@ export default function Home() {
           {TABS.map(t => (
             <button
               key={t.id}
+              data-tab={t.id}
               className={tab === t.id ? 'tab-btn-active whitespace-nowrap' : 'tab-btn-inactive whitespace-nowrap'}
               onClick={() => setTab(t.id)}
             >

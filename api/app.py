@@ -105,7 +105,16 @@ logger = logging.getLogger(__name__)
 # FASTAPI APP INITIALIZATION
 # =========================================================
 
-_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+_allowed_origins_raw = os.environ.get("ALLOWED_ORIGINS", "").strip()
+# When ALLOWED_ORIGINS is not set, default to wildcard so same-origin deployments work.
+# For cross-origin deployments with cookie credentials, set ALLOWED_ORIGINS to
+# the exact frontend origin (e.g. "https://example.com").
+if not _allowed_origins_raw:
+    _allowed_origins = ["*"]
+else:
+    _allowed_origins = [o.strip() for o in _allowed_origins_raw.split(",") if o.strip()]
+    if not _allowed_origins:
+        _allowed_origins = ["*"]
 
 # Event loop reference for thread-safe Socket.IO emits
 _loop: asyncio.AbstractEventLoop | None = None
@@ -127,11 +136,16 @@ fastapi_app = FastAPI(lifespan=lifespan)
 fastapi_app.add_middleware(SessionMiddleware, secret_key=Config.SECRET_KEY)
 
 # CORS middleware (replaces Flask-CORS)
+# When allow_credentials=True is needed (cross-origin with cookies), set
+# ALLOWED_ORIGINS to the exact frontend origin instead of "*".
+_cors_credentials = "*" not in _allowed_origins
 fastapi_app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_credentials=_cors_credentials,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS", "PATCH"],
+    allow_headers=["Content-Type", "X-Requested-With", "Authorization"],
+    expose_headers=["Content-Disposition"],
 )
 
 # Jinja2 template rendering (still used for legacy /admin/login fallback)
@@ -5450,7 +5464,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 
 @fastapi_app.exception_handler(500)
 async def internal_error(request: Request, exc):
-    logger.error(f"Internal error: {exc}")
+    logger.error(f"Internal error: {exc}", exc_info=True)
+    return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+@fastapi_app.exception_handler(Exception)
+async def generic_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url.path}: {exc}", exc_info=True)
     return JSONResponse({"error": "Internal server error"}, status_code=500)
 
 # =========================================================

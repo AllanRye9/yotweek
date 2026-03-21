@@ -141,12 +141,12 @@ export default function AdminDashboard() {
         lg:translate-x-0 lg:static lg:z-auto
       `}>
         {/* Logo */}
-        <div className="p-4 border-b border-gray-800">
+        <div className="p-4 border-b border-gray-800 sidebar-header">
           <Link to="/" className="flex items-center gap-2 text-lg font-bold">
             <span>📥</span>
             <span className="gradient-text">YOT Admin</span>
           </Link>
-          <p className="text-xs text-gray-600 mt-0.5">Analytics Dashboard</p>
+          <p className="text-xs text-gray-500 mt-0.5">Analytics Dashboard</p>
         </div>
 
         {/* Nav */}
@@ -154,16 +154,16 @@ export default function AdminDashboard() {
           {SIDEBAR_TABS.map(t => (
             <button
               key={t.id}
-              className={`w-full text-left ${tab === t.id ? 'sidebar-link-active' : 'sidebar-link'}`}
+              className={`w-full text-left transition-all duration-200 ${tab === t.id ? 'sidebar-link-active' : 'sidebar-link'}`}
               onClick={() => tabChange(t.id)}
             >
               <span className="text-base">{t.icon}</span>
               {t.label}
               {t.id === 'downloads' && downloads.length > 0 && (
-                <span className="ml-auto badge-gray">{downloads.length}</span>
+                <span className="ml-auto badge-file-count">{downloads.length}</span>
               )}
               {t.id === 'visitors' && visitors.length > 0 && (
-                <span className="ml-auto badge-gray">{visitors.length}</span>
+                <span className="ml-auto badge-active-count">{visitors.length}</span>
               )}
             </button>
           ))}
@@ -172,7 +172,7 @@ export default function AdminDashboard() {
         {/* Bottom */}
         <div className="p-3 border-t border-gray-800">
           <Link to="/" className="sidebar-link w-full block text-center mb-1">← Back to Site</Link>
-          <button className="sidebar-link w-full text-red-500 hover:text-red-400" onClick={handleLogout}>
+          <button className="sidebar-link w-full text-rose-400 hover:text-rose-300" onClick={handleLogout}>
             🚪 Logout
           </button>
         </div>
@@ -181,7 +181,7 @@ export default function AdminDashboard() {
       {/* ── Main ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <header className="sticky top-0 z-30 bg-gray-950/95 backdrop-blur border-b border-gray-800 px-4 h-14 flex items-center gap-3">
+        <header className="sticky top-0 z-30 bg-gray-950/95 backdrop-blur border-b border-gray-800 px-4 h-14 flex items-center gap-3 colorful-nav">
           <button
             className="btn-ghost btn-sm lg:hidden"
             onClick={() => setSidebarOpen(s => !s)}
