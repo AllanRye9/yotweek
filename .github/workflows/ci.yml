@@ -96,13 +96,15 @@ jobs:
           except Exception as exc:
               msg = str(exc).lower()
               if any(p in msg for p in BOT_PATTERNS):
+                  # Bot-detection is an external service condition, NOT a code
+                  # defect.  Report the finding clearly and exit 0 so the step
+                  # stays green; the warning text is enough to alert maintainers.
                   print(
                       "⚠️  YouTube bot-detection is active.\n"
                       "   Downloads may fail until the block is lifted.\n"
                       f"   yt-dlp error: {exc}"
                   )
-                  # Exit 2 signals a bot-detection hit (distinct from a real error).
-                  sys.exit(2)
+                  sys.exit(0)
               else:
                   print(f"❌  Unexpected error fetching YouTube info: {exc}")
                   sys.exit(1)
