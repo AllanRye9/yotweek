@@ -1330,20 +1330,20 @@ def admin_required(f):
 def check_yt_dlp():
     """Check if yt-dlp is installed and accessible"""
     try:
-        logger.info(f"✅ yt-dlp version: {yt_dlp.version.__version__}")
+        logger.info(f"OK: yt-dlp version: {yt_dlp.version.__version__}")
         return True
     except Exception as e:
-        logger.error(f"❌ Error checking yt-dlp: {e}")
+        logger.error(f"ERROR: Error checking yt-dlp: {e}")
         return False
 
 def check_ffmpeg():
     """Check if ffmpeg is installed"""
     ffmpeg_path = shutil.which('ffmpeg')
     if ffmpeg_path:
-        logger.info(f"✅ ffmpeg found at: {ffmpeg_path}")
+        logger.info(f"OK: ffmpeg found at: {ffmpeg_path}")
         return True
     else:
-        logger.warning("⚠️ ffmpeg not found - some formats may not work")
+        logger.warning("WARNING: ffmpeg not found - some formats may not work")
         return False
 
 # =========================================================
@@ -4775,8 +4775,13 @@ def _lo_filter_str(src_ext: str, target: str) -> str:
     return _LO_FILTER_MAP.get((family, target), target)
 
 
-# Map of (input_ext → target_ext) → conversion strategy
-# Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img"
+# Binary pixel-based image formats that pandoc cannot process as input.
+# Any conversion FROM one of these formats must be handled by img2pdf (to PDF)
+# or rejected early -- never routed to pandoc.
+_IMAGE_EXTS = frozenset({"png", "jpg", "jpeg", "tiff", "tif", "bmp", "gif", "webp"})
+
+# Map of (input_ext -> target_ext) -> conversion strategy
+# Strategies: "pdf2docx", "tabula", "libreoffice", "pandoc", "img2pdf", "pdf2img", "unsupported"
 def _doc_conv_strategy(src_ext: str, target: str) -> str:
     src_ext = src_ext.lstrip(".")
     if src_ext == target:
@@ -4787,8 +4792,12 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
         return "pdf2img"
     if src_ext == "pdf" and target == "xlsx":
         return "tabula"
-    if src_ext in ("png", "jpg", "jpeg", "tiff", "bmp") and target == "pdf":
+    if src_ext in _IMAGE_EXTS and target == "pdf":
         return "img2pdf"
+    # Images cannot be converted to document formats -- return early so they
+    # never reach pandoc (which only accepts markup/text input formats).
+    if src_ext in _IMAGE_EXTS:
+        return "unsupported"
     if target in ("html", "md", "txt", "epub") or src_ext in ("md", "html", "txt", "epub"):
         # Pandoc does not support Excel as an input format – route xlsx/xls to
         # LibreOffice regardless of target so we get the Python fallbacks too.
@@ -4837,7 +4846,18 @@ async def api_doc_convert(
         strategy = _doc_conv_strategy(src_ext, target)
         err_msg = None
 
-        if strategy == "passthrough":
+        if strategy == "unsupported":
+            src_clean = src_ext.lstrip(".")
+            return JSONResponse(
+                {"error": (
+                    f"Converting a {src_clean.upper()} image to {target.upper()} is not supported. "
+                    "Images can only be converted to PDF. "
+                    "Please upload a document file (e.g. DOCX, PDF, HTML, TXT) instead."
+                )},
+                status_code=400,
+            )
+
+        elif strategy == "passthrough":
             shutil.copy2(input_path, output_path)
 
         elif strategy == "pdf2docx":
@@ -4913,7 +4933,19 @@ async def api_doc_convert(
             except ImportError:
                 err_msg = "pypandoc is not installed on this server."
             except Exception as exc:
-                err_msg = f"Pandoc conversion failed: {exc}"
+                exc_str = str(exc)
+                # pypandoc error messages can include raw pandoc output with
+                # technical details (e.g. "Invalid input format! Got 'jpg'...").
+                # Provide a clear human-readable message instead.
+                if "invalid input format" in exc_str.lower():
+                    src_clean = src_ext.lstrip(".")
+                    err_msg = (
+                        f"The file format '{src_clean}' cannot be used as input for "
+                        f"this conversion. Supported input formats include: "
+                        "DOCX, ODT, HTML, Markdown, RST, LaTeX, EPUB, and plain text."
+                    )
+                else:
+                    err_msg = f"Document conversion failed: {exc_str}"
             # If pandoc failed and the source is a format LibreOffice can open,
             # fall through to the LibreOffice path as a secondary attempt.
             if not pandoc_ok:
@@ -5382,13 +5414,13 @@ def cleanup_thread():
 # =========================================================
 
 logger.info("=" * 50)
-logger.info("🚀 Starting Video Downloader (Production)")
+logger.info("Starting Video Downloader (Production)")
 logger.info("=" * 50)
 
 # Warn if using the default admin password
 if Config.ADMIN_PASSWORD == "admin":
     logger.warning(
-        "⚠️  ADMIN_PASSWORD is set to the default value 'admin'. "
+        "WARNING: ADMIN_PASSWORD is set to the default value 'admin'. "
         "Set the ADMIN_PASSWORD environment variable to a strong password before deploying."
     )
 
@@ -5397,10 +5429,10 @@ check_yt_dlp()
 check_ffmpeg()
 
 # Log paths
-logger.info(f"📁 Root directory: {ROOT_DIR}")
-logger.info(f"📁 Templates directory: {TEMPLATES_DIR}")
-logger.info(f"📁 Downloads directory: {DOWNLOAD_FOLDER}")
-logger.info(f"📁 Template exists: {os.path.exists(os.path.join(TEMPLATES_DIR, 'index.html'))}")
+logger.info(f"Root directory: {ROOT_DIR}")
+logger.info(f"Templates directory: {TEMPLATES_DIR}")
+logger.info(f"Downloads directory: {DOWNLOAD_FOLDER}")
+logger.info(f"Template exists: {os.path.exists(os.path.join(TEMPLATES_DIR, 'index.html'))}")
 
 # Initialise database schema
 init_db()
@@ -5462,8 +5494,8 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_DEBUG", "False").lower() == "true"
 
-    logger.info(f"🌐 Starting server on port {port}")
-    logger.info(f"🐛 Debug mode: {debug}")
+    logger.info(f"Starting server on port {port}")
+    logger.info(f"Debug mode: {debug}")
 
     uvicorn.run(
         "api.app:app",
