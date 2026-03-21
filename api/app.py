@@ -1459,29 +1459,13 @@ def _friendly_cookie_error(error_msg: str) -> str:
     yt-dlp (and related authentication / login-required errors) and replaces
     them with a plain, actionable message that does not expose admin-panel
     instructions to regular users.
-
-    When a valid ``cookies.txt`` is already present but bot-detection still
-    fires (e.g. stale / expired cookies), the returned message instructs the
-    site administrator to refresh the cookies file; regular users are directed
-    to try again later.
     """
     lower = error_msg.lower()
 
     if _is_auth_error(error_msg):
-        if os.path.isfile(COOKIES_FILE):
-            # Cookies are present but still failing — likely stale/expired.
-            # Site admin should re-upload a fresh cookies.txt (Admin → Cookies).
-            return (
-                "This video is temporarily unavailable due to bot detection. "
-                "The authentication session may have expired. "
-                "Site admin: please upload a fresh cookies.txt via Admin → Cookies."
-            )
-        # No cookies configured and cookieless clients also failed.
         return (
-            "This video cannot be downloaded without authentication. "
-            "It may be age-restricted, private, or temporarily restricted by YouTube. "
-            "Site admin: upload a cookies.txt file via Admin → Cookies to enable "
-            "authenticated downloads. See the README Troubleshooting section for instructions."
+            "This video cannot be downloaded right now. "
+            "Please try again in a few minutes, or try a different video."
         )
 
     # Private / age-restricted videos
