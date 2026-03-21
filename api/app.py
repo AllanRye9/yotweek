@@ -3820,6 +3820,34 @@ def _build_cv_pdf(
             "header_bg": (22, 36, 71),  # navy band
             "header_fg": (212, 175, 55),  # gold text
         },
+        "creative": {
+            "dark":   (30,  10,  60),   # deep purple
+            "accent": (124, 58, 237),   # violet-600
+            "light":  (139, 92, 246),   # violet-400
+            "header_bg": (124, 58, 237),  # violet band
+            "header_fg": (255, 255, 255),
+        },
+        "tech": {
+            "dark":   (15,  23,  42),   # slate-900
+            "accent": (16, 185, 129),   # emerald-500
+            "light":  (100, 116, 139),  # slate-400
+            "header_bg": (15, 23, 42),  # dark band
+            "header_fg": (16, 185, 129),  # emerald text
+        },
+        "elegant": {
+            "dark":   (30,  10,  20),   # very dark burgundy
+            "accent": (157, 23,  77),   # rose-800 / burgundy
+            "light":  (156, 100, 120),
+            "header_bg": None,
+            "header_fg": (157, 23, 77),
+        },
+        "vibrant": {
+            "dark":   (20,  20,  20),
+            "accent": (234, 88,  12),   # orange-600
+            "light":  (107, 114, 128),
+            "header_bg": (234, 88, 12),  # orange band
+            "header_fg": (255, 255, 255),
+        },
     }
     t = _THEMES.get(theme, _THEMES["classic"])
     DARK      = t["dark"]

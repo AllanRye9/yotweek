@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
 import DownloadForm from '../components/DownloadForm'
-import PlaylistForm from '../components/PlaylistForm'
 import ActiveDownloads from '../components/ActiveDownloads'
 import FileList from '../components/FileList'
 import Reviews from '../components/Reviews'
@@ -64,18 +63,13 @@ function AnimatedCounter({ value, label, icon }) {
 }
 
 const TABS = [
-  { id: 'download', label: '⬇ Download',       icon: '⬇' },
-  { id: 'playlist', label: '📋 Playlist',        icon: '📋' },
-]
-
-const TOOL_TABS = [
-  { id: 'cv',      label: '📄 CV Generator',  icon: '📄' },
+  { id: 'download', label: '⬇ Download',     icon: '⬇' },
+  { id: 'cv',       label: '📄 CV Generator', icon: '📄' },
 ]
 
 export default function Home() {
   const { admin } = useAuth()
   const [tab, setTab] = useState('download')
-  const [toolTab, setToolTab] = useState('cv')
   const [stats, setStats] = useState(null)
   const [connected, setConnected] = useState(false)
   const [fileListVersion, setFileListVersion] = useState(0)
@@ -264,7 +258,7 @@ export default function Home() {
       </nav>
 
       {/* ── Hero ── */}
-      <div className="bg-gradient-to-b from-gray-900 to-gray-950 border-b border-gray-800 py-6 sm:py-8 px-4">
+      <div className="bg-gradient-to-b from-gray-900 to-gray-950 border-b border-gray-800 py-5 sm:py-7 px-4">
         <div className="max-w-2xl mx-auto text-center">
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
             Download <span className="gradient-text">Any Video</span> — Free &amp; Fast
@@ -293,9 +287,9 @@ export default function Home() {
       </div>
 
       {/* ── Main Content ── */}
-      <main className="flex-1 max-w-4xl mx-auto w-full px-4 pt-4 sm:pt-6 pb-24 sm:pb-8">
+      <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-4 sm:pt-5 pb-20 sm:pb-8">
         {/* Tab buttons */}
-        <div className="flex gap-2 mb-5 overflow-x-auto pb-1 scrollbar-thin">
+        <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin">
           {TABS.map(t => (
             <button
               key={t.id}
@@ -310,39 +304,23 @@ export default function Home() {
         {/* Tab panels */}
         <div className="card">
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
-          {tab === 'playlist' && <PlaylistForm onDownloadStarted={handleDownloadStarted} />}
+          {tab === 'cv'       && <CVGenerator />}
         </div>
 
-        {/* Active Downloads */}
-        <div className="mt-6">
-          <ActiveDownloads ref={activeDownloadsRef} onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
-        </div>
+        {/* Active Downloads — only relevant when download tab is active */}
+        {tab === 'download' && (
+          <div className="mt-5">
+            <ActiveDownloads ref={activeDownloadsRef} onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
+          </div>
+        )}
 
         {/* File List */}
-        <div className="mt-6" ref={fileListRef}>
+        <div className="mt-5" ref={fileListRef}>
           <FileList version={fileListVersion} />
         </div>
 
-        {/* ── Tools: CV Generator ── */}
-        <div className="mt-10">
-          <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin">
-            {TOOL_TABS.map(t => (
-              <button
-                key={t.id}
-                className={toolTab === t.id ? 'tab-btn-active whitespace-nowrap' : 'tab-btn-inactive whitespace-nowrap'}
-                onClick={() => setToolTab(t.id)}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-          <div className="card">
-            {toolTab === 'cv'      && <CVGenerator />}
-          </div>
-        </div>
-
         {/* Reviews */}
-        <div className="mt-8">
+        <div className="mt-7">
           <Reviews />
         </div>
       </main>
@@ -435,30 +413,13 @@ export default function Home() {
                 </ol>
               </HelpSection>
               <HelpDivider />
-              <HelpSection icon="📋" title="Playlist Download">
-                <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Go to the <strong>Playlist</strong> tab and select <strong>Playlist / Channel</strong>.</li>
-                  <li>Paste a YouTube playlist or channel URL.</li>
-                  <li>Optionally set start/end video indexes, quality and format.</li>
-                  <li>Click <strong>Download Playlist</strong> — videos are queued and downloaded concurrently.</li>
-                </ol>
-              </HelpSection>
-              <HelpDivider />
-              <HelpSection icon="📄" title="Batch Download">
-                <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Go to the <strong>Playlist</strong> tab and select <strong>Batch URLs</strong>.</li>
-                  <li>Paste any text containing video URLs — from any source or mixed with other text. URLs are detected and arranged automatically regardless of how they were copied.</li>
-                  <li>Up to <strong>50 URLs</strong> per batch are supported.</li>
-                  <li>Choose quality and format, then click <strong>Start Batch Download</strong>.</li>
-                </ol>
-              </HelpSection>
-              <HelpDivider />
               <HelpSection icon="📄" title="CV Generator">
                 <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Go to the <strong>CV Generator</strong> tab.</li>
-                  <li>Fill in your personal details, experience, education, and skills.</li>
-                  <li>Optionally upload a logo/branding image.</li>
-                  <li>Click <strong>Generate PDF CV</strong> to download your professional CV as a PDF.</li>
+                  <li>Switch to the <strong>CV Generator</strong> tab.</li>
+                  <li>Step through the wizard — Personal Info, Summary, Experience, Education, Skills, Extras, and Theme.</li>
+                  <li>Watch the <strong>live preview</strong> update on the right as you type.</li>
+                  <li>Choose from 8 professional themes, optionally add a logo, then click <strong>Generate PDF CV</strong>.</li>
+                  <li>Use <strong>← Previous</strong> to go back and edit any earlier step.</li>
                 </ol>
               </HelpSection>
               <HelpDivider />
