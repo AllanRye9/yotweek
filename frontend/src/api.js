@@ -106,9 +106,10 @@ export const getAdminDownloads  = () => request('GET', '/admin/downloads')
 export const getAdminVisitors   = () => request('GET', '/admin/visitors')
 export const getAdminAnalytics  = () => request('GET', '/admin/analytics')
 
-export const adminCancelDownload = (id)  => request('POST', `/admin/cancel_download/${id}`)
-export const adminDeleteRecord   = (id)  => request('DELETE', `/admin/delete_record/${id}`)
-export const adminClearVisitors  = ()    => request('DELETE', '/admin/clear_visitors')
+export const adminCancelDownload   = (id) => request('POST', `/admin/cancel_download/${id}`)
+export const adminDeleteRecord     = (id) => request('DELETE', `/admin/delete_record/${id}`)
+export const adminClearVisitors    = ()   => request('DELETE', '/admin/clear_visitors')
+export const adminClearAllDownloads = ()  => request('DELETE', '/admin/clear_all_downloads')
 
 // ── Admin DB ──────────────────────────────────────────────────────────────────
 

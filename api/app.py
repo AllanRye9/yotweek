@@ -3186,6 +3186,43 @@ async def admin_delete_record(request: Request, download_id: str):
     return JSONResponse({"success": True})
 
 
+@fastapi_app.delete("/admin/clear_all_downloads")
+@admin_required
+async def admin_clear_all_downloads(request: Request):
+    """Clear ALL download records from both in-memory store and database (admin only).
+
+    Active and queued downloads are cancelled before the records are removed so
+    that in-flight workers receive the cancellation signal.
+    """
+    cancelled_ids: list[str] = []
+    with downloads_lock:
+        for did, d in list(downloads.items()):
+            status = d.get("status")
+            if status in ("starting", "fetching_info", "queued", "downloading"):
+                cancelled_ids.append(did)
+        downloads.clear()
+
+    # Emit cancellation signals outside the lock to avoid deadlocks
+    for did in cancelled_ids:
+        emit_from_thread("cancelled", {"id": did}, room=did)
+
+    def _db_clear():
+        try:
+            with _db_lock:
+                conn = _get_db()
+                try:
+                    _execute(conn, "DELETE FROM downloads")
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception as exc:
+            logger.error(f"admin_clear_all_downloads DB error: {exc}")
+
+    threading.Thread(target=_db_clear, daemon=True).start()
+    logger.info(f"Admin cleared ALL download records ({len(cancelled_ids)} active/queued cancelled)")
+    return JSONResponse({"success": True})
+
+
 @fastapi_app.delete("/admin/clear_visitors")
 @admin_required
 async def admin_clear_visitors(request: Request):
@@ -3864,6 +3901,34 @@ def _build_cv_pdf(
             "light":  (100, 100, 130),
             "header_bg": (22, 36, 71),  # navy band
             "header_fg": (212, 175, 55),  # gold text
+        },
+        "creative": {
+            "dark":   (30,  10,  60),   # deep purple
+            "accent": (124, 58, 237),   # violet-600
+            "light":  (139, 92, 246),   # violet-400
+            "header_bg": (124, 58, 237),  # violet band
+            "header_fg": (255, 255, 255),
+        },
+        "tech": {
+            "dark":   (15,  23,  42),   # slate-900
+            "accent": (16, 185, 129),   # emerald-500
+            "light":  (100, 116, 139),  # slate-400
+            "header_bg": (15, 23, 42),  # dark band
+            "header_fg": (16, 185, 129),  # emerald text
+        },
+        "elegant": {
+            "dark":   (30,  10,  20),   # very dark burgundy
+            "accent": (157, 23,  77),   # rose-800 / burgundy
+            "light":  (156, 100, 120),
+            "header_bg": None,
+            "header_fg": (157, 23, 77),
+        },
+        "vibrant": {
+            "dark":   (20,  20,  20),
+            "accent": (234, 88,  12),   # orange-600
+            "light":  (107, 114, 128),
+            "header_bg": (234, 88, 12),  # orange band
+            "header_fg": (255, 255, 255),
         },
     }
     t = _THEMES.get(theme, _THEMES["classic"])
