@@ -3,13 +3,11 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
 import DownloadForm from '../components/DownloadForm'
 import PlaylistForm from '../components/PlaylistForm'
-import EditingPanel from '../components/EditingPanel'
 import ActiveDownloads from '../components/ActiveDownloads'
 import FileList from '../components/FileList'
 import Reviews from '../components/Reviews'
 import ThemeSelector from '../components/ThemeSelector'
 import CVGenerator from '../components/CVGenerator'
-import DocConverter from '../components/DocConverter'
 import { getStats } from '../api'
 import socket from '../socket'
 
@@ -68,12 +66,10 @@ function AnimatedCounter({ value, label, icon }) {
 const TABS = [
   { id: 'download', label: '⬇ Download',       icon: '⬇' },
   { id: 'playlist', label: '📋 Playlist',        icon: '📋' },
-  { id: 'editing',  label: '✂ Edit / Convert',  icon: '✂' },
 ]
 
 const TOOL_TABS = [
   { id: 'cv',      label: '📄 CV Generator',  icon: '📄' },
-  { id: 'docconv', label: '📁 Doc Converter', icon: '📁' },
 ]
 
 export default function Home() {
@@ -315,7 +311,6 @@ export default function Home() {
         <div className="card">
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'playlist' && <PlaylistForm onDownloadStarted={handleDownloadStarted} />}
-          {tab === 'editing'  && <EditingPanel onJobDone={refreshFiles} />}
         </div>
 
         {/* Active Downloads */}
@@ -328,7 +323,7 @@ export default function Home() {
           <FileList version={fileListVersion} />
         </div>
 
-        {/* ── Tools: CV Generator & Doc Converter ── */}
+        {/* ── Tools: CV Generator ── */}
         <div className="mt-10">
           <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin">
             {TOOL_TABS.map(t => (
@@ -343,7 +338,6 @@ export default function Home() {
           </div>
           <div className="card">
             {toolTab === 'cv'      && <CVGenerator />}
-            {toolTab === 'docconv' && <DocConverter />}
           </div>
         </div>
 
@@ -459,30 +453,12 @@ export default function Home() {
                 </ol>
               </HelpSection>
               <HelpDivider />
-              <HelpSection icon="✂" title="Edit &amp; Convert">
-                <ul style={{ paddingLeft: 18, margin: 0 }}>
-                  <li><strong>Convert</strong> — change format or resolution (e.g. mp4 → mp3, 1080p → 480p).</li>
-                  <li><strong>Trim</strong> — cut a video to a start/end time range.</li>
-                  <li><strong>Merge Audio</strong> — overlay a separate audio file onto a video.</li>
-                  <li><strong>Batch Convert</strong> — convert multiple files with the same settings at once.</li>
-                </ul>
-              </HelpSection>
-              <HelpDivider />
               <HelpSection icon="📄" title="CV Generator">
                 <ol style={{ paddingLeft: 18, margin: 0 }}>
                   <li>Go to the <strong>CV Generator</strong> tab.</li>
                   <li>Fill in your personal details, experience, education, and skills.</li>
                   <li>Optionally upload a logo/branding image.</li>
                   <li>Click <strong>Generate PDF CV</strong> to download your professional CV as a PDF.</li>
-                </ol>
-              </HelpSection>
-              <HelpDivider />
-              <HelpSection icon="📁" title="Document Converter">
-                <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Go to the <strong>Doc Converter</strong> tab.</li>
-                  <li>Drag &amp; drop or click to upload the file you want to convert.</li>
-                  <li>Choose the target format (PDF, Word, Excel, PowerPoint, Markdown, HTML, images, and more).</li>
-                  <li>Click <strong>Convert &amp; Download</strong> to get your converted file.</li>
                 </ol>
               </HelpSection>
               <HelpDivider />

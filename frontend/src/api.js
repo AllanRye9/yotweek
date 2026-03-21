@@ -83,48 +83,6 @@ export const downloadZip = (filenames) => {
   return request('POST', '/download_zip', fd, false)
 }
 
-export const uploadLocalFile = (file, sessionId = '') => {
-  const fd = new FormData()
-  fd.append('file', file, file.name)
-  if (sessionId) fd.append('session_id', sessionId)
-  return request('POST', '/upload_local', fd, false)
-}
-
-// ── Editing ───────────────────────────────────────────────────────────────────
-
-export const convertFile = (filename, targetFormat, resolution = '', videoBitrate = '', audioBitrate = '', sessionId = '') =>
-  request('POST', '/convert', formBody({ filename, format: targetFormat, resolution, video_bitrate: videoBitrate, audio_bitrate: audioBitrate, session_id: sessionId }), false)
-
-export const batchConvert = (filenames, targetFormat, sessionId = '') => {
-  const fd = new FormData()
-  fd.append('filenames', JSON.stringify(filenames))
-  fd.append('format', targetFormat)
-  if (sessionId) fd.append('session_id', sessionId)
-  return request('POST', '/batch_convert', fd, false)
-}
-
-export const trimVideo = (filename, startTime, endTime, sessionId = '') =>
-  request('POST', '/trim', formBody({ filename, start_time: startTime, end_time: endTime, session_id: sessionId }), false)
-
-export const cropVideo = (filename, x, y, width, height, sessionId = '') =>
-  request('POST', '/crop', formBody({ filename, x, y, width, height, session_id: sessionId }), false)
-
-export const addWatermark = (filename, text, position = 'bottom-right', fontsize = 24, sessionId = '') =>
-  request('POST', '/watermark', formBody({ filename, text, position, fontsize, session_id: sessionId }), false)
-
-export const extractClip = (filename, startTime, duration, sessionId = '') =>
-  request('POST', '/extract_clip', formBody({ filename, start_time: startTime, duration, session_id: sessionId }), false)
-
-export const mergeVideos = (filenames, format = 'mp4', sessionId = '') => {
-  const fd = new FormData()
-  fd.append('filenames', JSON.stringify(filenames))
-  fd.append('format', format)
-  if (sessionId) fd.append('session_id', sessionId)
-  return request('POST', '/merge', fd, false)
-}
-
-export const getJobStatus = (id) => request('GET', `/job_status/${id}`)
-
 // ── Reviews ───────────────────────────────────────────────────────────────────
 
 export const getReviews       = () => request('GET', '/reviews')
@@ -179,21 +137,6 @@ export const generateCV = (fields, logoFile = null, theme = 'classic') => {
   if (logoFile) fd.append('logo', logoFile, logoFile.name)
   fd.append('theme', theme)
   return request('POST', '/api/cv/generate', fd, false)
-}
-
-// ── Document Converter ────────────────────────────────────────────────────────
-
-/**
- * Convert a document to the target format.
- * @param {File} file - The file to convert
- * @param {string} target - Target format (e.g. 'pdf', 'docx', 'md')
- * @returns {Promise<Response>} Raw response (blob) — caller should call res.blob()
- */
-export const convertDoc = (file, target) => {
-  const fd = new FormData()
-  fd.append('file', file, file.name)
-  fd.append('target', target)
-  return request('POST', '/api/doc/convert', fd, false)
 }
 
 // ── Admin Cookies ─────────────────────────────────────────────────────────────
