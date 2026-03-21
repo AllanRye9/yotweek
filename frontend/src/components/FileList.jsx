@@ -5,10 +5,13 @@ import { useAuth } from '../App'
 
 const AUDIO_EXTS = new Set(['mp3','m4a','ogg','wav','opus','flac','aac','weba'])
 const VIDEO_EXTS = new Set(['mp4','webm','mkv','avi','mov','ts','3gp'])
+const DOC_EXTS   = new Set(['pdf','docx','doc','xlsx','xls','pptx','ppt','odt','ods','odp','html','htm','md','txt','csv','epub','rtf','xml','json'])
 
-function isAudio(name) { return AUDIO_EXTS.has(name.split('.').pop()?.toLowerCase()) }
-function isVideo(name) { return VIDEO_EXTS.has(name.split('.').pop()?.toLowerCase()) }
+function ext(name) { return name.split('.').pop()?.toLowerCase() ?? '' }
+function isAudio(name) { return AUDIO_EXTS.has(ext(name)) }
+function isVideo(name) { return VIDEO_EXTS.has(ext(name)) }
 function isMedia(name) { return isAudio(name) || isVideo(name) }
+function isDoc(name)   { return DOC_EXTS.has(ext(name)) }
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B'
@@ -42,9 +45,9 @@ function MediaPlayer({ file, onClose }) {
   )
 }
 
-export default function FileList({ version }) {
+export default function FileList({ version, mediaOnly = false, docsOnly = false }) {
   const { admin } = useAuth()
-  const [files, setFiles]       = useState([])
+  const [allFiles, setAllFiles] = useState([])
   const [loading, setLoading]   = useState(false)
   const [selected, setSelected] = useState(new Set())
   const [player, setPlayer]     = useState(null)
@@ -56,15 +59,27 @@ export default function FileList({ version }) {
     try {
       // Admin sees all files; regular users only see their session's files
       const data = await listFiles(admin ? '' : SESSION_ID)
-      setFiles(Array.isArray(data) ? data : [])
+      setAllFiles(Array.isArray(data) ? data : [])
     } catch {
-      setFiles([])
+      setAllFiles([])
     } finally {
       setLoading(false)
     }
   }
 
   useEffect(() => { load() }, [version])
+
+  // Filter files based on props
+  const files = allFiles.filter(f => {
+    if (mediaOnly) return isMedia(f.name)
+    if (docsOnly)  return !isMedia(f.name)
+    return true
+  })
+
+  // Section title & icon
+  const sectionTitle = mediaOnly ? '🎬 yotweek videos'
+                     : docsOnly  ? '📄 yotweek documents'
+                     : '📁 Downloaded Files'
 
   const toggleSelect = (name) => {
     setSelected(prev => {
@@ -79,7 +94,7 @@ export default function FileList({ version }) {
     setDeleting(prev => new Set([...prev, name]))
     try {
       await deleteFile(name)
-      setFiles(f => f.filter(x => x.name !== name))
+      setAllFiles(f => f.filter(x => x.name !== name))
       setSelected(prev => { const n = new Set(prev); n.delete(name); return n })
     } catch (err) {
       alert(err.message || 'Delete failed')
@@ -128,7 +143,7 @@ export default function FileList({ version }) {
     <div>
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-base font-semibold text-white">
-          Downloaded Files
+          {sectionTitle}
           <span className="ml-2 text-sm text-gray-500 font-normal">({files.length})</span>
         </h2>
         <div className="flex gap-2">
@@ -170,7 +185,7 @@ export default function FileList({ version }) {
 
             {/* Icon */}
             <span className="text-xl shrink-0">
-              {isVideo(file.name) ? '🎬' : isAudio(file.name) ? '🎵' : '📄'}
+              {isVideo(file.name) ? '🎬' : isAudio(file.name) ? '🎵' : isDoc(file.name) ? '📄' : '📁'}
             </span>
 
             {/* Name + meta — min-w-[8rem] ensures it stays readable; flex-1 fills remaining space */}

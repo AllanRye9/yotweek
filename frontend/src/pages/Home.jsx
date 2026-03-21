@@ -72,8 +72,8 @@ const TABS = [
 ]
 
 const TOOL_TABS = [
-  { id: 'cv',      label: '📄 CV Generator',  icon: '📄' },
-  { id: 'docconv', label: '📁 Doc Converter', icon: '📁' },
+  { id: 'cv',      label: '📄 CV Generator',      icon: '📄' },
+  { id: 'docconv', label: '📁 yotweek documents',  icon: '📁' },
 ]
 
 export default function Home() {
@@ -274,7 +274,7 @@ export default function Home() {
             Download <span className="gradient-text">Any Video</span> — Free &amp; Fast
           </h1>
           <p className="text-gray-400 text-xs sm:text-sm">
-            YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites. No sign-up required.
+            YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; Convert Documents &bull; No sign-up required.
           </p>
 
           {/* Animated global stats counters */}
@@ -323,12 +323,12 @@ export default function Home() {
           <ActiveDownloads ref={activeDownloadsRef} onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
         </div>
 
-        {/* File List */}
+        {/* yotweek videos — video & audio files shown directly below the downloader */}
         <div className="mt-6" ref={fileListRef}>
-          <FileList version={fileListVersion} />
+          <FileList version={fileListVersion} mediaOnly />
         </div>
 
-        {/* ── Tools: CV Generator & Doc Converter ── */}
+        {/* ── Tools: CV Generator & yotweek documents ── */}
         <div className="mt-10">
           <div className="flex gap-2 mb-4 overflow-x-auto pb-1 scrollbar-thin">
             {TOOL_TABS.map(t => (
@@ -345,6 +345,11 @@ export default function Home() {
             {toolTab === 'cv'      && <CVGenerator />}
             {toolTab === 'docconv' && <DocConverter />}
           </div>
+        </div>
+
+        {/* yotweek documents — non-media (document) files */}
+        <div className="mt-6">
+          <FileList version={fileListVersion} docsOnly />
         </div>
 
         {/* Reviews */}

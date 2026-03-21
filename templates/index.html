@@ -2051,7 +2051,7 @@
                     </button>
                     <button class="nav-dd-item" role="menuitem"
                             onclick="showSectionPanel('docconv-panel'); closeServicesDropdown();">
-                        <i class="fas fa-file-export" aria-hidden="true"></i> Doc Converter
+                        <i class="fas fa-file-export" aria-hidden="true"></i> yotweek documents
                     </button>
                 </div>
             </div>
@@ -2111,7 +2111,7 @@
                 <i class="fas fa-id-card"></i> CV Generator
             </button>
             <button class="mobile-nav-item" onclick="showSectionPanel('docconv-panel'); closeMobileNav();">
-                <i class="fas fa-file-export"></i> Doc Converter
+                <i class="fas fa-file-export"></i> yotweek documents
             </button>
         </div>
     </nav>
@@ -2183,7 +2183,7 @@
                 </h1>
                 <p class="hero-subtitle">
                     <span id="conn-dot"></span>
-                    Download Any Video &mdash; Free &amp; Fast &bull; YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; No sign-up required
+                    Download Any Video &mdash; Free &amp; Fast &bull; YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; Convert Documents &bull; No sign-up required
                 </p>
             </div>
         </div>
@@ -2269,7 +2269,7 @@
                             <i class="fas fa-id-card"></i> CV Generator
                         </button>
                         <button class="main-tab-btn" id="main-tab-docconv" onclick="switchMainSection('docconv-panel', this)">
-                            <i class="fas fa-file-export"></i> Doc Converter
+                            <i class="fas fa-file-export"></i> yotweek documents
                         </button>
                     </div>
                     <!-- Download Video panel (active by default) -->
@@ -2902,7 +2902,7 @@
                     <div id="docconv-panel" class="card-body" style="display:none;">
                         <div class="section-header-row" style="margin-bottom:16px;">
                             <h2 style="font-size:1.1rem;font-weight:700;display:flex;align-items:center;gap:8px;">
-                                <i class="fas fa-file-export" style="color:#2563eb;"></i> Document Converter
+                                <i class="fas fa-file-export" style="color:#2563eb;"></i> yotweek documents
                             </h2>
                             <p style="font-size:0.83rem;color:#64748b;margin-top:4px;">Convert between PDF, Word, Excel, PowerPoint, images, Markdown, HTML and more.</p>
                         </div>
@@ -2955,10 +2955,10 @@
                     </div>
                 </div>
 
-                <!-- Downloaded files -->
+                <!-- Downloaded files (videos & audio) -->
                 <div id="section-files" class="card">
                     <div class="card-header" style="justify-content:space-between;">
-                        <span><i class="fas fa-film"></i> Downloaded Videos</span>
+                        <span><i class="fas fa-film"></i> yotweek videos</span>
                         <div style="display:flex;gap:6px;align-items:center;">
                             <button class="btn-primary btn-small" id="dl-all-btn" onclick="downloadAllFiles()" title="Download all files as a ZIP archive">
                                 <i class="fas fa-file-archive"></i> Download All
@@ -2973,6 +2973,26 @@
                             <div class="empty-state">
                                 <i class="fas fa-hourglass-half"></i>
                                 <p>Loading files…</p>
+                            </div>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Converted / downloaded documents -->
+                <div id="section-docs" class="card">
+                    <div class="card-header" style="justify-content:space-between;">
+                        <span><i class="fas fa-file-alt"></i> yotweek documents</span>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <button class="btn-secondary btn-small" onclick="loadFiles(true)">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <ul class="file-list" id="doc-list">
+                            <div class="empty-state">
+                                <i class="fas fa-hourglass-half"></i>
+                                <p>Loading documents…</p>
                             </div>
                         </ul>
                     </div>
@@ -4102,6 +4122,7 @@
         // ─── Media type helpers ───────────────────────────────────
         const _VIDEO_EXTS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv', '3gp', 'flv', 'ts']);
         const _AUDIO_EXTS = new Set(['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac', 'opus', 'weba']);
+        const _DOC_EXTS   = new Set(['pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'odt', 'ods', 'odp', 'html', 'htm', 'md', 'txt', 'csv', 'epub', 'rtf', 'xml', 'json']);
 
         function _fileExt(name) {
             const dot = (name || '').lastIndexOf('.');
@@ -4110,6 +4131,7 @@
         function isVideoFile(name) { return _VIDEO_EXTS.has(_fileExt(name)); }
         function isAudioFile(name) { return _AUDIO_EXTS.has(_fileExt(name)); }
         function isMediaFile(name) { return isVideoFile(name) || isAudioFile(name); }
+        function isDocFile(name)   { return _DOC_EXTS.has(_fileExt(name)); }
 
         // ─── iOS / iPadOS detection ───────────────────────────────
         // The `download` attribute on <a> is ignored on iOS Safari for blob
@@ -4239,8 +4261,53 @@
         });
 
         // ─── File list ────────────────────────────────────────────
+        function _buildFileItem(file, idx, animate) {
+            const li   = document.createElement('li');
+            li.className = 'file-item';
+            if (animate) li.style.animationDelay = (idx * 0.04) + 's';
+
+            const sizeMB   = (file.size / 1024 / 1024).toFixed(2);
+            const date     = new Date(file.modified * 1000).toLocaleDateString();
+            const safeName = escHtml(file.name);
+            const dlHref   = '/downloads/' + encodeURIComponent(file.name);
+            const isMedia  = isMediaFile(file.name);
+            const isDoc    = isDocFile(file.name);
+            const fileIcon = isAudioFile(file.name) ? 'fa-music'
+                           : isDoc                  ? 'fa-file-alt'
+                           : 'fa-film';
+
+            const watchBtn = isMedia
+                ? `<button class="btn-file-watch watch-btn"
+                           data-filename="${safeName}"
+                           title="Watch / preview in browser">
+                       <i class="fas fa-play"></i> <span class="btn-label">Watch</span>
+                   </button>`
+                : '';
+
+            li.innerHTML = `
+                <div class="file-info">
+                    <div class="file-name">
+                        <i class="fas ${fileIcon}" style="color:#2563eb; margin-right:7px;"></i>${safeName}
+                    </div>
+                    <div class="file-meta">${sizeMB} MB &bull; ${date}</div>
+                </div>
+                <div class="file-actions">
+                    ${watchBtn}
+                    <a href="${dlHref}" download="${safeName}" data-filename="${safeName}" class="btn-file-dl save-btn">
+                        <i class="fas fa-download"></i> <span class="btn-label">Save</span>
+                    </a>
+                    <button class="btn-danger btn-small delete-btn"
+                            data-filename="${safeName}"
+                            title="Delete file">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>`;
+            return li;
+        }
+
         async function loadFiles(animate = false) {
-            const list = document.getElementById('file-list');
+            const list    = document.getElementById('file-list');
+            const docList = document.getElementById('doc-list');
             try {
                 const res  = await fetch(`/files?t=${Date.now()}`);
                 const raw  = await res.json();
@@ -4270,92 +4337,86 @@
                     el.textContent = sizeStr;
                 });
 
-                if (files.length === 0) {
+                // Split files into media (yotweek videos) and documents (yotweek documents)
+                const mediaFiles = files.filter(f => isMediaFile(f.name));
+                const docFiles   = files.filter(f => !isMediaFile(f.name));
+
+                // Render yotweek videos
+                if (mediaFiles.length === 0) {
                     list.innerHTML = `
                         <div class="empty-state">
                             <i class="fas fa-inbox"></i>
-                            <p>No files downloaded yet</p>
+                            <p>No videos downloaded yet</p>
                         </div>`;
-                    return;
+                } else {
+                    list.innerHTML = '';
+                    mediaFiles.forEach((file, idx) => {
+                        list.appendChild(_buildFileItem(file, idx, animate));
+                    });
                 }
 
-                list.innerHTML = '';
-                files.forEach((file, idx) => {
-                    const li   = document.createElement('li');
-                    li.className = 'file-item';
-                    if (animate) li.style.animationDelay = (idx * 0.04) + 's';
-
-                    const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-                    const date   = new Date(file.modified * 1000).toLocaleDateString();
-                    const safeName = escHtml(file.name);
-                    const dlHref   = '/downloads/' + encodeURIComponent(file.name);
-                    const isMedia  = isMediaFile(file.name);
-                    const fileIcon = isAudioFile(file.name) ? 'fa-music' : 'fa-film';
-
-                    const watchBtn = isMedia
-                        ? `<button class="btn-file-watch watch-btn"
-                                   data-filename="${safeName}"
-                                   title="Watch / preview in browser">
-                               <i class="fas fa-play"></i> <span class="btn-label">Watch</span>
-                           </button>`
-                        : '';
-
-                    li.innerHTML = `
-                        <div class="file-info">
-                            <div class="file-name">
-                                <i class="fas ${fileIcon}" style="color:#2563eb; margin-right:7px;"></i>${safeName}
-                            </div>
-                            <div class="file-meta">${sizeMB} MB &bull; ${date}</div>
-                        </div>
-                        <div class="file-actions">
-                            ${watchBtn}
-                            <a href="${dlHref}" download="${safeName}" data-filename="${safeName}" class="btn-file-dl save-btn">
-                                <i class="fas fa-download"></i> <span class="btn-label">Save</span>
-                            </a>
-                            <button class="btn-danger btn-small delete-btn"
-                                    data-filename="${safeName}"
-                                    title="Delete file">
-                                <i class="fas fa-trash"></i>
-                            </button>
-                        </div>`;
-                    list.appendChild(li);
-                });
+                // Render yotweek documents
+                if (docList) {
+                    if (docFiles.length === 0) {
+                        docList.innerHTML = `
+                            <div class="empty-state">
+                                <i class="fas fa-inbox"></i>
+                                <p>No documents yet</p>
+                            </div>`;
+                    } else {
+                        docList.innerHTML = '';
+                        docFiles.forEach((file, idx) => {
+                            docList.appendChild(_buildFileItem(file, idx, animate));
+                        });
+                    }
+                }
             } catch (_) {
                 list.innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
                         <p>Could not load file list</p>
                     </div>`;
+                if (docList) {
+                    docList.innerHTML = `
+                        <div class="empty-state">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <p>Could not load file list</p>
+                        </div>`;
+                }
             }
         }
 
         // ─── Delete file ──────────────────────────────────────────
         // Use event delegation to avoid inline onclick with user data
-        document.getElementById('file-list').addEventListener('click', async (e) => {
-            // Watch button
-            const watchBtn = e.target.closest('.watch-btn');
-            if (watchBtn) {
-                openVideoPlayer(watchBtn.dataset.filename);
-                return;
-            }
-            // Save button — intercept on iOS to use triggerSave()
-            const saveBtn = e.target.closest('.save-btn');
-            if (saveBtn) {
-                const filename = saveBtn.dataset.filename;
-                if (isIOS() && filename) {
-                    e.preventDefault();
-                    const url = '/downloads/' + encodeURIComponent(filename);
-                    triggerSave(url, filename);
+        function _attachFileListHandlers(listEl) {
+            listEl.addEventListener('click', async (e) => {
+                // Watch button
+                const watchBtn = e.target.closest('.watch-btn');
+                if (watchBtn) {
+                    openVideoPlayer(watchBtn.dataset.filename);
+                    return;
                 }
-                return;
-            }
-            // Delete button
-            const btn = e.target.closest('.delete-btn');
-            if (!btn) return;
-            const filename = btn.dataset.filename;
-            if (!filename) return;
-            await deleteFile(filename, btn);
-        });
+                // Save button — intercept on iOS to use triggerSave()
+                const saveBtn = e.target.closest('.save-btn');
+                if (saveBtn) {
+                    const filename = saveBtn.dataset.filename;
+                    if (isIOS() && filename) {
+                        e.preventDefault();
+                        const url = '/downloads/' + encodeURIComponent(filename);
+                        triggerSave(url, filename);
+                    }
+                    return;
+                }
+                // Delete button
+                const btn = e.target.closest('.delete-btn');
+                if (!btn) return;
+                const filename = btn.dataset.filename;
+                if (!filename) return;
+                await deleteFile(filename, btn);
+            });
+        }
+        _attachFileListHandlers(document.getElementById('file-list'));
+        _attachFileListHandlers(document.getElementById('doc-list'));
 
         async function deleteFile(filename, btn, skipConfirm = false) {
             if (!skipConfirm && !confirm(`Delete "${filename}"?`)) return;
@@ -4858,8 +4919,11 @@
 
         // ─── Download All files as ZIP (one-click) ───────────────
         async function downloadAllFiles() {
-            // Collect all filenames currently shown in the file list
-            const items = [...document.querySelectorAll('#file-list .file-item')];
+            // Collect all filenames currently shown in both file lists
+            const items = [
+                ...document.querySelectorAll('#file-list .file-item'),
+                ...document.querySelectorAll('#doc-list .file-item'),
+            ];
             const filenames = items.map(li => {
                 const a = li.querySelector('a[download]');
                 return a ? a.getAttribute('download') : null;
@@ -5061,7 +5125,7 @@
                 });
             }, { rootMargin: '-58px 0px -45% 0px', threshold: 0 });
 
-            ['section-download', 'section-files'].forEach(id => {
+            ['section-download', 'section-files', 'section-docs'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) _navObserver.observe(el);
             });

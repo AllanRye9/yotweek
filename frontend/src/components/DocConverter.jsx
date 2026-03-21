@@ -135,7 +135,7 @@ export default function DocConverter() {
     <div>
       <div className="mb-4">
         <h2 className="text-lg font-bold text-white flex items-center gap-2">
-          📁 Document Converter
+          📁 yotweek documents
         </h2>
         <p className="text-xs text-gray-400 mt-1">
           Convert between PDF, Word, Excel, PowerPoint, images, Markdown, HTML and more.
