@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { convertDoc } from '../api'
 
 const FORMAT_OPTIONS = [
@@ -16,6 +16,25 @@ const FORMAT_OPTIONS = [
   { value: 'epub', label: 'e-Book (.epub)' },
 ]
 
+// Supported target formats for each source file extension.
+// Image files can only be converted to PDF; all other formats follow the
+// backend strategy table.  Keeping this in sync with _doc_conv_strategy in
+// api/app.py prevents users from selecting a combination that would fail.
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'tiff', 'bmp', 'gif', 'webp'])
+const TEXT_LIKE_EXTS = new Set(['md', 'html', 'htm', 'txt', 'epub'])
+
+function getSupportedTargets(srcExt) {
+  if (!srcExt) return FORMAT_OPTIONS.map(o => o.value)
+  const ext = srcExt.toLowerCase().replace(/^\./, '')
+  if (IMAGE_EXTS.has(ext)) return ['pdf']
+  if (ext === 'pdf') return ['docx', 'png', 'jpg', 'xlsx', 'txt', 'html', 'md', 'epub']
+  if (TEXT_LIKE_EXTS.has(ext)) return ['pdf', 'docx', 'html', 'md', 'txt', 'epub', 'odt']
+  if (['xlsx', 'xls'].includes(ext)) return ['pdf', 'csv', 'html', 'odt', 'docx']
+  if (['pptx', 'ppt', 'odp'].includes(ext)) return ['pdf', 'txt', 'html']
+  // Office / ODF text formats
+  return ['pdf', 'docx', 'odt', 'html', 'md', 'txt', 'epub']
+}
+
 export default function DocConverter() {
   const [file, setFile] = useState(null)
   const [target, setTarget] = useState('pdf')
@@ -23,6 +42,18 @@ export default function DocConverter() {
   const [status, setStatus] = useState(null) // null | { type, msg }
   const fileInputRef = useRef(null)
   const btnRef = useRef(null)
+
+  const srcExt = file ? file.name.split('.').pop() : null
+  const supportedTargets = getSupportedTargets(srcExt)
+  const isUnsupported = file && !supportedTargets.includes(target)
+
+  // When a new file is selected, reset target to the first supported format.
+  useEffect(() => {
+    if (!file) return
+    const ext = file.name.split('.').pop()
+    const supported = getSupportedTargets(ext)
+    setTarget(prev => (supported.includes(prev) ? prev : (supported[0] || 'pdf')))
+  }, [file])
 
   const setSelectedFile = (f) => {
     setFile(f || null)
@@ -41,6 +72,14 @@ export default function DocConverter() {
       setStatus({ type: 'error', msg: 'Please select a file to convert.' })
       return
     }
+    if (isUnsupported) {
+      const ext = srcExt ? `.${srcExt.toLowerCase()}` : 'this file type'
+      setStatus({
+        type: 'error',
+        msg: `Converting ${ext} files to .${target} is not supported. Please choose a supported target format.`,
+      })
+      return
+    }
     setStatus({ type: 'loading', msg: 'Converting…' })
     if (btnRef.current) btnRef.current.disabled = true
     try {
@@ -55,7 +94,7 @@ export default function DocConverter() {
       URL.revokeObjectURL(url)
       setStatus({ type: 'success', msg: 'Converted and downloaded!' })
     } catch (err) {
-      setStatus({ type: 'error', msg: err.message || 'Conversion failed' })
+      setStatus({ type: 'error', msg: err.message || 'Conversion failed.' })
     } finally {
       if (btnRef.current) btnRef.current.disabled = false
     }
@@ -117,15 +156,30 @@ export default function DocConverter() {
           <select
             className="input"
             value={target}
-            onChange={(e) => setTarget(e.target.value)}
+            onChange={(e) => { setTarget(e.target.value); setStatus(null) }}
           >
-            {FORMAT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
+            {FORMAT_OPTIONS.map(opt => {
+              const supported = supportedTargets.includes(opt.value)
+              return (
+                <option key={opt.value} value={opt.value} disabled={!supported}>
+                  {supported ? opt.label : `${opt.label} — not supported for this file`}
+                </option>
+              )
+            })}
           </select>
+          {isUnsupported && (
+            <p className="text-xs text-yellow-400 mt-1">
+              ⚠ This combination is not supported. Please select a different target format.
+            </p>
+          )}
         </div>
 
-        <button ref={btnRef} className="btn-primary w-full sm:w-auto" onClick={handleConvert}>
+        <button
+          ref={btnRef}
+          className="btn-primary w-full sm:w-auto"
+          onClick={handleConvert}
+          disabled={!!isUnsupported}
+        >
           ⚙ Convert &amp; Download
         </button>
 
