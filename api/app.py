@@ -1438,6 +1438,9 @@ _AUTH_PATTERNS = (
     "use --cookies-from-browser",
     "requires authentication",
     "not authenticated",
+    # Captcha challenge — YouTube bot-detection via CAPTCHA (yt-dlp ≥ 2026.3.x)
+    "captcha challenge",
+    "requiring a captcha",
 )
 
 
@@ -1466,6 +1469,13 @@ def _friendly_cookie_error(error_msg: str) -> str:
         return (
             "This video cannot be downloaded right now. "
             "Please try again in a few minutes, or try a different video."
+        )
+
+    # Rate-limited by YouTube — hide technical details from regular users
+    if "rate-limited by youtube" in lower:
+        return (
+            "This video cannot be downloaded right now — YouTube has "
+            "temporarily rate-limited this server. Please try again in an hour."
         )
 
     # Private / age-restricted videos
