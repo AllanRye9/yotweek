@@ -10,7 +10,6 @@ const FORMAT_OPTIONS = [
   { value: 'html', label: 'HTML (.html)' },
   { value: 'md',   label: 'Markdown (.md)' },
   { value: 'txt',  label: 'Plain Text (.txt)' },
-  { value: 'rtf',  label: 'Rich Text (.rtf)' },
   { value: 'csv',  label: 'CSV (.csv)' },
   { value: 'png',  label: 'Image PNG (.png)' },
   { value: 'jpg',  label: 'Image JPG (.jpg)' },

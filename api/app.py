@@ -4737,14 +4737,14 @@ async def api_cv_generate(
 
 # Supported conversion targets
 _DOC_CONV_TARGETS = {
-    "pdf", "docx", "xlsx", "pptx", "odt", "html", "md", "txt", "rtf", "csv", "png", "jpg", "epub",
+    "pdf", "docx", "xlsx", "pptx", "odt", "html", "md", "txt", "csv", "png", "jpg", "epub",
 }
 
 # ---------------------------------------------------------------------------
 # LibreOffice filter helpers
 # ---------------------------------------------------------------------------
 # Document family sets (extension without leading dot)
-_LO_WRITER_EXTS  = frozenset({"docx", "doc", "odt", "fodt", "txt", "rtf", "html", "htm"})
+_LO_WRITER_EXTS  = frozenset({"docx", "doc", "odt", "fodt", "txt", "html", "htm"})
 _LO_IMPRESS_EXTS = frozenset({"pptx", "ppt", "odp", "fodp"})
 _LO_CALC_EXTS    = frozenset({"xlsx", "xls", "ods", "fods", "csv"})
 
@@ -4757,7 +4757,6 @@ _LO_FILTER_MAP: dict = {
     ("writer",  "odt"):  "odt:writer8",
     ("writer",  "txt"):  "txt:Text (encoded)",
     ("writer",  "html"): "html:HTML (StarWriter)",
-    ("writer",  "rtf"):  "rtf:Rich Text Format",
     # Impress → various
     ("impress", "pdf"):  "pdf:impress_pdf_Export",
     ("impress", "pptx"): "pptx:Impress MS PowerPoint 2007 XML",
@@ -4806,7 +4805,7 @@ def _doc_conv_strategy(src_ext: str, target: str) -> str:
         return "tabula"
     if src_ext in ("png", "jpg", "jpeg", "tiff", "bmp") and target == "pdf":
         return "img2pdf"
-    if target in ("html", "md", "txt", "rtf", "epub") or src_ext in ("md", "html", "txt", "rtf", "epub"):
+    if target in ("html", "md", "txt", "epub") or src_ext in ("md", "html", "txt", "epub"):
         # Pandoc does not support Excel as an input format – route xlsx/xls to
         # LibreOffice regardless of target so we get the Python fallbacks too.
         if src_ext not in ("xlsx", "xls"):
