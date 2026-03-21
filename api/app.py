@@ -3120,6 +3120,43 @@ async def admin_delete_record(request: Request, download_id: str):
     return JSONResponse({"success": True})
 
 
+@fastapi_app.delete("/admin/clear_all_downloads")
+@admin_required
+async def admin_clear_all_downloads(request: Request):
+    """Clear ALL download records from both in-memory store and database (admin only).
+
+    Active and queued downloads are cancelled before the records are removed so
+    that in-flight workers receive the cancellation signal.
+    """
+    cancelled_ids: list[str] = []
+    with downloads_lock:
+        for did, d in list(downloads.items()):
+            status = d.get("status")
+            if status in ("starting", "fetching_info", "queued", "downloading"):
+                cancelled_ids.append(did)
+        downloads.clear()
+
+    # Emit cancellation signals outside the lock to avoid deadlocks
+    for did in cancelled_ids:
+        emit_from_thread("cancelled", {"id": did}, room=did)
+
+    def _db_clear():
+        try:
+            with _db_lock:
+                conn = _get_db()
+                try:
+                    _execute(conn, "DELETE FROM downloads")
+                    conn.commit()
+                finally:
+                    conn.close()
+        except Exception as exc:
+            logger.error(f"admin_clear_all_downloads DB error: {exc}")
+
+    threading.Thread(target=_db_clear, daemon=True).start()
+    logger.info(f"Admin cleared ALL download records ({len(cancelled_ids)} active/queued cancelled)")
+    return JSONResponse({"success": True})
+
+
 @fastapi_app.delete("/admin/clear_visitors")
 @admin_required
 async def admin_clear_visitors(request: Request):
