@@ -4111,6 +4111,53 @@
         function isAudioFile(name) { return _AUDIO_EXTS.has(_fileExt(name)); }
         function isMediaFile(name) { return isVideoFile(name) || isAudioFile(name); }
 
+        // ─── iOS / iPadOS detection ───────────────────────────────
+        // The `download` attribute on <a> is ignored on iOS Safari for blob
+        // URLs and direct file links alike (iPhone; iPad supports it in iOS 13+
+        // for same-origin links).  We detect iOS so we can open media files in
+        // a new tab and guide the user to save via the share sheet instead of
+        // relying on an invisible anchor click which silently does nothing.
+        function isIOS() {
+            return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        }
+
+        /**
+         * Trigger a file save for the given URL and suggested filename.
+         *
+         * On iOS, the `download` attribute is not reliable for media files:
+         * clicking the link just opens the file inline rather than saving it.
+         * Instead we open the URL in a new tab and show a hint so the user can
+         * long-press (or use the share sheet) to save to their Camera Roll /
+         * Files app.
+         *
+         * On all other platforms we fall back to the conventional hidden-anchor
+         * + programmatic-click approach so existing behaviour is unchanged.
+         *
+         * @param {string} url      - Absolute or root-relative URL of the file.
+         * @param {string} filename - Suggested save filename (used on non-iOS).
+         */
+        function triggerSave(url, filename) {
+            if (isIOS() && isMediaFile(filename)) {
+                // Open media in a new tab; Safari will display it in its
+                // built-in player.  From there the user can use the ↑ share
+                // button → "Save Video" / "Save to Files" to route it to the
+                // Camera Roll or any other available media destination.
+                window.open(url, '_blank');
+                showToast(
+                    '📱 Tap the share button (↑) in Safari, then "Save Video" or "Save to Files" to keep the file.',
+                    'info',
+                    8000
+                );
+            } else {
+                const a = document.createElement('a');
+                a.href     = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => a.remove(), 500);
+            }
+        }
+
         // ─── In-browser video/audio player ───────────────────────
         function openVideoPlayer(filename) {
             const modal    = document.getElementById('player-modal');
@@ -4130,8 +4177,18 @@
             audio.load();
 
             label.textContent = filename;
-            saveLink.href     = dlUrl;
-            saveLink.download = filename;
+
+            // On iOS the `download` attribute is unreliable for media files.
+            // Wire the save button through triggerSave() instead.
+            if (isIOS()) {
+                saveLink.removeAttribute('download');
+                saveLink.href = '#';
+                saveLink.onclick = (e) => { e.preventDefault(); triggerSave(dlUrl, filename); };
+            } else {
+                saveLink.onclick = null;
+                saveLink.href     = dlUrl;
+                saveLink.download = filename;
+            }
 
             if (isAudioFile(filename)) {
                 video.style.display = 'none';
@@ -4252,7 +4309,7 @@
                         </div>
                         <div class="file-actions">
                             ${watchBtn}
-                            <a href="${dlHref}" download="${safeName}" class="btn-file-dl">
+                            <a href="${dlHref}" download="${safeName}" data-filename="${safeName}" class="btn-file-dl save-btn">
                                 <i class="fas fa-download"></i> <span class="btn-label">Save</span>
                             </a>
                             <button class="btn-danger btn-small delete-btn"
@@ -4279,6 +4336,17 @@
             const watchBtn = e.target.closest('.watch-btn');
             if (watchBtn) {
                 openVideoPlayer(watchBtn.dataset.filename);
+                return;
+            }
+            // Save button — intercept on iOS to use triggerSave()
+            const saveBtn = e.target.closest('.save-btn');
+            if (saveBtn) {
+                const filename = saveBtn.dataset.filename;
+                if (isIOS() && filename) {
+                    e.preventDefault();
+                    const url = '/downloads/' + encodeURIComponent(filename);
+                    triggerSave(url, filename);
+                }
                 return;
             }
             // Delete button
@@ -4417,10 +4485,20 @@
             const modal = document.getElementById('retention-modal');
             document.getElementById('retention-filename').textContent = filename;
             modal.dataset.currentFile = filename;
-            // Set up the save link so user can download to device
+            // Set up the save link so user can download to device.
+            // On iOS, wire through triggerSave() because the `download`
+            // attribute is ignored for media files in Safari.
             const saveLink = document.getElementById('retention-save-link');
-            saveLink.href = '/downloads/' + encodeURIComponent(filename);
-            saveLink.download = filename;
+            const dlUrl = '/downloads/' + encodeURIComponent(filename);
+            if (isIOS()) {
+                saveLink.removeAttribute('download');
+                saveLink.href = '#';
+                saveLink.onclick = (e) => { e.preventDefault(); triggerSave(dlUrl, filename); };
+            } else {
+                saveLink.onclick = null;
+                saveLink.href = dlUrl;
+                saveLink.download = filename;
+            }
             modal.style.display = 'flex';
         }
 
