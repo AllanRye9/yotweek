@@ -3527,6 +3527,7 @@ async def download_zip(
 # =========================================================
 
 _MAX_CV_LOGO_BYTES = 5 * 1024 * 1024  # 5 MB max for CV logo uploads
+_TEMP_DIR_CLEANUP_DELAY_SECS = 60     # seconds before temp conversion dirs are removed
 
 # ---------------------------------------------------------------------------
 # Pure-Python PDF builder (fpdf2).  No LaTeX / LibreOffice required.
@@ -3963,6 +3964,403 @@ async def api_cv_generate(
             time.sleep(delay)
             shutil.rmtree(path, ignore_errors=True)
         threading.Thread(target=_delayed_rm, args=(tmpdir,), daemon=True).start()
+
+
+# =========================================================
+# CV EXTRACTION MODULE
+# =========================================================
+
+_MAX_CV_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB max for CV uploads
+
+def _extract_text_from_pdf(path: str) -> str:
+    """Extract plain text from a PDF using pdftotext (poppler-utils)."""
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["pdftotext", "-layout", path, "-"],
+            capture_output=True, text=True, timeout=30,
+        )
+        return result.stdout
+    except Exception:
+        return ""
+
+def _extract_text_from_docx(path: str) -> str:
+    """Extract plain text from a DOCX file using python-docx."""
+    try:
+        from docx import Document
+        doc = Document(path)
+        parts = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                parts.append(para.text)
+        for tbl in doc.tables:
+            for row in tbl.rows:
+                cells = [c.text.strip() for c in row.cells if c.text.strip()]
+                if cells:
+                    parts.append("  |  ".join(cells))
+        return "\n".join(parts)
+    except Exception:
+        return ""
+
+def _parse_cv_text(text: str) -> dict:
+    """Heuristically parse plain-text CV content into structured fields."""
+    import re
+
+    lines = [l.rstrip() for l in text.splitlines()]
+    non_empty = [l for l in lines if l.strip()]
+
+    def _find_email(t: str) -> str:
+        m = re.search(r"[\w.+-]+@[\w.-]+\.[a-zA-Z]{2,}", t)
+        return m.group(0) if m else ""
+
+    def _find_phone(t: str) -> str:
+        m = re.search(r"(?:\+?\d[\d\s\-().]{7,}\d)", t)
+        return m.group(0).strip() if m else ""
+
+    def _find_link(t: str) -> str:
+        m = re.search(r"https?://[^\s]+|linkedin\.com/[^\s]+|github\.com/[^\s]+", t, re.I)
+        return m.group(0).strip() if m else ""
+
+    # Name: usually the first non-empty line that doesn't look like a heading keyword
+    _HEADING_KEYWORDS = re.compile(
+        r"^(curriculum vitae|cv|resume|profile|summary|objective|experience|education|skills|contact|references)\b",
+        re.I,
+    )
+    name = ""
+    for l in non_empty[:5]:
+        if not _HEADING_KEYWORDS.match(l.strip()) and len(l.strip().split()) <= 6 and not _find_email(l):
+            name = l.strip()
+            break
+
+    email    = _find_email(text)
+    phone    = _find_phone(text)
+    link     = _find_link(text)
+
+    # Location: look for City/Country pattern near name/email lines
+    location = ""
+    loc_pat  = re.compile(r"[A-Z][a-zA-Z\s]+,\s*[A-Z][a-zA-Z\s]+")
+    for l in non_empty[:15]:
+        m = loc_pat.search(l)
+        if m and not _find_email(l):
+            location = m.group(0).strip()
+            break
+
+    # Section extraction helper
+    _SEC_PATTERN = re.compile(
+        r"^(summary|professional summary|objective|profile"
+        r"|experience|work experience|employment|career"
+        r"|education|academic|qualifications"
+        r"|skills|technical skills|core competencies"
+        r"|projects|personal projects"
+        r"|publications|research|certificates?|certifications?)"
+        r"[\s:]*$",
+        re.I,
+    )
+
+    sections: dict[str, list[str]] = {}
+    current_sec = None
+    for line in lines:
+        stripped = line.strip()
+        m = _SEC_PATTERN.match(stripped)
+        if m:
+            key = m.group(1).lower()
+            # Normalise key
+            if "summary" in key or "objective" in key or "profile" in key:
+                key = "summary"
+            elif "experience" in key or "employment" in key or "career" in key:
+                key = "experience"
+            elif "education" in key or "academic" in key or "qualification" in key:
+                key = "education"
+            elif "skill" in key or "competenc" in key:
+                key = "skills"
+            elif "project" in key:
+                key = "projects"
+            elif "publication" in key or "research" in key or "certif" in key:
+                key = "publications"
+            current_sec = key
+            sections.setdefault(key, [])
+        elif current_sec is not None:
+            sections[current_sec].append(line)
+
+    def _sec(key: str) -> str:
+        return "\n".join(sections.get(key, [])).strip()
+
+    summary     = _sec("summary")
+    experience  = _sec("experience")
+    education   = _sec("education")
+    publications = _sec("publications")
+    projects    = _sec("projects")
+
+    # Skills: try skills section first, otherwise look for comma-separated lines
+    skills = _sec("skills")
+    if not skills:
+        for l in non_empty:
+            if len(l.split(",")) >= 4:
+                skills = l.strip()
+                break
+
+    return {
+        "name": name,
+        "email": email,
+        "phone": phone,
+        "location": location,
+        "link": link,
+        "summary": summary,
+        "experience": experience,
+        "education": education,
+        "skills": skills,
+        "projects": projects,
+        "publications": publications,
+    }
+
+
+@fastapi_app.post("/api/cv/extract")
+async def api_cv_extract(
+    request: Request,
+    file: UploadFile = File(...),
+):
+    """Extract CV field data from an uploaded PDF or DOCX file."""
+    import tempfile
+
+    filename = (file.filename or "").lower()
+    if not (filename.endswith(".pdf") or filename.endswith(".docx") or filename.endswith(".doc")):
+        return JSONResponse(
+            {"error": "Only PDF and DOCX files are supported for CV extraction."},
+            status_code=400,
+        )
+
+    content = await file.read()
+    if len(content) > _MAX_CV_UPLOAD_BYTES:
+        return JSONResponse(
+            {"error": f"File is too large (max {_MAX_CV_UPLOAD_BYTES // (1024 * 1024)} MB)."},
+            status_code=400,
+        )
+
+    tmpdir = tempfile.mkdtemp(prefix="cvext_")
+    try:
+        ext = ".pdf" if filename.endswith(".pdf") else ".docx"
+        tmp_path = os.path.join(tmpdir, "upload" + ext)
+        with open(tmp_path, "wb") as f:
+            f.write(content)
+
+        if ext == ".pdf":
+            text = _extract_text_from_pdf(tmp_path)
+        else:
+            text = _extract_text_from_docx(tmp_path)
+
+        if not text.strip():
+            return JSONResponse(
+                {"error": "Could not extract text from the file. The file may be image-based or encrypted."},
+                status_code=422,
+            )
+
+        fields = _parse_cv_text(text)
+        return JSONResponse({"fields": fields})
+
+    except Exception as exc:
+        logger.error("CV extraction error: %s", exc, exc_info=True)
+        return JSONResponse({"error": f"CV extraction failed: {exc}"}, status_code=500)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# =========================================================
+# DOCUMENT CONVERSION MODULE
+# =========================================================
+
+_MAX_DOC_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB max for doc conversion
+
+_DOC_CONVERSIONS = {
+    # source_ext → {target_format → output_ext}
+    "pdf":  {"word": "docx", "excel": "xlsx", "jpeg": "jpg", "png": "png"},
+    "docx": {"pdf": "pdf"},
+    "doc":  {"pdf": "pdf"},
+    "xlsx": {"pdf": "pdf"},
+    "xls":  {"pdf": "pdf"},
+    "jpg":  {"pdf": "pdf"},
+    "jpeg": {"pdf": "pdf"},
+    "png":  {"pdf": "pdf"},
+}
+
+_LIBREOFFICE_FORMATS = {"docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods"}
+
+
+def _convert_pdf_to_word(src: str, dst: str) -> None:
+    """Convert PDF to DOCX using pdf2docx."""
+    from pdf2docx import Converter
+    cv = Converter(src)
+    cv.convert(dst, start=0, end=None)
+    cv.close()
+
+
+def _convert_pdf_to_excel(src: str, dst: str) -> None:
+    """Extract tables from PDF pages and write to an Excel workbook."""
+    import tabula
+    import openpyxl
+    tables = tabula.read_pdf(src, pages="all", multiple_tables=True, silent=True)
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    if not tables:
+        ws = wb.create_sheet("Sheet1")
+        ws.append(["No tables found in the PDF."])
+    else:
+        for i, df in enumerate(tables):
+            ws = wb.create_sheet(f"Table{i + 1}")
+            # Header row
+            ws.append(list(df.columns))
+            for _, row in df.iterrows():
+                ws.append([str(v) if v is not None else "" for v in row])
+    wb.save(dst)
+
+
+def _convert_pdf_to_image(src: str, dst_dir: str, fmt: str) -> list[str]:
+    """Convert each PDF page to an image using pdftoppm (poppler)."""
+    import subprocess
+    fmt_flag = "jpeg" if fmt in ("jpg", "jpeg") else "png"
+    prefix = os.path.join(dst_dir, "page")
+    subprocess.run(
+        ["pdftoppm", f"-{fmt_flag}", "-r", "150", src, prefix],
+        check=True, capture_output=True, timeout=120,
+    )
+    # pdftoppm outputs page-1.jpg / page-01.jpg etc. depending on version
+    out_files = sorted(
+        f for f in os.listdir(dst_dir)
+        if f.startswith("page") and (f.endswith(".jpg") or f.endswith(".jpeg") or f.endswith(".png"))
+    )
+    return [os.path.join(dst_dir, f) for f in out_files]
+
+
+def _convert_to_pdf_libreoffice(src: str, dst_dir: str) -> str:
+    """Convert Office documents to PDF using LibreOffice headless."""
+    import subprocess
+    subprocess.run(
+        ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", dst_dir, src],
+        check=True, capture_output=True, timeout=120,
+    )
+    base = os.path.splitext(os.path.basename(src))[0]
+    return os.path.join(dst_dir, base + ".pdf")
+
+
+def _convert_image_to_pdf(src: str, dst: str) -> None:
+    """Convert a JPEG or PNG image to PDF using img2pdf."""
+    import img2pdf
+    with open(src, "rb") as img_f, open(dst, "wb") as pdf_f:
+        pdf_f.write(img2pdf.convert(img_f))
+
+
+@fastapi_app.post("/api/doc/convert")
+async def api_doc_convert(
+    request: Request,
+    file: UploadFile = File(...),
+    target: str = Form(...),
+):
+    """Convert a document/image between supported formats and return the result file."""
+    import tempfile, zipfile
+
+    filename = (file.filename or "upload").strip()
+    src_ext  = os.path.splitext(filename)[1].lower().lstrip(".")
+    target   = target.lower().strip()
+
+    allowed_src = set(_DOC_CONVERSIONS.keys())
+    if src_ext not in allowed_src:
+        return JSONResponse(
+            {"error": f"Unsupported source format '.{src_ext}'. Supported: {', '.join(sorted(allowed_src))}."},
+            status_code=400,
+        )
+    allowed_targets = _DOC_CONVERSIONS.get(src_ext, {})
+    if target not in allowed_targets:
+        return JSONResponse(
+            {"error": f"Cannot convert .{src_ext} to '{target}'. Supported targets: {', '.join(sorted(allowed_targets))}."},
+            status_code=400,
+        )
+    out_ext = allowed_targets[target]
+
+    content = await file.read()
+    if len(content) > _MAX_DOC_UPLOAD_BYTES:
+        return JSONResponse(
+            {"error": f"File is too large (max {_MAX_DOC_UPLOAD_BYTES // (1024 * 1024)} MB)."},
+            status_code=400,
+        )
+
+    tmpdir = tempfile.mkdtemp(prefix="docconv_")
+    try:
+        src_path = os.path.join(tmpdir, f"input.{src_ext}")
+        with open(src_path, "wb") as f:
+            f.write(content)
+
+        base_name = os.path.splitext(filename)[0] or "converted"
+
+        # ── PDF → Word ──────────────────────────────────────────────────────────
+        if src_ext == "pdf" and target == "word":
+            out_path = os.path.join(tmpdir, f"{base_name}.docx")
+            await asyncio.get_event_loop().run_in_executor(
+                None, _convert_pdf_to_word, src_path, out_path,
+            )
+            return FileResponse(out_path, filename=f"{base_name}.docx",
+                                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
+        # ── PDF → Excel ─────────────────────────────────────────────────────────
+        elif src_ext == "pdf" and target == "excel":
+            out_path = os.path.join(tmpdir, f"{base_name}.xlsx")
+            await asyncio.get_event_loop().run_in_executor(
+                None, _convert_pdf_to_excel, src_path, out_path,
+            )
+            return FileResponse(out_path, filename=f"{base_name}.xlsx",
+                                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # ── PDF → JPEG / PNG ────────────────────────────────────────────────────
+        elif src_ext == "pdf" and target in ("jpeg", "png"):
+            imgs_dir = os.path.join(tmpdir, "imgs")
+            os.makedirs(imgs_dir, exist_ok=True)
+            img_files = await asyncio.get_event_loop().run_in_executor(
+                None, _convert_pdf_to_image, src_path, imgs_dir, target,
+            )
+            if not img_files:
+                return JSONResponse({"error": "No pages found in PDF."}, status_code=422)
+            if len(img_files) == 1:
+                # Single page — return the image directly
+                ext_out = "jpg" if target == "jpeg" else "png"
+                mime    = "image/jpeg" if target == "jpeg" else "image/png"
+                return FileResponse(img_files[0], filename=f"{base_name}.{ext_out}", media_type=mime)
+            else:
+                # Multiple pages — zip them up
+                zip_path = os.path.join(tmpdir, f"{base_name}_pages.zip")
+                ext_out  = "jpg" if target == "jpeg" else "png"
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for i, p in enumerate(img_files, 1):
+                        zf.write(p, f"page_{i:03d}.{ext_out}")
+                return FileResponse(zip_path, filename=f"{base_name}_pages.zip",
+                                    media_type="application/zip")
+
+        # ── Office → PDF ────────────────────────────────────────────────────────
+        elif target == "pdf" and src_ext in _LIBREOFFICE_FORMATS:
+            out_path = await asyncio.get_event_loop().run_in_executor(
+                None, _convert_to_pdf_libreoffice, src_path, tmpdir,
+            )
+            return FileResponse(out_path, filename=f"{base_name}.pdf",
+                                media_type="application/pdf")
+
+        # ── Image → PDF ─────────────────────────────────────────────────────────
+        elif target == "pdf" and src_ext in ("jpg", "jpeg", "png"):
+            out_path = os.path.join(tmpdir, f"{base_name}.pdf")
+            await asyncio.get_event_loop().run_in_executor(
+                None, _convert_image_to_pdf, src_path, out_path,
+            )
+            return FileResponse(out_path, filename=f"{base_name}.pdf",
+                                media_type="application/pdf")
+
+        else:
+            return JSONResponse({"error": "Conversion not implemented."}, status_code=501)
+
+    except Exception as exc:
+        logger.error("Doc conversion error: %s", exc, exc_info=True)
+        return JSONResponse({"error": f"Conversion failed: {exc}"}, status_code=500)
+    finally:
+        def _rm(p):
+            import time as _time
+            _time.sleep(_TEMP_DIR_CLEANUP_DELAY_SECS)
+            shutil.rmtree(p, ignore_errors=True)
+        threading.Thread(target=_rm, args=(tmpdir,), daemon=True).start()
 
 
 # =========================================================

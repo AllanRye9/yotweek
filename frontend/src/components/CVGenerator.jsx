@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { generateCV } from '../api'
+import { generateCV, extractCV } from '../api'
 
 const INITIAL = {
   name: '', email: '', phone: '', location: '',
@@ -7,7 +7,6 @@ const INITIAL = {
   skills: '', projects: '', publications: '',
 }
 
-const AUTO_ADVANCE_DELAY_MS = 900
 const PREVIEW_BREAKPOINT_PX = 860
 const PREVIEW_STICKY_TOP_PX = 80
 
@@ -287,15 +286,17 @@ function StepDots({ steps, current, onGoto }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export default function CVGenerator() {
-  const [fields, setFields]     = useState(INITIAL)
-  const [logoFile, setLogoFile] = useState(null)
-  const [theme, setTheme]       = useState('classic')
-  const [step, setStep]         = useState(0)
-  const [status, setStatus]     = useState(null)
-  const [slideDir, setSlideDir] = useState('right')
-  const [animKey, setAnimKey]   = useState(0)
-  const submitRef               = useRef(null)
-  const autoAdvTimer            = useRef(null)
+  const [fields, setFields]       = useState(INITIAL)
+  const [logoFile, setLogoFile]   = useState(null)
+  const [theme, setTheme]         = useState('classic')
+  const [step, setStep]           = useState(0)
+  const [status, setStatus]       = useState(null)
+  const [stepError, setStepError] = useState(null)
+  const [slideDir, setSlideDir]   = useState('right')
+  const [animKey, setAnimKey]     = useState(0)
+  const [cvUploadStatus, setCvUploadStatus] = useState(null)
+  const submitRef    = useRef(null)
+  const cvUploadRef  = useRef(null)
 
   const totalSteps = STEPS.length
 
@@ -313,34 +314,73 @@ export default function CVGenerator() {
 
   const gotoStep = useCallback((idx, dir) => {
     if (idx < 0 || idx >= totalSteps) return
+    setStepError(null)
     setSlideDir(dir)
     setAnimKey(k => k + 1)
     setStep(idx)
   }, [totalSteps])
 
-  const goNext = useCallback(() => gotoStep(step + 1, 'left'), [step, gotoStep])
-  const goPrev = useCallback(() => gotoStep(step - 1, 'right'), [step, gotoStep])
-
-  const tryAutoAdvance = useCallback(() => {
-    if (step >= totalSteps - 1) return
+  /** Validate required fields for the current step. Returns error message or null. */
+  const validateCurrentStep = useCallback(() => {
     const s = STEPS[step]
-    if (!s.required.length) return
-    const allFilled = s.required.every(k => fields[k]?.trim())
-    if (!allFilled) return
-    if (autoAdvTimer.current) clearTimeout(autoAdvTimer.current)
-    autoAdvTimer.current = setTimeout(() => goNext(), AUTO_ADVANCE_DELAY_MS)
-  }, [step, fields, goNext, totalSteps])
+    const labelMap = {
+      name: 'Full Name', email: 'Email', phone: 'Phone',
+      location: 'Location', link: 'LinkedIn / Website',
+      summary: 'Professional Summary', experience: 'Work Experience',
+      education: 'Education', skills: 'Skills',
+      projects: 'Projects', publications: 'Publications',
+    }
+    for (const key of s.required) {
+      if (!fields[key]?.trim()) {
+        return `${labelMap[key] || key} is required before continuing.`
+      }
+    }
+    if (step === 0 && fields.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(fields.email.trim())) {
+      return 'Please enter a valid email address.'
+    }
+    return null
+  }, [step, fields])
 
-  useEffect(() => {
-    tryAutoAdvance()
-    return () => { if (autoAdvTimer.current) clearTimeout(autoAdvTimer.current) }
-  }, [tryAutoAdvance])
+  const goNext = useCallback(() => {
+    const err = validateCurrentStep()
+    if (err) { setStepError(err); return }
+    gotoStep(step + 1, 'left')
+  }, [step, gotoStep, validateCurrentStep])
+
+  const goPrev = useCallback(() => gotoStep(step - 1, 'right'), [step, gotoStep])
 
   const validate = () => {
     if (!fields.name.trim()) return 'Full Name is required.'
     if (!fields.email.trim()) return 'Email is required.'
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(fields.email.trim())) return 'Please enter a valid email address.'
     return null
+  }
+
+  // CV Upload handler
+  const handleCvUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCvUploadStatus({ type: 'loading', msg: 'Extracting CV content…' })
+    try {
+      const data = await extractCV(file)
+      if (data.fields) {
+        setFields(prev => {
+          const merged = { ...prev }
+          Object.entries(data.fields).forEach(([k, v]) => {
+            if (v && v.trim()) merged[k] = v.trim()
+          })
+          return merged
+        })
+        setCvUploadStatus({ type: 'success', msg: 'CV content extracted! Review and edit the fields below.' })
+      } else {
+        setCvUploadStatus({ type: 'error', msg: 'Could not extract fields from this file.' })
+      }
+    } catch (err) {
+      setCvUploadStatus({ type: 'error', msg: err.message || 'Extraction failed.' })
+    } finally {
+      // Reset file input so the same file can be re-uploaded if needed
+      if (cvUploadRef.current) cvUploadRef.current.value = ''
+    }
   }
 
   const handleGenerate = async () => {
@@ -396,6 +436,45 @@ export default function CVGenerator() {
         <p className="text-xs text-gray-400 mt-0.5">
           Step through the form and see your CV update live — then download as PDF.
         </p>
+      </div>
+
+      {/* CV Upload for extraction */}
+      <div style={{
+        background: '#1f2937', border: '1px solid #374151',
+        borderRadius: 10, padding: '12px 16px', marginBottom: 16,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.82rem', color: '#d1d5db', fontWeight: 600 }}>
+            📂 Upload existing CV to auto-fill fields
+          </span>
+          <label style={{
+            cursor: 'pointer', background: '#374151',
+            border: '1px solid #4b5563', borderRadius: 6,
+            padding: '5px 12px', fontSize: '0.78rem', color: '#e5e7eb',
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+          }}>
+            📄 Choose PDF or DOCX
+            <input
+              ref={cvUploadRef}
+              type="file"
+              accept=".pdf,.docx,.doc"
+              style={{ display: 'none' }}
+              onChange={handleCvUpload}
+            />
+          </label>
+          {cvUploadStatus && (
+            <span style={{
+              fontSize: '0.75rem',
+              color: cvUploadStatus.type === 'loading' ? '#9ca3af' :
+                     cvUploadStatus.type === 'success' ? '#34d399' : '#f87171',
+            }}>
+              {cvUploadStatus.type === 'loading' && '⏳ '}
+              {cvUploadStatus.type === 'success' && '✅ '}
+              {cvUploadStatus.type === 'error'   && '❌ '}
+              {cvUploadStatus.msg}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Two-column layout: form left, preview right */}
@@ -585,6 +664,13 @@ export default function CVGenerator() {
               </button>
             )}
           </div>
+
+          {/* Step validation error */}
+          {stepError && (
+            <div className="mt-2 text-sm text-red-400">
+              ⚠️ {stepError}
+            </div>
+          )}
 
           {/* Status */}
           {status && (

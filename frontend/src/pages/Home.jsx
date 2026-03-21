@@ -7,6 +7,7 @@ import FileList from '../components/FileList'
 import Reviews from '../components/Reviews'
 import ThemeSelector from '../components/ThemeSelector'
 import CVGenerator from '../components/CVGenerator'
+import DocConverter from '../components/DocConverter'
 import { getStats } from '../api'
 import socket from '../socket'
 
@@ -65,6 +66,7 @@ function AnimatedCounter({ value, label, icon }) {
 const TABS = [
   { id: 'download', label: '⬇ Download',     icon: '⬇' },
   { id: 'cv',       label: '📄 CV Generator', icon: '📄' },
+  { id: 'convert',  label: '🔄 Doc Converter', icon: '🔄' },
 ]
 
 export default function Home() {
@@ -305,6 +307,7 @@ export default function Home() {
         <div className="card">
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'cv'       && <CVGenerator />}
+          {tab === 'convert'  && <DocConverter />}
         </div>
 
         {/* Active Downloads — only relevant when download tab is active */}
@@ -420,6 +423,15 @@ export default function Home() {
                   <li>Watch the <strong>live preview</strong> update on the right as you type.</li>
                   <li>Choose from 8 professional themes, optionally add a logo, then click <strong>Generate PDF CV</strong>.</li>
                   <li>Use <strong>← Previous</strong> to go back and edit any earlier step.</li>
+                </ol>
+              </HelpSection>
+              <HelpDivider />
+              <HelpSection icon="🔄" title="Doc Converter">
+                <ol style={{ paddingLeft: 18, margin: 0 }}>
+                  <li>Switch to the <strong>Doc Converter</strong> tab.</li>
+                  <li>Upload a PDF, Word (.docx), Excel (.xlsx), JPEG, or PNG file.</li>
+                  <li>Choose the target format (e.g. PDF → Word, JPEG → PDF).</li>
+                  <li>Click <strong>Convert &amp; Download</strong> to receive the converted file.</li>
                 </ol>
               </HelpSection>
               <HelpDivider />

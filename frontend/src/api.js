@@ -134,6 +134,34 @@ export const generateCV = (fields, logoFile = null, theme = 'classic') => {
   return request('POST', '/api/cv/generate', fd, false)
 }
 
+// ── CV Extraction ─────────────────────────────────────────────────────────────
+
+/**
+ * Extract CV fields from an uploaded PDF or DOCX file.
+ * @param {File} file - The CV file to extract from
+ * @returns {Promise<{fields: Object}>}
+ */
+export const extractCV = (file) => {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  return request('POST', '/api/cv/extract', fd, false)
+}
+
+// ── Document Conversion ───────────────────────────────────────────────────────
+
+/**
+ * Convert a document/image to a different format.
+ * @param {File} file - The source file
+ * @param {string} target - Target format ('word', 'excel', 'jpeg', 'png', 'pdf')
+ * @returns {Promise<Response>} Raw response (blob) — caller should call res.blob()
+ */
+export const convertDoc = (file, target) => {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  fd.append('target', target)
+  return request('POST', '/api/doc/convert', fd, false)
+}
+
 // ── Admin Cookies ─────────────────────────────────────────────────────────────
 
 export const getCookieStatus    = () => request('GET', '/admin/cookies/status')
