@@ -4964,7 +4964,8 @@ async def api_doc_convert(
                 lo_out = os.path.join(tmpdir, f"{stem}.{target}")
                 if result.returncode != 0 or not os.path.isfile(lo_out):
                     err_detail = (result.stderr or result.stdout or "").strip()[:300]
-                    lo_err = f"LibreOffice conversion failed: {err_detail}"
+                    logger.warning("LibreOffice conversion failed for %s: %s", original_name, err_detail)
+                    lo_err = f"Failed to convert {original_name}"
                     # LibreOffice failed – attempt Python-only fallbacks before
                     # giving up so that common conversions still work.
                     src_clean = src_ext.lstrip(".")
