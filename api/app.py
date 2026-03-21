@@ -1346,6 +1346,50 @@ def check_ffmpeg():
         logger.warning("WARNING: ffmpeg not found - some formats may not work")
         return False
 
+
+def check_youtube_connectivity() -> dict:
+    """Probe YouTube with yt-dlp to detect active bot-detection blocks.
+
+    Returns a dict with keys:
+      * ``reachable`` (bool) – True if the probe succeeded.
+      * ``bot_detected`` (bool) – True if a bot/auth-detection error fired.
+      * ``message`` (str) – Human-readable summary.
+
+    The probe uses only the ``web_embedded`` and ``tv`` player clients so that
+    it does not require cookies or a PO token (matching the cookieless fallback
+    path used by the downloader in ``_get_cookieless_extractor_args()``).
+    """
+    # A short, well-known public-domain video used solely as a reachability probe.
+    _PROBE_URL = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "extract_flat": False,
+        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv"]}},
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.extract_info(_PROBE_URL, download=False)
+        logger.info("YouTube connectivity check: reachable")
+        return {"reachable": True, "bot_detected": False, "message": "YouTube is reachable"}
+    except Exception as exc:
+        error_msg = str(exc)
+        if _is_auth_error(error_msg):
+            logger.warning(f"YouTube connectivity check: bot-detection active — {error_msg}")
+            return {
+                "reachable": False,
+                "bot_detected": True,
+                "message": "YouTube bot-detection is active. Downloads may fail.",
+            }
+        logger.error(f"YouTube connectivity check: unexpected error — {error_msg}")
+        return {
+            "reachable": False,
+            "bot_detected": False,
+            "message": f"YouTube unreachable: {error_msg}",
+        }
+
 # =========================================================
 # HELPER FUNCTIONS
 # =========================================================
@@ -2049,6 +2093,32 @@ async def health():
         "timestamp": datetime.now().isoformat(),
         "version": "1.0.0"
     })
+
+
+@fastapi_app.get("/api/youtube_status")
+async def youtube_status():
+    """Probe YouTube reachability and report whether bot-detection is active.
+
+    Runs ``check_youtube_connectivity()`` in a thread so the async event loop
+    is not blocked during the network call.  The result is returned as JSON:
+
+    .. code-block:: json
+
+        {
+            "reachable":     true,
+            "bot_detected":  false,
+            "message":       "YouTube is reachable",
+            "timestamp":     "2026-01-01T00:00:00"
+        }
+
+    The endpoint is intentionally unauthenticated so monitoring tools can poll
+    it without credentials.
+    """
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, check_youtube_connectivity)
+    result["timestamp"] = datetime.now().isoformat()
+    status_code = 200 if result["reachable"] else 503
+    return JSONResponse(result, status_code=status_code)
 
 
 @fastapi_app.post("/api/client_hints")
