@@ -1361,9 +1361,10 @@ def check_youtube_connectivity() -> dict:
       * ``bot_detected`` (bool) – True if a bot/auth-detection error fired.
       * ``message`` (str) – Human-readable summary.
 
-    The probe uses only the ``web_embedded`` and ``tv`` player clients so that
-    it does not require cookies or a PO token (matching the cookieless fallback
-    path used by the downloader in ``_get_cookieless_extractor_args()``).
+    The probe uses only the ``web_embedded``, ``tv``, and ``mweb`` player
+    clients so that it does not require cookies or a PO token (matching the
+    cookieless fallback path used by the downloader in
+    ``_get_cookieless_extractor_args()``).
     """
     # A short, well-known public-domain video used solely as a reachability probe.
     _PROBE_URL = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
@@ -1373,7 +1374,7 @@ def check_youtube_connectivity() -> dict:
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
-        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv"]}},
+        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "mweb"]}},
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

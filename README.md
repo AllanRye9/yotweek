@@ -212,12 +212,16 @@ eliminate this error for the vast majority of users and ensure the
 remaining edge-cases surface a clear, non-confusing message:
 
 - **Multi-client fallback**: yt-dlp is now configured with
-  `player_client: ["default", "web_embedded", "tv"]`.  
+  `player_client: ["default", "web_embedded", "tv", "mweb"]`.  
   `"default"` delegates to yt-dlp's own session-aware client selection
-  (which already includes `android_vr`). `web_embedded` and `tv` are
-  added as explicit, PO-token-free fallbacks for environments where
-  `web_safari` would otherwise fail.  
-  Together these three clients cover public, age-restricted, and
+  (which already includes `android_vr`). `web_embedded`, `tv`, and
+  `mweb` are added as explicit, PO-token-free fallbacks for environments
+  where `web_safari` would otherwise fail.  
+  `mweb` (YouTube Mobile Web) is placed last as a final bypass option:
+  its `m.youtube.com` endpoint uses different bot-detection heuristics
+  than desktop clients, so it succeeds when the others are rate-limited
+  or blocked.  
+  Together these four clients cover public, age-restricted, and
   authenticated content without requiring manual intervention for most
   requests.
 
