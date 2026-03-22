@@ -6,6 +6,9 @@ These tests verify that:
   - _is_auth_error() does NOT fire on benign error strings.
   - check_youtube_connectivity() returns the expected dict shape and
     correctly categorises its result (mocked – no real network call).
+  - _get_human_like_headers() returns a dict that includes human-browser
+    fingerprint headers required to avoid YouTube bot-detection.
+  - _random_sleep_interval() returns a float in the expected range.
 """
 
 import asyncio
@@ -13,7 +16,15 @@ from types import SimpleNamespace
 from unittest.mock import patch, MagicMock
 import pytest
 
-from api.app import _is_auth_error, _AUTH_PATTERNS, check_youtube_connectivity, start_download
+from api.app import (
+    _is_auth_error,
+    _AUTH_PATTERNS,
+    check_youtube_connectivity,
+    start_download,
+    _get_human_like_headers,
+    _random_sleep_interval,
+    _CHROME_UA,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -180,3 +191,80 @@ class TestStartDownloadValidation:
 
         assert response.status_code == 400
         assert response.body == b'{"error":"URL is required"}'
+
+
+# ---------------------------------------------------------------------------
+# _get_human_like_headers: browser fingerprint headers
+# ---------------------------------------------------------------------------
+
+class TestGetHumanLikeHeaders:
+    """_get_human_like_headers must return a complete browser fingerprint."""
+
+    def test_returns_dict(self):
+        headers = _get_human_like_headers()
+        assert isinstance(headers, dict)
+
+    def test_user_agent_matches_chrome_ua(self):
+        headers = _get_human_like_headers()
+        assert headers.get("User-Agent") == _CHROME_UA
+
+    def test_accept_language_present(self):
+        headers = _get_human_like_headers()
+        assert "Accept-Language" in headers
+        assert headers["Accept-Language"]
+
+    def test_accept_present(self):
+        headers = _get_human_like_headers()
+        assert "Accept" in headers
+
+    def test_dnt_present(self):
+        headers = _get_human_like_headers()
+        assert "DNT" in headers
+
+    def test_sec_ch_ua_present(self):
+        headers = _get_human_like_headers()
+        assert "sec-ch-ua" in headers
+
+    def test_sec_fetch_site_present(self):
+        headers = _get_human_like_headers()
+        assert "Sec-Fetch-Site" in headers
+
+    def test_different_calls_are_consistent(self):
+        """Headers should be deterministic (no random values)."""
+        assert _get_human_like_headers() == _get_human_like_headers()
+
+
+# ---------------------------------------------------------------------------
+# _random_sleep_interval: jitter helper
+# ---------------------------------------------------------------------------
+
+class TestRandomSleepInterval:
+    """_random_sleep_interval must return a float within the documented range."""
+
+    def test_returns_float(self):
+        assert isinstance(_random_sleep_interval(), float)
+
+    def test_within_range(self):
+        for _ in range(50):
+            val = _random_sleep_interval()
+            assert 3.0 <= val <= 8.0, f"sleep interval {val} is out of expected [3, 8] range"
+
+
+# ---------------------------------------------------------------------------
+# New _AUTH_PATTERNS: throttle / rate-limit variants
+# ---------------------------------------------------------------------------
+
+class TestNewAuthPatterns:
+    """New patterns added to _AUTH_PATTERNS must be detected by _is_auth_error."""
+
+    def test_cannot_be_downloaded_right_now_pattern(self):
+        assert _is_auth_error("cannot be downloaded right now")
+
+    def test_too_many_requests_pattern(self):
+        assert _is_auth_error("HTTP Error 429: Too Many Requests")
+
+    def test_http_error_429_lowercase(self):
+        assert _is_auth_error("http error 429")
+
+    def test_precondition_check_failed(self):
+        assert _is_auth_error("Precondition check failed")

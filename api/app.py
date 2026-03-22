@@ -8,6 +8,7 @@ import queue as _queue_module
 import time
 import uuid
 import shutil
+import random
 import json
 import logging
 import sqlite3
@@ -1494,6 +1495,11 @@ _AUTH_PATTERNS = (
     # blocks automated requests even without a sign-in prompt.
     # See README Troubleshooting: "This video cannot be downloaded right now"
     "try again in a few minutes",
+    # Additional YouTube throttle / rate-limit error variants
+    "cannot be downloaded right now",
+    "too many requests",
+    "http error 429",
+    "precondition check failed",
 )
 
 
@@ -1573,6 +1579,49 @@ _CHROME_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/134.0.0.0 Safari/537.36"
 )
+
+# Chrome 134 client-hint values matching _CHROME_UA above
+_SEC_CH_UA = '"Chromium";v="134", "Google Chrome";v="134", "Not-A.Brand";v="8"'
+
+
+def _get_human_like_headers() -> dict:
+    """Return a set of HTTP request headers that mimic a real Chrome browser.
+
+    Sending a complete browser fingerprint — beyond just the User-Agent — helps
+    avoid YouTube bot-detection heuristics that flag requests missing standard
+    browser headers such as ``Accept``, ``Accept-Language``, ``DNT``, or the
+    Client-Hint ``sec-ch-ua`` family.
+    """
+    return {
+        "User-Agent": _CHROME_UA,
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;"
+            "q=0.9,image/avif,image/webp,image/apng,*/*;"
+            "q=0.8,application/signed-exchange;v=b3;q=0.7"
+        ),
+        "Accept-Language": "en-US,en;q=0.9",
+        "Accept-Encoding": "gzip, deflate, br, zstd",
+        "DNT": "1",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "sec-ch-ua": _SEC_CH_UA,
+        "sec-ch-ua-mobile": "?0",
+        "sec-ch-ua-platform": '"Windows"',
+    }
+
+
+def _random_sleep_interval() -> float:
+    """Return a randomised sleep interval between 3 and 8 seconds.
+
+    Using a uniform random delay between requests avoids the fixed-interval
+    pattern that bot-detection systems use to flag automated traffic.  The
+    range (3–8 s) is wide enough to introduce meaningful jitter while still
+    keeping info-fetching and downloads reasonably fast.
+    """
+    return random.uniform(3.0, 8.0)
 
 
 def normalize_format_spec(fmt: str) -> str:
@@ -1657,17 +1706,25 @@ def get_video_info(url: str) -> dict:
     no cookies file is present, a second attempt is made using only the
     ``web_embedded`` and ``tv`` player clients which require no PO tokens or
     authentication and can fetch publicly available videos without cookies.
+
+    A short randomised backoff is inserted before the retry so that a temporary
+    YouTube rate-limit (HTTP 429 / "try again in a few minutes") has a better
+    chance of resolving before the second request is sent.
     """
+    _sleep = _random_sleep_interval()
+    _sleep_req = random.uniform(1.0, 3.0)
+    _max_sleep = _sleep + random.uniform(2.0, 5.0)
     _base_opts = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "http_headers": {"User-Agent": _CHROME_UA},
+        "http_headers": _get_human_like_headers(),
         "extractor_retries": 5,
         "retries": 5,
-        "sleep_requests": 1,
-        "sleep_interval": 5,
-        "max_sleep_interval": 10,
+        "fragment_retries": 10,
+        "sleep_requests": _sleep_req,
+        "sleep_interval": _sleep,
+        "max_sleep_interval": _max_sleep,
         "geo_bypass": True,
         # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
         "js_runtimes": {"deno": {}, "node": {}},
@@ -1687,7 +1744,15 @@ def get_video_info(url: str) -> dict:
         # When bot-detection fires and there are no cookies, retry with only
         # the POT-free clients (web_embedded + tv) that work without auth.
         if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
-            logger.info("Auth error without cookies — retrying with cookieless clients")
+            # Brief randomised backoff before the retry — gives YouTube's
+            # rate-limiting window a chance to clear and avoids hammering the
+            # server with back-to-back requests that look even more automated.
+            backoff = random.uniform(3.0, 8.0)
+            logger.info(
+                "Auth error without cookies — sleeping %.1fs then retrying with cookieless clients",
+                backoff,
+            )
+            time.sleep(backoff)
             try:
                 ydl_opts_retry = {
                     **_base_opts,
@@ -1847,17 +1912,21 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         except Exception as e:
             logger.error(f"Socket emit error: {e}")
 
+    _dl_sleep = _random_sleep_interval()
+    _dl_sleep_req = random.uniform(1.0, 3.0)
+    _dl_max_sleep = _dl_sleep + random.uniform(2.0, 5.0)
     ydl_opts = {
         "format": normalize_format_spec(format_spec),
         "outtmpl": output_template,
         "noplaylist": True,
         "extractor_args": _get_yt_extractor_args(),
-        "http_headers": {"User-Agent": _CHROME_UA},
+        "http_headers": _get_human_like_headers(),
         "extractor_retries": 5,
         "retries": 5,
-        "sleep_requests": 1,
-        "sleep_interval": 5,
-        "max_sleep_interval": 10,
+        "fragment_retries": 10,
+        "sleep_requests": _dl_sleep_req,
+        "sleep_interval": _dl_sleep,
+        "max_sleep_interval": _dl_max_sleep,
         "geo_bypass": True,
         # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
         "js_runtimes": {"deno": {}, "node": {}},
@@ -1936,9 +2005,11 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         # the POT-free clients (web_embedded + tv) that work without authentication.
         final_error: Exception = e
         if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
+            backoff = random.uniform(3.0, 8.0)
             logger.info(
                 f"Auth error without cookies for {download_id} — "
-                "retrying with cookieless clients"
+                "sleeping %.1fs then retrying with cookieless clients",
+                backoff,
             )
             emit_from_thread(
                 "status_update",
@@ -1949,6 +2020,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                 },
                 room=download_id,
             )
+            time.sleep(backoff)
             ydl_opts_retry = {
                 **ydl_opts,
                 "extractor_args": _get_cookieless_extractor_args(),
