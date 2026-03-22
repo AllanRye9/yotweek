@@ -2718,6 +2718,19 @@
                             <p style="font-size:0.8rem;color:#64748b;margin:0;">Build your professional CV step by step — download as PDF instantly.</p>
                         </div>
 
+                        <!-- Upload existing CV to pre-fill form -->
+                        <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;margin-bottom:14px;">
+                            <div style="font-size:0.82rem;font-weight:600;color:#0c4a6e;margin-bottom:6px;"><i class="fas fa-upload"></i> Upload Existing CV <small style="font-weight:400;color:#64748b;">(PDF or DOCX — auto-fills the form)</small></div>
+                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;background:#fff;border:1px solid #bae6fd;border-radius:6px;padding:5px 12px;font-size:0.8rem;color:#0369a1;transition:background 0.2s;" onmouseover="this.style.background='#e0f2fe'" onmouseout="this.style.background='#fff'">
+                                    <i class="fas fa-file-import"></i> Choose file
+                                    <input type="file" id="cv-import-input" accept=".pdf,.docx,.doc" style="display:none;" onchange="importExistingCV(this)">
+                                </label>
+                                <span id="cv-import-filename" style="font-size:0.78rem;color:#64748b;"></span>
+                                <span id="cv-import-status" style="font-size:0.78rem;"></span>
+                            </div>
+                        </div>
+
                         <!-- Step progress bar -->
                         <div id="cv-step-bar" style="display:flex;gap:4px;margin-bottom:14px;">
                             <div class="cv-step-dot cv-step-active" data-step="1">1</div>
@@ -2936,14 +2949,8 @@
                                     <option value="docx">Word (.docx)</option>
                                     <option value="xlsx">Excel (.xlsx)</option>
                                     <option value="pptx">PowerPoint (.pptx)</option>
-                                    <option value="odt">OpenDocument Text (.odt)</option>
-                                    <option value="html">HTML (.html)</option>
-                                    <option value="md">Markdown (.md)</option>
-                                    <option value="txt">Plain Text (.txt)</option>
-                                    <option value="csv">CSV (.csv)</option>
                                     <option value="png">Image PNG (.png)</option>
                                     <option value="jpg">Image JPG (.jpg)</option>
-                                    <option value="epub">e-Book (.epub)</option>
                                 </select>
                             </div>
                         </div>
@@ -5489,6 +5496,57 @@
     let _cvStep = 1;
     let _cvTheme = 'classic';
     const _cvTotalSteps = 4;
+
+    async function importExistingCV(input) {
+        const file = input.files[0];
+        if (!file) return;
+        const filenameEl = document.getElementById('cv-import-filename');
+        const statusEl   = document.getElementById('cv-import-status');
+        filenameEl.textContent = file.name;
+        statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:#0369a1;"></i> Reading…';
+
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (!['pdf', 'docx', 'doc'].includes(ext)) {
+            statusEl.innerHTML = '<span style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> Only PDF or DOCX files are supported.</span>';
+            input.value = '';
+            filenameEl.textContent = '';
+            return;
+        }
+
+        try {
+            const fd = new FormData();
+            fd.append('file', file, file.name);
+            const res = await fetch('/api/cv/extract', { method: 'POST', body: fd });
+            const data = await res.json().catch(() => ({ error: 'Unexpected server response. Please try again.' }));
+            if (!res.ok || data.error) {
+                throw new Error(data.error || 'Could not read the CV file. Please try again.');
+            }
+            const f = data.fields || {};
+            const setField = (id, val) => {
+                const el = document.getElementById(id);
+                if (el && val) el.value = val;
+            };
+            setField('cv-name',         f.name);
+            setField('cv-email',        f.email);
+            setField('cv-phone',        f.phone);
+            setField('cv-location',     f.location);
+            setField('cv-link',         f.link);
+            setField('cv-summary',      f.summary);
+            setField('cv-skills',       f.skills);
+            setField('cv-experience',   f.experience);
+            setField('cv-education',    f.education);
+            setField('cv-projects',     f.projects);
+            setField('cv-publications', f.publications);
+            cvUpdatePreview();
+            statusEl.innerHTML = '<span style="color:#22c55e;"><i class="fas fa-check-circle"></i> Form pre-filled from your CV!</span>';
+        } catch (err) {
+            const msg = (err && err.message) ? err.message : 'Failed to read the CV file. Please try again.';
+            statusEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-exclamation-circle"></i> ${escHtml(msg)}</span>`;
+        } finally {
+            input.value = '';
+        }
+    }
+
 
     const _cvThemeStyles = {
         classic: {

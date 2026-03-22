@@ -4089,7 +4089,7 @@ async def api_cv_generate(
         )
     except Exception as exc:
         logger.error("CV generation error: %s", exc, exc_info=True)
-        return JSONResponse({"error": f"CV generation failed: {exc}"}, status_code=500)
+        return JSONResponse({"error": "CV generation failed. Please check that all required fields are filled in correctly and try again."}, status_code=500)
     finally:
         # Clean up temp directory after a short delay to allow FileResponse to stream
         def _delayed_rm(path, delay=30):
@@ -4291,7 +4291,7 @@ async def api_cv_extract(
 
     except Exception as exc:
         logger.error("CV extraction error: %s", exc, exc_info=True)
-        return JSONResponse({"error": f"CV extraction failed: {exc}"}, status_code=500)
+        return JSONResponse({"error": "Could not read the uploaded CV. Please ensure the file is a valid PDF or DOCX and is not password-protected."}, status_code=500)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -4324,6 +4324,24 @@ _LIBREOFFICE_TARGET_FMTS = {
     "word":       ("docx:writer8", ".docx"),
     "excel":      ("xlsx:Calc MS Excel 2007 XML", ".xlsx"),
     "powerpoint": ("pptx:Impress MS PowerPoint 2007 XML", ".pptx"),
+}
+
+# Normalise user-friendly / file-extension target names → internal names used in _DOC_CONVERSIONS
+_DOC_TARGET_ALIASES: dict[str, str] = {
+    "docx":       "word",
+    "xlsx":       "excel",
+    "pptx":       "powerpoint",
+    "jpg":        "jpeg",
+}
+
+# Human-readable display names for error messages
+_DOC_TARGET_DISPLAY: dict[str, str] = {
+    "word":       "Word (.docx)",
+    "excel":      "Excel (.xlsx)",
+    "powerpoint": "PowerPoint (.pptx)",
+    "jpeg":       "JPEG (.jpg)",
+    "png":        "PNG (.png)",
+    "pdf":        "PDF (.pdf)",
 }
 
 
@@ -4434,16 +4452,22 @@ async def api_doc_convert(
     src_ext  = os.path.splitext(filename)[1].lower().lstrip(".")
     target   = target.lower().strip()
 
+    # Normalise user-friendly / file-extension target names to internal names
+    # Keep the original user-facing target for display in error messages
+    original_target = target
+    target = _DOC_TARGET_ALIASES.get(target, target)
+
     allowed_src = set(_DOC_CONVERSIONS.keys())
     if src_ext not in allowed_src:
         return JSONResponse(
-            {"error": f"Unsupported source format '.{src_ext}'. Supported: {', '.join(sorted(allowed_src))}."},
+            {"error": f"Unsupported file type '.{src_ext}'. Supported types: PDF, Word (.docx/.doc), Excel (.xlsx/.xls), PowerPoint (.pptx/.ppt), and images (.jpg, .png)."},
             status_code=400,
         )
     allowed_targets = _DOC_CONVERSIONS.get(src_ext, {})
     if target not in allowed_targets:
+        display_targets = ", ".join(_DOC_TARGET_DISPLAY.get(t, t) for t in sorted(allowed_targets))
         return JSONResponse(
-            {"error": f"Cannot convert .{src_ext} to '{target}'. Supported targets: {', '.join(sorted(allowed_targets))}."},
+            {"error": f"Cannot convert a .{src_ext} file to '{original_target}'. Available output formats: {display_targets}."},
             status_code=400,
         )
     out_ext = allowed_targets[target]
@@ -4594,7 +4618,7 @@ async def api_doc_convert(
 
     except Exception as exc:
         logger.error("Doc conversion error: %s", exc, exc_info=True)
-        return JSONResponse({"error": f"Conversion failed: {exc}"}, status_code=500)
+        return JSONResponse({"error": "Conversion failed. Please check the file is not corrupted or password-protected and try again."}, status_code=500)
     finally:
         def _rm(p):
             import time as _time
