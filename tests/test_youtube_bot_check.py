@@ -56,6 +56,22 @@ class TestIsAuthError:
     def test_rejected_cookie(self):
         assert _is_auth_error("cookie was rejected by YouTube")
 
+    def test_cannot_be_downloaded_right_now(self):
+        """YouTube bot-detection throttle error must be treated as an auth/bot error.
+
+        YouTube returns this directly when it blocks automated requests even
+        without a sign-in prompt.  See README Troubleshooting section:
+        "This video cannot be downloaded right now".
+        """
+        assert _is_auth_error(
+            "This video cannot be downloaded right now. "
+            "Please try again in a few minutes, or try a different video."
+        )
+
+    def test_try_again_in_a_few_minutes_alone(self):
+        """Partial YouTube throttle phrase is also detected."""
+        assert _is_auth_error("Please try again in a few minutes")
+
 
 class TestIsAuthErrorNegative:
     """_is_auth_error must return False for benign / unrelated errors."""

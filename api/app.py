@@ -1490,6 +1490,10 @@ _AUTH_PATTERNS = (
     # Captcha challenge — YouTube bot-detection via CAPTCHA (yt-dlp ≥ 2026.3.x)
     "captcha challenge",
     "requiring a captcha",
+    # YouTube bot-detection throttle — YouTube returns this directly when it
+    # blocks automated requests even without a sign-in prompt.
+    # See README Troubleshooting: "This video cannot be downloaded right now"
+    "try again in a few minutes",
 )
 
 

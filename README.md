@@ -172,7 +172,12 @@ yot_downloader/
 > This video cannot be downloaded right now. Please try again in a few minutes, or try a different video.
 
 **Cause:**  
-YouTube detects automated download requests and challenges them with a *"Sign in to confirm you're not a bot"* gate. This happens even for fully public videos when too many unauthenticated requests are made from the same IP, or when YouTube updates its bot-detection thresholds. `yt-dlp` surfaces this as an authentication/sign-in error.
+YouTube detects automated download requests and blocks them in one of two ways:
+
+- A *"Sign in to confirm you're not a bot"* challenge gate, or
+- A direct throttle response: *"This video cannot be downloaded right now. Please try again in a few minutes, or try a different video."*
+
+Both forms appear when too many unauthenticated requests are made from the same IP, or when YouTube updates its bot-detection thresholds. The app automatically retries with alternative player clients when either error fires; if the retry also fails, a clear message is shown and uploading a `cookies.txt` file is the recommended fix.
 
 **Fix:**  
 Supply a `cookies.txt` file exported from a logged-in YouTube session in your browser. The app reads this file and passes it to `yt-dlp` so YouTube treats the request as a real browser session rather than a bot.
