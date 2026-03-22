@@ -26,6 +26,8 @@ from api.app import (
     _random_sleep_interval,
     _CHROME_UA,
     _is_youtube_url,
+    _get_yt_extractor_args,
+    _get_cookieless_extractor_args,
 )
 
 
@@ -350,3 +352,99 @@ class TestGetHeadersForUrl:
     def test_youtu_be_returns_full_headers(self):
         headers = _get_headers_for_url("https://youtu.be/dQw4w9WgXcQ")
         assert headers == _get_human_like_headers()
+
+
+# ---------------------------------------------------------------------------
+# _get_yt_extractor_args: primary player client configuration
+# ---------------------------------------------------------------------------
+
+class TestGetYtExtractorArgs:
+    """_get_yt_extractor_args must return the correct player client list."""
+
+    def test_returns_youtube_key(self):
+        args = _get_yt_extractor_args()
+        assert "youtube" in args
+
+    def test_player_client_key_present(self):
+        args = _get_yt_extractor_args()
+        assert "player_client" in args["youtube"]
+
+    def test_default_client_present(self):
+        """'default' must not be removed — it enables yt-dlp session-aware selection."""
+        clients = _get_yt_extractor_args()["youtube"]["player_client"]
+        assert "default" in clients, "'default' must remain in player_client list"
+
+    def test_web_embedded_client_present(self):
+        """'web_embedded' is a POT-free fallback required since yt-dlp 2026.3.13."""
+        clients = _get_yt_extractor_args()["youtube"]["player_client"]
+        assert "web_embedded" in clients
+
+    def test_tv_client_present(self):
+        """'tv' is a POT-free fallback with the highest priority (40)."""
+        clients = _get_yt_extractor_args()["youtube"]["player_client"]
+        assert "tv" in clients
+
+    def test_mweb_client_present(self):
+        """'mweb' (Mobile Web) is a POT-free fallback with distinct bot-detection thresholds.
+
+        YouTube's mobile web endpoint uses different heuristics than desktop clients,
+        so including 'mweb' provides an additional bypass option when 'web_embedded'
+        and 'tv' are rate-limited or blocked.
+        """
+        clients = _get_yt_extractor_args()["youtube"]["player_client"]
+        assert "mweb" in clients, (
+            "'mweb' must be in player_client list to provide mobile-web fallback "
+            "against YouTube bot-detection"
+        )
+
+    def test_returns_list_not_tuple(self):
+        clients = _get_yt_extractor_args()["youtube"]["player_client"]
+        assert isinstance(clients, list)
+
+
+# ---------------------------------------------------------------------------
+# _get_cookieless_extractor_args: unauthenticated player client configuration
+# ---------------------------------------------------------------------------
+
+class TestGetCookielessExtractorArgs:
+    """_get_cookieless_extractor_args must return only POT-free clients."""
+
+    def test_returns_youtube_key(self):
+        args = _get_cookieless_extractor_args()
+        assert "youtube" in args
+
+    def test_player_client_key_present(self):
+        args = _get_cookieless_extractor_args()
+        assert "player_client" in args["youtube"]
+
+    def test_web_embedded_client_present(self):
+        clients = _get_cookieless_extractor_args()["youtube"]["player_client"]
+        assert "web_embedded" in clients
+
+    def test_tv_client_present(self):
+        clients = _get_cookieless_extractor_args()["youtube"]["player_client"]
+        assert "tv" in clients
+
+    def test_mweb_client_present(self):
+        """'mweb' must be in cookieless args as a mobile-web fallback.
+
+        When 'web_embedded' and 'tv' are both blocked by YouTube's bot-detection,
+        'mweb' provides an additional POT-free option that uses the mobile YouTube
+        endpoint (m.youtube.com) with different rate-limiting thresholds.
+        """
+        clients = _get_cookieless_extractor_args()["youtube"]["player_client"]
+        assert "mweb" in clients, (
+            "'mweb' must be in cookieless player_client list for mobile-web fallback"
+        )
+
+    def test_default_not_present(self):
+        """Cookieless args must not include 'default' (which expands to auth-aware defaults)."""
+        clients = _get_cookieless_extractor_args()["youtube"]["player_client"]
+        assert "default" not in clients, (
+            "'default' should not be in cookieless extractor args — "
+            "it expands to clients that may require auth"
+        )
+
+    def test_returns_list_not_tuple(self):
+        clients = _get_cookieless_extractor_args()["youtube"]["player_client"]
+        assert isinstance(clients, list)

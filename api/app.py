@@ -1436,31 +1436,50 @@ def _get_yt_extractor_args() -> dict:
       • authenticated defaults:   ``tv_downgraded``, ``web_safari``
     Removing it causes YouTube authentication errors (investigated in PR #78).
 
-    ``web_embedded`` and ``tv`` are added alongside ``"default"`` because
-    yt-dlp 2026.3.13 removed the ``web`` client from its unauthenticated
+    ``web_embedded``, ``tv``, and ``mweb`` are added alongside ``"default"``
+    because yt-dlp 2026.3.13 removed the ``web`` client from its unauthenticated
     defaults (``web`` and ``web_safari`` now require PO tokens for HTTPS/DASH
-    streams).  ``web_embedded`` and ``tv`` have no PO-token requirement, support
-    cookies, and work with or without a JS runtime — providing reliable fallback
-    clients for unauthenticated sessions where ``web_safari`` would otherwise
-    fail without a POT provider.
+    streams).  ``web_embedded``, ``tv``, and ``mweb`` have no PO-token
+    requirement, support cookies (``SUPPORTS_COOKIES=True``), and work with or
+    without a JS runtime — providing reliable fallback clients for
+    unauthenticated sessions where ``web_safari`` would otherwise fail without a
+    POT provider.
+
+    When explicit client names are provided (rather than the ``all`` keyword),
+    yt-dlp tries them in **list order** — not by their internal priority values.
+    The attempt order here is: android_vr, web_safari (from ``default``), then
+    web_embedded, then tv, then mweb.  ``mweb`` (YouTube Mobile Web) is placed
+    last so that yt-dlp exhausts the higher-quality desktop clients first; it
+    serves as a final bypass option because YouTube's mobile web endpoint
+    (m.youtube.com) uses different bot-detection heuristics than desktop clients
+    and may succeed when the others are rate-limited or blocked.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
     # ⚠️ DO NOT REMOVE "default" — see docstring above and PR #78
-    # web_embedded + tv: no POT required, SUPPORTS_COOKIES=True — reliable fallbacks
-    args: dict = {"player_client": ["default", "web_embedded", "tv"]}
+    # web_embedded + tv + mweb: no POT required, SUPPORTS_COOKIES=True — reliable fallbacks
+    # Attempt order: android_vr → web_safari (from "default") → web_embedded → tv → mweb
+    args: dict = {"player_client": ["default", "web_embedded", "tv", "mweb"]}
     return {"youtube": args}
 
 
 def _get_cookieless_extractor_args() -> dict:
     """Build YouTube extractor args using only clients that work without authentication.
 
-    ``web_embedded`` and ``tv`` require no PO tokens and no cookies to fetch
-    publicly available videos.  These clients are used as a last-resort fallback
-    when the normal extraction attempt triggers bot-detection and no cookies file
-    is available, giving the best chance of downloading without authentication.
+    ``web_embedded``, ``tv``, and ``mweb`` require no PO tokens and no cookies
+    to fetch publicly available videos.  These clients are used as a last-resort
+    fallback when the normal extraction attempt triggers bot-detection and no
+    cookies file is available, giving the best chance of downloading without
+    authentication.
+
+    When explicit client names are provided, yt-dlp tries them in **list order**.
+    ``mweb`` (YouTube Mobile Web) is placed last: it uses the m.youtube.com
+    endpoint whose bot-detection heuristics differ from the desktop clients
+    (``web_embedded``, ``tv``), providing an additional bypass option when those
+    are blocked or rate-limited.
     """
-    return {"youtube": {"player_client": ["web_embedded", "tv"]}}
+    # Attempt order: web_embedded → tv → mweb
+    return {"youtube": {"player_client": ["web_embedded", "tv", "mweb"]}}
 
 
 def _get_cookie_opts() -> dict:
