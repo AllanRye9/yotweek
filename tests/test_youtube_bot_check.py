@@ -268,3 +268,14 @@ class TestNewAuthPatterns:
 
     def test_precondition_check_failed(self):
         assert _is_auth_error("Precondition check failed")
+
+    def test_innertube_context_keyerror(self):
+        """INNERTUBE_CONTEXT KeyError must be treated as a bot-detection error.
+
+        yt-dlp raises KeyError('INNERTUBE_CONTEXT') when YouTube's API response
+        is missing the InnerTube context key, which occurs during bot-detection
+        blocks or when a player client receives an unexpected response format.
+        """
+        assert _is_auth_error(
+            "An extractor error has occurred. (caused by KeyError('INNERTUBE_CONTEXT'))"
+        )
