@@ -266,7 +266,7 @@ export default function Home() {
             Download <span className="gradient-text">Any Video</span> — Free &amp; Fast
           </h1>
           <p className="text-gray-400 text-xs sm:text-sm">
-            YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites. No sign-up required.
+            YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; Document Converter (Word, Excel, PowerPoint, PDF &amp; more) &bull; CV Maker &amp; Generator &bull; No sign-up required.
           </p>
 
           {/* Animated global stats counters */}
