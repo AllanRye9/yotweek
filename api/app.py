@@ -1500,6 +1500,12 @@ _AUTH_PATTERNS = (
     "too many requests",
     "http error 429",
     "precondition check failed",
+    # Extractor initialisation failure — yt-dlp raises KeyError('INNERTUBE_CONTEXT')
+    # when YouTube's API response is missing the InnerTube context, which happens
+    # during bot-detection blocks or when a player client returns an unexpected
+    # response format.  Treating it as a bot-detection error triggers the
+    # cookieless-client retry and surfaces a friendly message to the user.
+    "innertube_context",
 )
 
 
