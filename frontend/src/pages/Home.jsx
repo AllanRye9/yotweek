@@ -79,22 +79,16 @@ export default function Home() {
   const [helpOpen, setHelpOpen] = useState(false)
 
   // ── Feature-card spotlight animation ──────────────────────────────────────
-  // Cycles the rainbow border glow through the 3 feature cards every 2.5 seconds.
-  // After every complete cycle (3 advances) a random card gets a coin-flip.
+  // Bounces the rainbow border glow up and down through the 3 feature cards
+  // every 2.5 seconds: 0 → 1 → 2 → 1 → 0 → 1 → 2 → …
   const [activeGlowIndex, setActiveGlowIndex] = useState(0)
-  const [flipIndex, setFlipIndex]             = useState(-1)
-  const glowCycleCount = useRef(0)
+  const glowDirection = useRef(1) // 1 = going down, -1 = going up
   useEffect(() => {
     const interval = setInterval(() => {
       setActiveGlowIndex(prev => {
-        const next = (prev + 1) % 3
-        glowCycleCount.current += 1
-        // After each full cycle through all 3 cards, randomly flip one card.
-        if (glowCycleCount.current % 3 === 0) {
-          const idx = Math.floor(Math.random() * 3)
-          setFlipIndex(idx)
-          setTimeout(() => setFlipIndex(-1), 2000)
-        }
+        let next = prev + glowDirection.current
+        if (next >= 3) { next = 1; glowDirection.current = -1 }
+        else if (next < 0) { next = 1; glowDirection.current = 1 }
         return next
       })
     }, 2500)
@@ -118,7 +112,7 @@ export default function Home() {
               // Once the initial fade-up animation finishes, lock the final
               // styles as inline values.  This prevents the animation from
               // restarting (and briefly showing opacity:0) whenever the
-              // card-glow-active or card-flip-active class overrides and then
+              // card-glow-active class overrides and then
               // removes the CSS animation property.
               card.addEventListener('animationend', (e) => {
                 if (e.animationName === 'fade-up') {
@@ -388,7 +382,6 @@ export default function Home() {
                   'hover:border-gray-600 hover:bg-gray-800/70 transition-all duration-200',
                   'group focus:outline-none focus:ring-2 focus:ring-red-500/50',
                   activeGlowIndex === i ? 'card-glow-active' : '',
-                  flipIndex === i ? 'card-flip-active' : '',
                 ].filter(Boolean).join(' ')}
                 onClick={() => handleFeatureCardClick(f.action)}
               >

@@ -647,15 +647,6 @@ html:not(.theme-dark) .bg-gradient-to-b {
   100% { border-color: #ff4444; box-shadow: 0 0 0 2px rgba(255,68,68,.15), 0 0 18px 4px rgba(255,68,68,.45); }
 }
 
-/* Full 360° Y-axis coin-flip so the card spins and returns face-up. */
-@keyframes card-flip-anim {
-  0%   { transform: perspective(700px) rotateY(0deg)   scale(1);    }
-  25%  { transform: perspective(700px) rotateY(90deg)  scale(0.96); }
-  50%  { transform: perspective(700px) rotateY(180deg) scale(1);    }
-  75%  { transform: perspective(700px) rotateY(270deg) scale(0.96); }
-  100% { transform: perspective(700px) rotateY(360deg) scale(1);    }
-}
-
 /* Applied to the card that currently has the spotlight */
 .card-glow-active {
   animation: card-border-pulse 2.5s ease-in-out;
@@ -664,7 +655,3 @@ html:not(.theme-dark) .bg-gradient-to-b {
   transition: background-color 0.2s, color 0.2s !important;
 }
 
-/* Applied to a card that is doing the flip  */
-.card-flip-active {
-  animation: card-flip-anim 1.875s cubic-bezier(0.4, 0, 0.6, 1);
-}
