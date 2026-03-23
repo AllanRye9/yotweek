@@ -1987,7 +1987,7 @@ def get_video_info(url: str) -> dict:
     try:
         ydl_opts = {
             **_base_opts,
-            "extractor_args": _get_yt_extractor_args(),
+            **({"extractor_args": _get_yt_extractor_args()} if _is_youtube_url(url) else {}),
             **_get_cookie_opts(),
         }
 
@@ -2192,7 +2192,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         "format": normalize_format_spec(format_spec),
         "outtmpl": output_template,
         "noplaylist": True,
-        "extractor_args": _get_yt_extractor_args(),
+        **({"extractor_args": _get_yt_extractor_args()} if _is_youtube_url(url) else {}),
         "http_headers": _get_headers_for_url(url),
         "extractor_retries": 5,
         "retries": 5,
