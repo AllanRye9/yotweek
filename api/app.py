@@ -8,7 +8,6 @@ import queue as _queue_module
 import time
 import uuid
 import shutil
-import random
 import json
 import logging
 import sqlite3
@@ -1361,10 +1360,9 @@ def check_youtube_connectivity() -> dict:
       * ``bot_detected`` (bool) – True if a bot/auth-detection error fired.
       * ``message`` (str) – Human-readable summary.
 
-    The probe uses only the ``web_embedded``, ``tv``, and ``mweb`` player
-    clients so that it does not require cookies or a PO token (matching the
-    cookieless fallback path used by the downloader in
-    ``_get_cookieless_extractor_args()``).
+    The probe uses only the ``web_embedded`` and ``tv`` player clients so that
+    it does not require cookies or a PO token (matching the cookieless fallback
+    path used by the downloader in ``_get_cookieless_extractor_args()``).
     """
     # A short, well-known public-domain video used solely as a reachability probe.
     _PROBE_URL = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"
@@ -1374,7 +1372,7 @@ def check_youtube_connectivity() -> dict:
         "no_warnings": True,
         "skip_download": True,
         "extract_flat": False,
-        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv", "mweb"]}},
+        "extractor_args": {"youtube": {"player_client": ["web_embedded", "tv"]}},
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1437,50 +1435,31 @@ def _get_yt_extractor_args() -> dict:
       • authenticated defaults:   ``tv_downgraded``, ``web_safari``
     Removing it causes YouTube authentication errors (investigated in PR #78).
 
-    ``web_embedded``, ``tv``, and ``mweb`` are added alongside ``"default"``
-    because yt-dlp 2026.3.13 removed the ``web`` client from its unauthenticated
+    ``web_embedded`` and ``tv`` are added alongside ``"default"`` because
+    yt-dlp 2026.3.13 removed the ``web`` client from its unauthenticated
     defaults (``web`` and ``web_safari`` now require PO tokens for HTTPS/DASH
-    streams).  ``web_embedded``, ``tv``, and ``mweb`` have no PO-token
-    requirement, support cookies (``SUPPORTS_COOKIES=True``), and work with or
-    without a JS runtime — providing reliable fallback clients for
-    unauthenticated sessions where ``web_safari`` would otherwise fail without a
-    POT provider.
-
-    When explicit client names are provided (rather than the ``all`` keyword),
-    yt-dlp tries them in **list order** — not by their internal priority values.
-    The attempt order here is: android_vr, web_safari (from ``default``), then
-    web_embedded, then tv, then mweb.  ``mweb`` (YouTube Mobile Web) is placed
-    last so that yt-dlp exhausts the higher-quality desktop clients first; it
-    serves as a final bypass option because YouTube's mobile web endpoint
-    (m.youtube.com) uses different bot-detection heuristics than desktop clients
-    and may succeed when the others are rate-limited or blocked.
+    streams).  ``web_embedded`` and ``tv`` have no PO-token requirement, support
+    cookies, and work with or without a JS runtime — providing reliable fallback
+    clients for unauthenticated sessions where ``web_safari`` would otherwise
+    fail without a POT provider.
 
     See https://github.com/yt-dlp/yt-dlp/wiki/Extractors#youtube for details.
     """
     # ⚠️ DO NOT REMOVE "default" — see docstring above and PR #78
-    # web_embedded + tv + mweb: no POT required, SUPPORTS_COOKIES=True — reliable fallbacks
-    # Attempt order: android_vr → web_safari (from "default") → web_embedded → tv → mweb
-    args: dict = {"player_client": ["default", "web_embedded", "tv", "mweb"]}
+    # web_embedded + tv: no POT required, SUPPORTS_COOKIES=True — reliable fallbacks
+    args: dict = {"player_client": ["default", "web_embedded", "tv"]}
     return {"youtube": args}
 
 
 def _get_cookieless_extractor_args() -> dict:
     """Build YouTube extractor args using only clients that work without authentication.
 
-    ``web_embedded``, ``tv``, and ``mweb`` require no PO tokens and no cookies
-    to fetch publicly available videos.  These clients are used as a last-resort
-    fallback when the normal extraction attempt triggers bot-detection and no
-    cookies file is available, giving the best chance of downloading without
-    authentication.
-
-    When explicit client names are provided, yt-dlp tries them in **list order**.
-    ``mweb`` (YouTube Mobile Web) is placed last: it uses the m.youtube.com
-    endpoint whose bot-detection heuristics differ from the desktop clients
-    (``web_embedded``, ``tv``), providing an additional bypass option when those
-    are blocked or rate-limited.
+    ``web_embedded`` and ``tv`` require no PO tokens and no cookies to fetch
+    publicly available videos.  These clients are used as a last-resort fallback
+    when the normal extraction attempt triggers bot-detection and no cookies file
+    is available, giving the best chance of downloading without authentication.
     """
-    # Attempt order: web_embedded → tv → mweb
-    return {"youtube": {"player_client": ["web_embedded", "tv", "mweb"]}}
+    return {"youtube": {"player_client": ["web_embedded", "tv"]}}
 
 
 def _get_cookie_opts() -> dict:
@@ -1511,21 +1490,6 @@ _AUTH_PATTERNS = (
     # Captcha challenge — YouTube bot-detection via CAPTCHA (yt-dlp ≥ 2026.3.x)
     "captcha challenge",
     "requiring a captcha",
-    # YouTube bot-detection throttle — YouTube returns this directly when it
-    # blocks automated requests even without a sign-in prompt.
-    # See README Troubleshooting: "This video cannot be downloaded right now"
-    "try again in a few minutes",
-    # Additional YouTube throttle / rate-limit error variants
-    "cannot be downloaded right now",
-    "too many requests",
-    "http error 429",
-    "precondition check failed",
-    # Extractor initialisation failure — yt-dlp raises KeyError('INNERTUBE_CONTEXT')
-    # when YouTube's API response is missing the InnerTube context, which happens
-    # during bot-detection blocks or when a player client returns an unexpected
-    # response format.  Treating it as a bot-detection error triggers the
-    # cookieless-client retry and surfaces a friendly message to the user.
-    "innertube_context",
 )
 
 
@@ -1563,12 +1527,6 @@ def _friendly_cookie_error(error_msg: str) -> str:
             "temporarily rate-limited this server. Please try again in an hour."
         )
 
-    # DRM-protected videos — cannot be decrypted/downloaded
-    if "drm protected" in lower:
-        return (
-            "This video is DRM protected and cannot be downloaded."
-        )
-
     # Private / age-restricted videos
     if "private video" in lower:
         return (
@@ -1581,256 +1539,6 @@ def _friendly_cookie_error(error_msg: str) -> str:
         )
 
     return error_msg
-
-
-# Shown to the user after all fallback strategies have been exhausted.
-_GENTLE_FAILURE_MESSAGE = (
-    "We're having trouble downloading this video right now. "
-    "We tried several different methods, but none of them worked. "
-    "Please check that the URL is correct and try again later, "
-    "or try a different video."
-)
-
-# Random backoff range (seconds) applied before each generic fallback attempt.
-_FALLBACK_BACKOFF_RANGE: tuple[float, float] = (2.0, 4.0)
-
-# Keys from the base opts that the minimal fallback strategy forwards as-is.
-# These cover output destination (outtmpl), download progress reporting
-# (progress_hooks), audio/video merging (merge_output_format, postprocessors),
-# and the ffmpeg binary path (ffmpeg_location) — all required for a correct
-# download even when every other option is stripped away.
-_MINIMAL_STRATEGY_PRESERVED_KEYS: tuple[str, ...] = (
-    "outtmpl",
-    "progress_hooks",
-    "ffmpeg_location",
-    "merge_output_format",
-    "postprocessors",
-)
-
-
-def _build_fallback_strategies(base_opts: dict) -> list[tuple[str, dict]]:
-    """Build a list of (label, opts) pairs for generic fallback yt-dlp strategies.
-
-    These strategies are tried after the primary attempt and any platform-specific
-    retry (e.g. YouTube cookieless clients) have both failed.  Each strategy uses
-    progressively simpler yt-dlp settings to maximise the chance of retrieving
-    or downloading a video when earlier attempts produced errors.
-
-    Returns two strategies:
-
-      * ``"no_extractor_args"`` — strips ``extractor_args`` and ``cookiefile``,
-        falling back to yt-dlp's built-in extractor defaults.  All other options
-        (headers, retries, sleep intervals, hooks, etc.) are preserved.
-
-      * ``"minimal"`` — retains only the settings strictly required for a
-        download (output template, progress hooks, JS runtimes) and requests the
-        simplest available format.  Maximises compatibility with restrictive
-        extractors.
-    """
-    # Strategy A: strip extractor customisations, keep everything else intact
-    opts_a: dict = {
-        k: v for k, v in base_opts.items()
-        if k not in ("extractor_args", "cookiefile")
-    }
-
-    # Strategy B: bare minimum — only the keys strictly needed by yt-dlp
-    opts_b: dict = {
-        "quiet": True,
-        "no_warnings": True,
-        "noplaylist": base_opts.get("noplaylist", True),
-        "geo_bypass": True,
-        # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
-        "js_runtimes": {"deno": {}, "node": {}},
-    }
-    for _key in _MINIMAL_STRATEGY_PRESERVED_KEYS:
-        if _key in base_opts:
-            opts_b[_key] = base_opts[_key]
-    if "format" in base_opts:
-        opts_b["format"] = "best"
-
-    return [("no_extractor_args", opts_a), ("minimal", opts_b)]
-
-
-# =============================================================================
-# ALTERNATIVE DOWNLOADER CLUSTER
-# Tried as a last resort after all yt-dlp strategies have been exhausted.
-# gallery-dl is bundled in requirements.txt; you-get and streamlink are
-# optional and silently skipped when not installed on the system PATH.
-# =============================================================================
-
-# Media extensions accepted as successful output from alternative tools.
-_ALT_MEDIA_EXTS: frozenset[str] = frozenset({
-    ".mp4", ".mkv", ".webm", ".avi", ".mov", ".flv", ".m4v",
-    ".mp3", ".m4a", ".ogg", ".opus", ".aac", ".wav",
-})
-
-# (label, command-template) pairs tried in order.
-# Placeholders ``{url}`` and ``{output_dir}`` are substituted at runtime.
-_ALTERNATIVE_TOOL_COMMANDS: list[tuple[str, list[str]]] = [
-    (
-        "gallery-dl",
-        ["gallery-dl", "--no-mtime", "-d", "{output_dir}", "{url}"],
-    ),
-    (
-        "you-get",
-        ["you-get", "-o", "{output_dir}", "--no-caption", "{url}"],
-    ),
-    (
-        "streamlink",
-        ["streamlink", "--output", "{output_dir}/stream.mp4", "{url}", "best"],
-    ),
-]
-
-
-def _find_media_file(directory: str) -> str | None:
-    """Recursively find the first media file inside *directory*.
-
-    Returns the absolute path to the file, or ``None`` if no media file is
-    found.
-    """
-    for root, _dirs, files in os.walk(directory):
-        for fname in files:
-            if os.path.splitext(fname)[1].lower() in _ALT_MEDIA_EXTS:
-                return os.path.join(root, fname)
-    return None
-
-
-def _try_alternative_tools_download(
-    url: str,
-    output_dir: str,
-    download_id: str | None = None,
-) -> str | None:
-    """Try downloading *url* with alternative tools when yt-dlp has failed.
-
-    Iterates over :data:`_ALTERNATIVE_TOOL_COMMANDS` in order.  Each tool is
-    given an isolated temporary subdirectory so that partial output from a
-    failed attempt never interferes with subsequent tools.  Tools not present
-    on the system PATH are silently skipped.
-
-    When *download_id* is provided the function checks the download status
-    before starting each tool and terminates running subprocesses immediately
-    if the user cancels the download.
-
-    Returns the path of the downloaded file on success, or ``None`` when every
-    alternative also fails.
-    """
-    for tool_label, cmd_template in _ALTERNATIVE_TOOL_COMMANDS:
-        # Check for cancellation before trying the next tool
-        if download_id is not None:
-            with downloads_lock:
-                if downloads.get(download_id, {}).get("status") == "cancelled":
-                    logger.info(
-                        "Alt-tool loop aborted — download %s cancelled", download_id
-                    )
-                    return None
-
-        exe = cmd_template[0]
-        if shutil.which(exe) is None:
-            logger.debug(
-                "Alternative tool '%s' not found on PATH — skipping", tool_label
-            )
-            continue
-
-        alt_tmp = os.path.join(output_dir, f"_alt_{uuid.uuid4().hex[:8]}")
-        os.makedirs(alt_tmp, exist_ok=True)
-        try:
-            cmd = [
-                c.replace("{url}", url).replace("{output_dir}", alt_tmp)
-                for c in cmd_template
-            ]
-            logger.info(
-                "Alternative tool '%s' — trying: %s", tool_label, " ".join(cmd)
-            )
-            # Use Popen so we can terminate on cancellation instead of waiting
-            # the full timeout.
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            try:
-                stdout, stderr = proc.communicate(timeout=300)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate()
-                logger.info(
-                    "Alternative tool '%s' timed out after 300 s", tool_label
-                )
-                continue
-
-            if proc.returncode == 0:
-                found = _find_media_file(alt_tmp)
-                if found:
-                    base = os.path.basename(found)
-                    dest = os.path.join(output_dir, base)
-                    # Avoid silently overwriting an existing file with the same name.
-                    if os.path.exists(dest):
-                        name, ext = os.path.splitext(base)
-                        dest = os.path.join(
-                            output_dir, f"{name}_{uuid.uuid4().hex[:8]}{ext}"
-                        )
-                    shutil.move(found, dest)
-                    logger.info(
-                        "Alternative tool '%s' succeeded — saved as: %s",
-                        tool_label, dest,
-                    )
-                    return dest
-                logger.info(
-                    "Alternative tool '%s' exited 0 but produced no media file",
-                    tool_label,
-                )
-            else:
-                logger.info(
-                    "Alternative tool '%s' exited %d: %s",
-                    tool_label,
-                    proc.returncode,
-                    (stderr or stdout or "")[:200],
-                )
-        except Exception as exc:
-            logger.info(
-                "Alternative tool '%s' raised an exception: %s", tool_label, exc
-            )
-        finally:
-            shutil.rmtree(alt_tmp, ignore_errors=True)
-
-    return None
-
-
-# Extensions of temporary / partial files that yt-dlp may leave behind when a
-# download is cancelled.  Cleaning these up prevents disk clutter.
-_PARTIAL_FILE_EXTS: frozenset[str] = frozenset({
-    ".part", ".ytdl", ".part-Frag0", ".temp",
-})
-
-
-def _cleanup_partial_files(output_template: str) -> None:
-    """Remove partial / temporary download files that match *output_template*.
-
-    yt-dlp typically writes ``<name>.ext.part``, ``<name>.ext.ytdl``,
-    ``<name>.ext.part-Frag0``, and ``<name>.ext.temp`` while a download is in
-    progress.  When the download is cancelled these files are orphaned and
-    should be cleaned up.
-    """
-    folder = os.path.dirname(output_template) or "."
-    base = os.path.splitext(os.path.basename(output_template))[0]
-    # Strip all yt-dlp placeholders like ``%(ext)s``, ``%(title)s``, etc.
-    base = re.sub(r"%\([^)]+\)s", "", base).rstrip(".")
-    if not base:
-        return
-    try:
-        for fname in os.listdir(folder):
-            if not fname.startswith(base):
-                continue
-            if any(fname.endswith(ext) for ext in _PARTIAL_FILE_EXTS):
-                path = os.path.join(folder, fname)
-                try:
-                    os.remove(path)
-                    logger.debug("Cleaned up partial file: %s", path)
-                except OSError:
-                    pass
-    except OSError:
-        pass
 
 
 def format_speed(bytes_per_sec) -> str:
@@ -1855,82 +1563,6 @@ _CHROME_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/134.0.0.0 Safari/537.36"
 )
-
-# Chrome 134 client-hint values matching _CHROME_UA above
-_SEC_CH_UA = '"Chromium";v="134", "Google Chrome";v="134", "Not-A.Brand";v="8"'
-
-
-def _get_human_like_headers() -> dict:
-    """Return a set of HTTP request headers that mimic a real Chrome browser.
-
-    Sending a complete browser fingerprint — beyond just the User-Agent — helps
-    avoid YouTube bot-detection heuristics that flag requests missing standard
-    browser headers such as ``Accept``, ``Accept-Language``, ``DNT``, or the
-    Client-Hint ``sec-ch-ua`` family.
-
-    Only use this for YouTube URLs.  For other platforms (e.g. TikTok) the
-    navigation-specific Sec-Fetch-* headers are inappropriate for API calls and
-    cause yt-dlp to receive unexpected responses.  Use ``{"User-Agent": _CHROME_UA}``
-    for non-YouTube URLs instead.
-    """
-    return {
-        "User-Agent": _CHROME_UA,
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;"
-            "q=0.9,image/avif,image/webp,image/apng,*/*;"
-            "q=0.8,application/signed-exchange;v=b3;q=0.7"
-        ),
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br, zstd",
-        "DNT": "1",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "sec-ch-ua": _SEC_CH_UA,
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-    }
-
-
-_YT_URL_RE = re.compile(
-    r"(?:https?://)?(?:www\.|m\.|music\.)?(?:youtube\.com|youtu\.be)/?",
-    re.IGNORECASE,
-)
-
-
-def _is_youtube_url(url: str) -> bool:
-    """Return ``True`` when *url* points to YouTube or YouTube Music.
-
-    Used to decide whether to apply the full browser-like header fingerprint
-    (required to evade YouTube bot-detection) or a simpler User-Agent-only
-    header set (correct for platforms like TikTok whose API calls must not
-    carry navigation Sec-Fetch-* headers).
-    """
-    return bool(_YT_URL_RE.match(url))
-
-
-def _get_headers_for_url(url: str) -> dict:
-    """Return the appropriate HTTP headers for *url*.
-
-    YouTube requires the full browser fingerprint (complete Sec-Fetch-* and
-    Client-Hint headers) to evade bot-detection.  All other platforms should
-    receive only the User-Agent so that their API calls are not disrupted by
-    navigation-specific headers that are inappropriate for non-browser requests.
-    """
-    return _get_human_like_headers() if _is_youtube_url(url) else {"User-Agent": _CHROME_UA}
-
-
-def _random_sleep_interval() -> float:
-    """Return a randomised sleep interval between 3 and 8 seconds.
-
-    Using a uniform random delay between requests avoids the fixed-interval
-    pattern that bot-detection systems use to flag automated traffic.  The
-    range (3–8 s) is wide enough to introduce meaningful jitter while still
-    keeping info-fetching and downloads reasonably fast.
-    """
-    return random.uniform(3.0, 8.0)
 
 
 def normalize_format_spec(fmt: str) -> str:
@@ -2015,29 +1647,17 @@ def get_video_info(url: str) -> dict:
     no cookies file is present, a second attempt is made using only the
     ``web_embedded`` and ``tv`` player clients which require no PO tokens or
     authentication and can fetch publicly available videos without cookies.
-
-    A short randomised backoff is inserted before the retry so that a temporary
-    YouTube rate-limit (HTTP 429 / "try again in a few minutes") has a better
-    chance of resolving before the second request is sent.
-
-    For non-YouTube URLs (e.g. TikTok) only the User-Agent header is set;
-    sending navigation Sec-Fetch-* headers to platform API endpoints causes
-    unexpected responses from those services.
     """
-    _sleep = _random_sleep_interval()
-    _sleep_req = random.uniform(1.0, 3.0)
-    _max_sleep = _sleep + random.uniform(2.0, 5.0)
     _base_opts = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "http_headers": _get_headers_for_url(url),
+        "http_headers": {"User-Agent": _CHROME_UA},
         "extractor_retries": 5,
         "retries": 5,
-        "fragment_retries": 10,
-        "sleep_requests": _sleep_req,
-        "sleep_interval": _sleep,
-        "max_sleep_interval": _max_sleep,
+        "sleep_requests": 1,
+        "sleep_interval": 5,
+        "max_sleep_interval": 10,
         "geo_bypass": True,
         # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
         "js_runtimes": {"deno": {}, "node": {}},
@@ -2045,7 +1665,7 @@ def get_video_info(url: str) -> dict:
     try:
         ydl_opts = {
             **_base_opts,
-            **({"extractor_args": _get_yt_extractor_args()} if _is_youtube_url(url) else {}),
+            "extractor_args": _get_yt_extractor_args(),
             **_get_cookie_opts(),
         }
 
@@ -2056,20 +1676,8 @@ def get_video_info(url: str) -> dict:
     except yt_dlp.utils.DownloadError as e:
         # When bot-detection fires and there are no cookies, retry with only
         # the POT-free clients (web_embedded + tv) that work without auth.
-        # This retry only makes sense for YouTube — applying YouTube-specific
-        # player clients to other platforms (e.g. TikTok) causes yt-dlp to
-        # send requests to YouTube endpoints for a non-YouTube URL, producing
-        # "Unexpected response from webpage request" errors.
-        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE) and _is_youtube_url(url):
-            # Brief randomised backoff before the retry — gives YouTube's
-            # rate-limiting window a chance to clear and avoids hammering the
-            # server with back-to-back requests that look even more automated.
-            backoff = random.uniform(3.0, 8.0)
-            logger.info(
-                "Auth error without cookies — sleeping %.1fs then retrying with cookieless clients",
-                backoff,
-            )
-            time.sleep(backoff)
+        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
+            logger.info("Auth error without cookies — retrying with cookieless clients")
             try:
                 ydl_opts_retry = {
                     **_base_opts,
@@ -2082,22 +1690,8 @@ def get_video_info(url: str) -> dict:
                 logger.info("Cookieless retry also failed: %s", retry_err)
             except Exception as retry_err:
                 logger.warning("Unexpected error during cookieless retry: %s", retry_err)
-        # --- Generic fallback chain: try progressively simpler yt-dlp configs ---
-        # Attempted for any URL type so that non-YouTube platforms also benefit.
-        for _fb_label, _fb_opts in _build_fallback_strategies(_base_opts):
-            _fb_backoff = random.uniform(*_FALLBACK_BACKOFF_RANGE)
-            logger.info(
-                "Info fallback '%s' — sleeping %.1fs then retrying", _fb_label, _fb_backoff
-            )
-            time.sleep(_fb_backoff)
-            try:
-                with yt_dlp.YoutubeDL(_fb_opts) as _ydl:
-                    _info = _ydl.extract_info(url, download=False)
-                return _build_info_dict(_info)
-            except Exception as _fb_err:
-                logger.info("Info fallback '%s' also failed: %s", _fb_label, _fb_err)
-        # All strategies exhausted — return a gentle, user-friendly error
-        return {"error": _GENTLE_FAILURE_MESSAGE}
+        error_msg = _friendly_cookie_error(str(e))
+        return {"error": error_msg}
     except Exception as e:
         return {"error": _friendly_cookie_error(str(e))}
 
@@ -2243,21 +1837,17 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         except Exception as e:
             logger.error(f"Socket emit error: {e}")
 
-    _dl_sleep = _random_sleep_interval()
-    _dl_sleep_req = random.uniform(1.0, 3.0)
-    _dl_max_sleep = _dl_sleep + random.uniform(2.0, 5.0)
     ydl_opts = {
         "format": normalize_format_spec(format_spec),
         "outtmpl": output_template,
         "noplaylist": True,
-        **({"extractor_args": _get_yt_extractor_args()} if _is_youtube_url(url) else {}),
-        "http_headers": _get_headers_for_url(url),
+        "extractor_args": _get_yt_extractor_args(),
+        "http_headers": {"User-Agent": _CHROME_UA},
         "extractor_retries": 5,
         "retries": 5,
-        "fragment_retries": 10,
-        "sleep_requests": _dl_sleep_req,
-        "sleep_interval": _dl_sleep,
-        "max_sleep_interval": _dl_max_sleep,
+        "sleep_requests": 1,
+        "sleep_interval": 5,
+        "max_sleep_interval": 10,
         "geo_bypass": True,
         # ⚠️ DO NOT REMOVE — Node.js fallback for JS challenge solving (PR #78)
         "js_runtimes": {"deno": {}, "node": {}},
@@ -2328,23 +1918,17 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                 "status": "cancelled",
                 "end_time": time.time(),
             })
-        _cleanup_partial_files(output_template)
         emit_from_thread("cancelled", {"id": download_id}, room=download_id)
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
         # When bot-detection fires and no cookies are present, retry using only
         # the POT-free clients (web_embedded + tv) that work without authentication.
-        # This retry only applies to YouTube — applying YouTube-specific player
-        # clients to other platforms (e.g. TikTok) causes yt-dlp to send requests
-        # to YouTube endpoints for a non-YouTube URL, producing errors.
         final_error: Exception = e
-        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE) and _is_youtube_url(url):
-            backoff = random.uniform(3.0, 8.0)
+        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
             logger.info(
                 f"Auth error without cookies for {download_id} — "
-                "sleeping %.1fs then retrying with cookieless clients",
-                backoff,
+                "retrying with cookieless clients"
             )
             emit_from_thread(
                 "status_update",
@@ -2355,7 +1939,6 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                 },
                 room=download_id,
             )
-            time.sleep(backoff)
             ydl_opts_retry = {
                 **ydl_opts,
                 "extractor_args": _get_cookieless_extractor_args(),
@@ -2373,121 +1956,13 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                         "status": "cancelled",
                         "end_time": time.time(),
                     })
-                _cleanup_partial_files(output_template)
                 emit_from_thread("cancelled", {"id": download_id}, room=download_id)
                 threading.Thread(target=save_downloads_to_disk, daemon=True).start()
                 return
             except Exception as retry_err:
                 logger.info("Cookieless retry also failed for %s: %s", download_id, retry_err)
                 final_error = retry_err
-        # --- Generic fallback chain: try progressively simpler yt-dlp configs ---
-        # When info-fetch already reported an error (e.g. "Unsupported URL"),
-        # additional yt-dlp retries are unlikely to help — skip straight to
-        # the alternative tool cluster to save time.
-        _skip_generic_fallbacks = False
-        with downloads_lock:
-            _skip_generic_fallbacks = bool(
-                downloads.get(download_id, {}).get("info_error")
-            )
-        if _skip_generic_fallbacks:
-            logger.info(
-                "Skipping generic yt-dlp fallbacks for %s — info_error was set; "
-                "jumping to alternative tools",
-                download_id,
-            )
-        else:
-            # Attempted for any URL type so that non-YouTube platforms also benefit.
-            _fallback_strategies = _build_fallback_strategies(ydl_opts)
-            _total_fallbacks = len(_fallback_strategies)
-            for _fb_idx, (_fb_label, _fb_opts) in enumerate(_fallback_strategies, start=1):
-                # Abort the chain early if the user cancelled during a prior strategy
-                with downloads_lock:
-                    if downloads.get(download_id, {}).get("status") == "cancelled":
-                        break
-                _fb_backoff = random.uniform(*_FALLBACK_BACKOFF_RANGE)
-                logger.info(
-                    "Download fallback '%s' for %s — sleeping %.1fs then retrying",
-                    _fb_label, download_id, _fb_backoff,
-                )
-                emit_from_thread(
-                    "status_update",
-                    {
-                        "id": download_id,
-                        "status": "downloading",
-                        "message": (
-                            f"Retrying with a different method… "
-                            f"(attempt {_fb_idx} of {_total_fallbacks})"
-                        ),
-                    },
-                    room=download_id,
-                )
-                time.sleep(_fb_backoff)
-                try:
-                    _do_download(_fb_opts)
-                    _finalize_completed()
-                    return
-                except yt_dlp.utils.DownloadCancelled:
-                    logger.info(
-                        "Download cancelled via hook (fallback '%s'): %s", _fb_label, download_id
-                    )
-                    with downloads_lock:
-                        downloads[download_id].update({
-                            "status": "cancelled",
-                            "end_time": time.time(),
-                        })
-                    _cleanup_partial_files(output_template)
-                    emit_from_thread("cancelled", {"id": download_id}, room=download_id)
-                    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
-                    return
-                except Exception as _fb_err:
-                    logger.info(
-                        "Download fallback '%s' also failed for %s: %s",
-                        _fb_label, download_id, _fb_err,
-                    )
-                    final_error = _fb_err
-        # All strategies exhausted — check if the download was cancelled mid-chain
-        with downloads_lock:
-            if downloads.get(download_id, {}).get("status") == "cancelled":
-                return
-        # --- Alternative tool cluster: try non-yt-dlp downloaders as a last resort ---
-        emit_from_thread(
-            "status_update",
-            {
-                "id": download_id,
-                "status": "downloading",
-                "message": "Trying alternative download tools…",
-            },
-            room=download_id,
-        )
-        _alt_file = _try_alternative_tools_download(url, DOWNLOAD_FOLDER, download_id=download_id)
-        if _alt_file is not None and os.path.isfile(_alt_file):
-            _alt_fname = os.path.basename(_alt_file)
-            _alt_size = os.path.getsize(_alt_file)
-            with downloads_lock:
-                downloads[download_id].update({
-                    "status": "completed",
-                    "end_time": time.time(),
-                    "percent": 100,
-                    "filename": _alt_fname,
-                    "file_size": _alt_size,
-                    "file_size_hr": format_size(_alt_size),
-                })
-            emit_from_thread(
-                "progress",
-                {"id": download_id, "line": "", "percent": 100,
-                 "speed": "", "eta": "", "size": downloads[download_id].get("size", "")},
-                room=download_id,
-            )
-            emit_from_thread("completed", {
-                "id": download_id,
-                "filename": _alt_fname,
-                "title": downloads[download_id].get("title"),
-            }, room=download_id)
-            emit_from_thread("files_updated")
-            threading.Thread(target=save_downloads_to_disk, daemon=True).start()
-            return
-        # All tools exhausted — return a gentle, user-friendly message
-        error_msg = _GENTLE_FAILURE_MESSAGE
+        error_msg = _friendly_cookie_error(str(final_error))
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
@@ -3759,50 +3234,6 @@ async def admin_clear_visitors(request: Request):
     return JSONResponse({"success": True})
 
 
-@fastapi_app.delete("/admin/clear_all_data")
-@admin_required
-async def admin_clear_all_data(request: Request):
-    """Clear ALL admin data — downloads, visitors, and analytics — from memory and database.
-
-    Active and queued downloads are cancelled before removal.  This is a
-    destructive, irreversible operation; the admin UI must ask the user to
-    back up first.
-    """
-    # Cancel and clear in-memory downloads
-    cancelled_ids: list[str] = []
-    with downloads_lock:
-        for did, d in list(downloads.items()):
-            if d.get("status") in ("starting", "fetching_info", "queued", "downloading"):
-                cancelled_ids.append(did)
-        downloads.clear()
-
-    for did in cancelled_ids:
-        emit_from_thread("cancelled", {"id": did}, room=did)
-
-    # Clear in-memory visitors
-    with visitors_lock:
-        visitors.clear()
-
-    def _db_wipe():
-        try:
-            with _db_lock:
-                conn = _get_db()
-                try:
-                    _execute(conn, "DELETE FROM downloads")
-                    _execute(conn, "DELETE FROM visitors")
-                    conn.commit()
-                finally:
-                    conn.close()
-        except Exception as exc:
-            logger.error("admin_clear_all_data DB error: %s", exc)
-
-    threading.Thread(target=_db_wipe, daemon=True).start()
-    logger.info(
-        "Admin wiped ALL data (%d active/queued downloads cancelled)", len(cancelled_ids)
-    )
-    return JSONResponse({"success": True, "cancelled": len(cancelled_ids)})
-
-
 @fastapi_app.get("/admin/db/download")
 @admin_required
 async def admin_db_download(request: Request):
@@ -4526,7 +3957,7 @@ async def api_cv_generate(
         )
     except Exception as exc:
         logger.error("CV generation error: %s", exc, exc_info=True)
-        return JSONResponse({"error": "CV generation failed. Please check that all required fields are filled in correctly and try again."}, status_code=500)
+        return JSONResponse({"error": f"CV generation failed: {exc}"}, status_code=500)
     finally:
         # Clean up temp directory after a short delay to allow FileResponse to stream
         def _delayed_rm(path, delay=30):
@@ -4728,7 +4159,7 @@ async def api_cv_extract(
 
     except Exception as exc:
         logger.error("CV extraction error: %s", exc, exc_info=True)
-        return JSONResponse({"error": "Could not read the uploaded CV. Please ensure the file is a valid PDF or DOCX and is not password-protected."}, status_code=500)
+        return JSONResponse({"error": f"CV extraction failed: {exc}"}, status_code=500)
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -4741,45 +4172,17 @@ _MAX_DOC_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB max for doc conversion
 
 _DOC_CONVERSIONS = {
     # source_ext → {target_format → output_ext}
-    "pdf":  {"word": "docx", "excel": "xlsx", "powerpoint": "pptx", "jpeg": "jpg", "png": "png"},
-    "docx": {"pdf": "pdf", "excel": "xlsx", "powerpoint": "pptx", "jpeg": "jpg", "png": "png"},
-    "doc":  {"pdf": "pdf", "excel": "xlsx", "powerpoint": "pptx", "jpeg": "jpg", "png": "png"},
-    "xlsx": {"pdf": "pdf", "word": "docx", "powerpoint": "pptx", "jpeg": "jpg", "png": "png"},
-    "xls":  {"pdf": "pdf", "word": "docx", "powerpoint": "pptx", "jpeg": "jpg", "png": "png"},
-    "pptx": {"pdf": "pdf", "word": "docx", "excel": "xlsx", "jpeg": "jpg", "png": "png"},
-    "ppt":  {"pdf": "pdf", "word": "docx", "excel": "xlsx", "jpeg": "jpg", "png": "png"},
-    "odt":  {"pdf": "pdf", "word": "docx", "excel": "xlsx"},
-    "ods":  {"pdf": "pdf", "word": "docx", "excel": "xlsx"},
-    "jpg":  {"pdf": "pdf", "word": "docx", "png": "png"},
-    "jpeg": {"pdf": "pdf", "word": "docx", "png": "png"},
-    "png":  {"pdf": "pdf", "word": "docx", "jpeg": "jpg"},
+    "pdf":  {"word": "docx", "excel": "xlsx", "jpeg": "jpg", "png": "png"},
+    "docx": {"pdf": "pdf"},
+    "doc":  {"pdf": "pdf"},
+    "xlsx": {"pdf": "pdf"},
+    "xls":  {"pdf": "pdf"},
+    "jpg":  {"pdf": "pdf"},
+    "jpeg": {"pdf": "pdf"},
+    "png":  {"pdf": "pdf"},
 }
 
 _LIBREOFFICE_FORMATS = {"docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods"}
-# LibreOffice target-format flags for cross-office conversions
-_LIBREOFFICE_TARGET_FMTS = {
-    "word":       ("docx:writer8", ".docx"),
-    "excel":      ("xlsx:Calc MS Excel 2007 XML", ".xlsx"),
-    "powerpoint": ("pptx:Impress MS PowerPoint 2007 XML", ".pptx"),
-}
-
-# Normalise user-friendly / file-extension target names → internal names used in _DOC_CONVERSIONS
-_DOC_TARGET_ALIASES: dict[str, str] = {
-    "docx":       "word",
-    "xlsx":       "excel",
-    "pptx":       "powerpoint",
-    "jpg":        "jpeg",
-}
-
-# Human-readable display names for error messages
-_DOC_TARGET_DISPLAY: dict[str, str] = {
-    "word":       "Word (.docx)",
-    "excel":      "Excel (.xlsx)",
-    "powerpoint": "PowerPoint (.pptx)",
-    "jpeg":       "JPEG (.jpg)",
-    "png":        "PNG (.png)",
-    "pdf":        "PDF (.pdf)",
-}
 
 
 def _convert_pdf_to_word(src: str, dst: str) -> None:
@@ -4845,37 +4248,6 @@ def _convert_image_to_pdf(src: str, dst: str) -> None:
         pdf_f.write(img2pdf.convert(img_f))
 
 
-def _convert_libreoffice(src: str, dst_dir: str, lo_fmt: str, out_ext: str) -> str:
-    """Use LibreOffice to convert a document to any supported LibreOffice export format."""
-    import subprocess
-    subprocess.run(
-        ["libreoffice", "--headless", "--convert-to", lo_fmt, "--outdir", dst_dir, src],
-        check=True, capture_output=True, timeout=180,
-    )
-    base = os.path.splitext(os.path.basename(src))[0]
-    return os.path.join(dst_dir, base + out_ext)
-
-
-def _convert_image_to_word(src: str, dst: str) -> None:
-    """Embed an image inside a DOCX file using python-docx."""
-    from docx import Document
-    from docx.shared import Inches
-    doc = Document()
-    doc.add_picture(src, width=Inches(6))
-    doc.save(dst)
-
-
-def _convert_office_to_image(src: str, dst_dir: str, fmt: str) -> list[str]:
-    """Convert an office document to images by first exporting to PDF, then rasterising."""
-    import tempfile
-    pdf_dir = tempfile.mkdtemp(prefix="offimg_")
-    try:
-        pdf_path = _convert_to_pdf_libreoffice(src, pdf_dir)
-        return _convert_pdf_to_image(pdf_path, dst_dir, fmt)
-    finally:
-        shutil.rmtree(pdf_dir, ignore_errors=True)
-
-
 @fastapi_app.post("/api/doc/convert")
 async def api_doc_convert(
     request: Request,
@@ -4889,22 +4261,16 @@ async def api_doc_convert(
     src_ext  = os.path.splitext(filename)[1].lower().lstrip(".")
     target   = target.lower().strip()
 
-    # Normalise user-friendly / file-extension target names to internal names
-    # Keep the original user-facing target for display in error messages
-    original_target = target
-    target = _DOC_TARGET_ALIASES.get(target, target)
-
     allowed_src = set(_DOC_CONVERSIONS.keys())
     if src_ext not in allowed_src:
         return JSONResponse(
-            {"error": f"Unsupported file type '.{src_ext}'. Supported types: PDF, Word (.docx/.doc), Excel (.xlsx/.xls), PowerPoint (.pptx/.ppt), and images (.jpg, .png)."},
+            {"error": f"Unsupported source format '.{src_ext}'. Supported: {', '.join(sorted(allowed_src))}."},
             status_code=400,
         )
     allowed_targets = _DOC_CONVERSIONS.get(src_ext, {})
     if target not in allowed_targets:
-        display_targets = ", ".join(_DOC_TARGET_DISPLAY.get(t, t) for t in sorted(allowed_targets))
         return JSONResponse(
-            {"error": f"Cannot convert a .{src_ext} file to '{original_target}'. Available output formats: {display_targets}."},
+            {"error": f"Cannot convert .{src_ext} to '{target}'. Supported targets: {', '.join(sorted(allowed_targets))}."},
             status_code=400,
         )
     out_ext = allowed_targets[target]
@@ -4942,15 +4308,6 @@ async def api_doc_convert(
             return FileResponse(out_path, filename=f"{base_name}.xlsx",
                                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
-        # ── PDF → PowerPoint ────────────────────────────────────────────────────
-        elif src_ext == "pdf" and target == "powerpoint":
-            lo_fmt, out_ext = _LIBREOFFICE_TARGET_FMTS["powerpoint"]
-            out_path = await asyncio.get_event_loop().run_in_executor(
-                None, _convert_libreoffice, src_path, tmpdir, lo_fmt, out_ext,
-            )
-            return FileResponse(out_path, filename=f"{base_name}.pptx",
-                                media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation")
-
         # ── PDF → JPEG / PNG ────────────────────────────────────────────────────
         elif src_ext == "pdf" and target in ("jpeg", "png"):
             imgs_dir = os.path.join(tmpdir, "imgs")
@@ -4961,10 +4318,12 @@ async def api_doc_convert(
             if not img_files:
                 return JSONResponse({"error": "No pages found in PDF."}, status_code=422)
             if len(img_files) == 1:
+                # Single page — return the image directly
                 ext_out = "jpg" if target == "jpeg" else "png"
                 mime    = "image/jpeg" if target == "jpeg" else "image/png"
                 return FileResponse(img_files[0], filename=f"{base_name}.{ext_out}", media_type=mime)
             else:
+                # Multiple pages — zip them up
                 zip_path = os.path.join(tmpdir, f"{base_name}_pages.zip")
                 ext_out  = "jpg" if target == "jpeg" else "png"
                 with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -4981,42 +4340,6 @@ async def api_doc_convert(
             return FileResponse(out_path, filename=f"{base_name}.pdf",
                                 media_type="application/pdf")
 
-        # ── Office → Office (cross-format via LibreOffice) ──────────────────────
-        elif target in _LIBREOFFICE_TARGET_FMTS and src_ext in _LIBREOFFICE_FORMATS:
-            lo_fmt, out_ext = _LIBREOFFICE_TARGET_FMTS[target]
-            out_path = await asyncio.get_event_loop().run_in_executor(
-                None, _convert_libreoffice, src_path, tmpdir, lo_fmt, out_ext,
-            )
-            mime_map = {
-                ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-            }
-            return FileResponse(out_path, filename=f"{base_name}{out_ext}",
-                                media_type=mime_map.get(out_ext, "application/octet-stream"))
-
-        # ── Office → Image ───────────────────────────────────────────────────────
-        elif target in ("jpeg", "png") and src_ext in _LIBREOFFICE_FORMATS:
-            imgs_dir = os.path.join(tmpdir, "imgs")
-            os.makedirs(imgs_dir, exist_ok=True)
-            img_files = await asyncio.get_event_loop().run_in_executor(
-                None, _convert_office_to_image, src_path, imgs_dir, target,
-            )
-            if not img_files:
-                return JSONResponse({"error": "No pages produced from document."}, status_code=422)
-            if len(img_files) == 1:
-                ext_out = "jpg" if target == "jpeg" else "png"
-                mime    = "image/jpeg" if target == "jpeg" else "image/png"
-                return FileResponse(img_files[0], filename=f"{base_name}.{ext_out}", media_type=mime)
-            else:
-                zip_path = os.path.join(tmpdir, f"{base_name}_pages.zip")
-                ext_out  = "jpg" if target == "jpeg" else "png"
-                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                    for i, p in enumerate(img_files, 1):
-                        zf.write(p, f"page_{i:03d}.{ext_out}")
-                return FileResponse(zip_path, filename=f"{base_name}_pages.zip",
-                                    media_type="application/zip")
-
         # ── Image → PDF ─────────────────────────────────────────────────────────
         elif target == "pdf" and src_ext in ("jpg", "jpeg", "png"):
             out_path = os.path.join(tmpdir, f"{base_name}.pdf")
@@ -5026,36 +4349,12 @@ async def api_doc_convert(
             return FileResponse(out_path, filename=f"{base_name}.pdf",
                                 media_type="application/pdf")
 
-        # ── Image → Word ─────────────────────────────────────────────────────────
-        elif target == "word" and src_ext in ("jpg", "jpeg", "png"):
-            out_path = os.path.join(tmpdir, f"{base_name}.docx")
-            await asyncio.get_event_loop().run_in_executor(
-                None, _convert_image_to_word, src_path, out_path,
-            )
-            return FileResponse(out_path, filename=f"{base_name}.docx",
-                                media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-
-        # ── Image → Image (JPEG ↔ PNG) ───────────────────────────────────────────
-        elif src_ext in ("jpg", "jpeg", "png") and target in ("jpeg", "png"):
-            from PIL import Image as _PilImage
-            ext_out = "jpg" if target == "jpeg" else "png"
-            out_path = os.path.join(tmpdir, f"{base_name}.{ext_out}")
-            def _img_convert():
-                img = _PilImage.open(src_path).convert("RGB" if target == "jpeg" else "RGBA")
-                if target == "jpeg":
-                    img.save(out_path, "JPEG", quality=92)
-                else:
-                    img.save(out_path, "PNG")
-            await asyncio.get_event_loop().run_in_executor(None, _img_convert)
-            mime = "image/jpeg" if target == "jpeg" else "image/png"
-            return FileResponse(out_path, filename=f"{base_name}.{ext_out}", media_type=mime)
-
         else:
             return JSONResponse({"error": "Conversion not implemented."}, status_code=501)
 
     except Exception as exc:
         logger.error("Doc conversion error: %s", exc, exc_info=True)
-        return JSONResponse({"error": "Conversion failed. Please check the file is not corrupted or password-protected and try again."}, status_code=500)
+        return JSONResponse({"error": f"Conversion failed: {exc}"}, status_code=500)
     finally:
         def _rm(p):
             import time as _time

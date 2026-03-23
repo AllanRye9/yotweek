@@ -1,78 +1,17 @@
-"""Tests for document converter target-alias normalisation and CV extraction in api/app.py.
+"""Tests for document converter and CV extraction in api/app.py.
 
 These tests verify that:
-  - _DOC_TARGET_ALIASES maps user-friendly target names (pptx, docx, xlsx, jpg)
-    to the internal names used in _DOC_CONVERSIONS.
-  - After alias normalisation, the mapped targets are all present in _DOC_CONVERSIONS
-    for relevant source formats, so conversions that were previously broken now work.
+  - _DOC_CONVERSIONS contains expected source formats and targets.
   - _parse_cv_text() extracts key fields from plain-text CV content (used by
     /api/cv/extract for both PDF and DOCX uploads).
-  - Error messages in the converter are user-friendly (no raw exception traces).
 """
 
 import pytest
 
 from api.app import (
-    _DOC_TARGET_ALIASES,
-    _DOC_TARGET_DISPLAY,
     _DOC_CONVERSIONS,
     _parse_cv_text,
 )
-
-
-# ---------------------------------------------------------------------------
-# Target alias normalisation
-# ---------------------------------------------------------------------------
-
-class TestDocTargetAliases:
-    """_DOC_TARGET_ALIASES maps user-friendly names to the internal names used in _DOC_CONVERSIONS."""
-
-    @pytest.mark.parametrize("alias,expected", [
-        ("pptx",  "powerpoint"),
-        ("docx",  "word"),
-        ("xlsx",  "excel"),
-        ("jpg",   "jpeg"),
-    ])
-    def test_alias_maps_to_correct_internal_name(self, alias, expected):
-        assert _DOC_TARGET_ALIASES[alias] == expected
-
-    @pytest.mark.parametrize("alias", ["pptx", "docx", "xlsx", "jpg"])
-    def test_aliased_target_exists_in_pdf_conversions(self, alias):
-        """After alias normalisation the target must exist in _DOC_CONVERSIONS['pdf']."""
-        internal = _DOC_TARGET_ALIASES[alias]
-        assert internal in _DOC_CONVERSIONS["pdf"], (
-            f"Alias '{alias}' → '{internal}' not found in _DOC_CONVERSIONS['pdf']. "
-            f"PDF converter would reject this target."
-        )
-
-    @pytest.mark.parametrize("alias", ["pptx", "pdf", "jpeg"])
-    def test_aliased_target_exists_in_docx_conversions(self, alias):
-        """After normalisation (if needed) the target must exist in _DOC_CONVERSIONS['docx']."""
-        internal = _DOC_TARGET_ALIASES.get(alias, alias)
-        assert internal in _DOC_CONVERSIONS["docx"], (
-            f"Target '{alias}' → '{internal}' not found in _DOC_CONVERSIONS['docx']."
-        )
-
-    def test_unknown_target_passes_through_unchanged(self):
-        """Targets not in the alias map are returned as-is (so the real lookup handles them)."""
-        assert _DOC_TARGET_ALIASES.get("pdf", "pdf") == "pdf"
-        assert _DOC_TARGET_ALIASES.get("unknown", "unknown") == "unknown"
-
-
-# ---------------------------------------------------------------------------
-# Display names
-# ---------------------------------------------------------------------------
-
-class TestDocTargetDisplay:
-    """_DOC_TARGET_DISPLAY provides human-readable labels for all internal targets."""
-
-    def test_all_common_internal_targets_have_display_names(self):
-        for t in ("word", "excel", "powerpoint", "jpeg", "png", "pdf"):
-            assert t in _DOC_TARGET_DISPLAY, f"No display name for internal target '{t}'"
-
-    def test_display_names_are_non_empty_strings(self):
-        for key, val in _DOC_TARGET_DISPLAY.items():
-            assert isinstance(val, str) and val.strip(), f"Empty display name for key '{key}'"
 
 
 # ---------------------------------------------------------------------------

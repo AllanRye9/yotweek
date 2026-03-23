@@ -78,53 +78,8 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
 
-  // ── Feature-card spotlight animation ──────────────────────────────────────
-  // Rotates the rainbow border glow through the 3 feature cards in order
-  // every 2.5 seconds: 0 → 1 → 2 → 0 → 1 → 2 → …
-  const [activeGlowIndex, setActiveGlowIndex] = useState(0)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveGlowIndex(prev => (prev + 1) % 3)
-    }, 2500)
-    return () => clearInterval(interval)
-  }, [])
-
   // Ref to ActiveDownloads so we can call subscribeToDownload on it
   const activeDownloadsRef = useRef(null)
-
-  // Intersection Observer for scroll-reveal animations
-  const featuresRef = useRef(null)
-  useEffect(() => {
-    const el = featuresRef.current
-    if (!el) return
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach(entry => {
-          if (entry.isIntersecting) {
-            entry.target.querySelectorAll('.feature-card-animate').forEach(card => {
-              card.classList.add('in-view')
-              // Once the initial fade-up animation finishes, lock the final
-              // position as inline styles and drop the animation class so that
-              // .card-glow-active can animate the border without conflicts.
-              card.addEventListener('animationend', (e) => {
-                if (e.animationName === 'fade-up') {
-                  card.style.opacity = '1'
-                  card.style.transform = 'translateY(0)'
-                  // Remove the fade-up animation class so .card-glow-active can
-                  // animate the border freely without any inline/class conflict.
-                  card.classList.remove('feature-card-animate', 'in-view')
-                }
-              }, { once: true })
-            })
-            observer.unobserve(entry.target)
-          }
-        })
-      },
-      { threshold: 0.15 }
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
 
   // Draggable help FAB state
   const fabRef = useRef(null)
@@ -222,11 +177,6 @@ export default function Home() {
     }, 600)
   }, [refreshFiles])
 
-  const handleFeatureCardClick = useCallback((action) => {
-    action()
-    document.querySelector('main')?.scrollIntoView({ behavior: 'smooth' })
-  }, [])
-
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* ── Navbar ── */}
@@ -263,8 +213,7 @@ export default function Home() {
 
           {/* Admin link */}
           {admin && (
-            <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+            <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex">
               Dashboard
             </Link>
           )}
@@ -291,21 +240,19 @@ export default function Home() {
             {admin && (
               <Link
                 to="/const"
-                className="flex items-center gap-2 text-sm text-gray-400 hover:text-white py-1"
+                className="block text-sm text-gray-400 hover:text-white py-1"
                 onClick={() => setMenuOpen(false)}
               >
-                <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
                 🛠 Admin Dashboard
               </Link>
             )}
             {!admin && (
               <Link
                 to="/admin/login"
-                className="flex items-center gap-2 text-sm text-gray-500 hover:text-white py-1"
+                className="block text-sm text-gray-500 hover:text-white py-1"
                 onClick={() => setMenuOpen(false)}
               >
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-900/40 text-green-400 border border-green-700/40">Admin</span>
-                Login
+                Admin Login
               </Link>
             )}
           </div>
@@ -315,16 +262,16 @@ export default function Home() {
       {/* ── Hero ── */}
       <div className="bg-gradient-to-b from-gray-900 to-gray-950 border-b border-gray-800 py-[19px] sm:py-[27px] px-4">
         <div className="max-w-2xl mx-auto text-center">
-          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2 hero-animate-title">
+          <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
             Download <span className="gradient-text">Any Video</span> — Free &amp; Fast
           </h1>
-          <p className="text-gray-400 text-xs sm:text-sm hero-animate-sub">
-            YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites &bull; Document Converter (Word, Excel, PowerPoint, PDF &amp; more) &bull; CV Maker &amp; Generator &bull; No sign-up required.
+          <p className="text-gray-400 text-xs sm:text-sm">
+            YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites. No sign-up required.
           </p>
 
           {/* Animated global stats counters */}
           {stats && (
-            <div className="mt-5 flex justify-center gap-10 sm:gap-16 hero-animate-stats">
+            <div className="mt-5 flex justify-center gap-10 sm:gap-16">
               <AnimatedCounter
                 value={stats.total_downloads}
                 label="Total Downloads"
@@ -338,54 +285,6 @@ export default function Home() {
               />
             </div>
           )}
-        </div>
-      </div>
-
-      {/* ── Animated Features Showcase ── */}
-      <div ref={featuresRef} className="border-b border-gray-800 bg-gray-900/40 py-5 px-4 overflow-hidden">
-        <div className="max-w-5xl mx-auto">
-          <p className="text-center text-xs text-gray-500 uppercase tracking-widest mb-4 font-semibold">What you can do</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {[
-              {
-                icon: '🎬',
-                title: 'Video Downloads',
-                desc: 'Download from YouTube, TikTok, Instagram, Twitter & 1,000+ sites in any quality or format.',
-                action: () => setTab('download'),
-                label: 'Try it →',
-              },
-              {
-                icon: '📄',
-                title: 'CV Generator',
-                desc: 'Build a professional CV with 8 beautiful themes, live preview, and one-click PDF export.',
-                action: () => setTab('cv'),
-                label: 'Make a CV →',
-              },
-              {
-                icon: '🔄',
-                title: 'Doc Converter',
-                desc: 'Convert PDF, Word, Excel, PowerPoint, JPEG and PNG files to any format — instantly.',
-                action: () => setTab('convert'),
-                label: 'Convert a file →',
-              },
-            ].map((f, i) => (
-              <button
-                key={i}
-                className={[
-                  'feature-card-animate text-left bg-gray-900 border border-gray-800 rounded-xl p-4',
-                  'hover:border-gray-600 hover:bg-gray-800/70 transition-all duration-300',
-                  'group focus:outline-none focus:ring-2 focus:ring-red-500/50',
-                  activeGlowIndex === i ? 'card-glow-active' : '',
-                ].filter(Boolean).join(' ')}
-                onClick={() => handleFeatureCardClick(f.action)}
-              >
-                <div className="text-3xl mb-3 feature-icon-float" style={{ animationDelay: `${i * 0.4}s` }}>{f.icon}</div>
-                <h3 className="text-sm font-semibold text-white mb-1">{f.title}</h3>
-                <p className="text-xs text-gray-400 leading-relaxed mb-3">{f.desc}</p>
-                <span className="text-xs font-semibold text-red-400 group-hover:text-red-300 transition-colors">{f.label}</span>
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -441,9 +340,7 @@ export default function Home() {
           {!admin && (
             <>
               {' · '}
-              <Link to="/admin/login" className="inline-flex items-center gap-1 hover:opacity-80 transition-opacity">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-semibold bg-green-900/40 text-green-400 border border-green-700/40">Admin</span>
-              </Link>
+              <Link to="/admin/login" className="hover:text-gray-400 transition-colors">Admin</Link>
             </>
           )}
         </p>

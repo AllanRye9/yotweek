@@ -51,12 +51,7 @@ export default function AdminLogin({ register = false }) {
           <span className="text-3xl">📥</span>
           <span className="gradient-text">yotweek</span>
         </Link>
-        <p className="text-gray-500 text-sm mt-1 flex items-center justify-center gap-2">
-          Admin Panel
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-green-900/40 text-green-400 border border-green-700/50">
-            ● Secure
-          </span>
-        </p>
+        <p className="text-gray-500 text-sm mt-1">Admin Panel</p>
       </div>
 
       <div className="w-full max-w-sm">
@@ -64,7 +59,7 @@ export default function AdminLogin({ register = false }) {
           {/* Tabs */}
           <div className="flex gap-2 mb-6">
             <button
-              className={mode === 'login' ? 'tab-btn-active flex-1 !bg-green-700 hover:!bg-green-600' : 'tab-btn-inactive flex-1'}
+              className={mode === 'login' ? 'tab-btn-active flex-1' : 'tab-btn-inactive flex-1'}
               onClick={() => { setMode('login'); setError(''); setSuccess('') }}
             >
               Sign In
