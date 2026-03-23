@@ -1695,7 +1695,11 @@ def _find_media_file(directory: str) -> str | None:
     return None
 
 
-def _try_alternative_tools_download(url: str, output_dir: str) -> str | None:
+def _try_alternative_tools_download(
+    url: str,
+    output_dir: str,
+    download_id: str | None = None,
+) -> str | None:
     """Try downloading *url* with alternative tools when yt-dlp has failed.
 
     Iterates over :data:`_ALTERNATIVE_TOOL_COMMANDS` in order.  Each tool is
@@ -1703,10 +1707,23 @@ def _try_alternative_tools_download(url: str, output_dir: str) -> str | None:
     failed attempt never interferes with subsequent tools.  Tools not present
     on the system PATH are silently skipped.
 
+    When *download_id* is provided the function checks the download status
+    before starting each tool and terminates running subprocesses immediately
+    if the user cancels the download.
+
     Returns the path of the downloaded file on success, or ``None`` when every
     alternative also fails.
     """
     for tool_label, cmd_template in _ALTERNATIVE_TOOL_COMMANDS:
+        # Check for cancellation before trying the next tool
+        if download_id is not None:
+            with downloads_lock:
+                if downloads.get(download_id, {}).get("status") == "cancelled":
+                    logger.info(
+                        "Alt-tool loop aborted — download %s cancelled", download_id
+                    )
+                    return None
+
         exe = cmd_template[0]
         if shutil.which(exe) is None:
             logger.debug(
@@ -1724,15 +1741,24 @@ def _try_alternative_tools_download(url: str, output_dir: str) -> str | None:
             logger.info(
                 "Alternative tool '%s' — trying: %s", tool_label, " ".join(cmd)
             )
-            # cmd is a list (not a string), so shell=False (the default) applies
-            # and shell injection via the URL is not possible.
-            proc = subprocess.run(
+            # Use Popen so we can terminate on cancellation instead of waiting
+            # the full timeout.
+            proc = subprocess.Popen(
                 cmd,
-                timeout=300,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                check=False,
             )
+            try:
+                stdout, stderr = proc.communicate(timeout=300)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
+                logger.info(
+                    "Alternative tool '%s' timed out after 300 s", tool_label
+                )
+                continue
+
             if proc.returncode == 0:
                 found = _find_media_file(alt_tmp)
                 if found:
@@ -1759,12 +1785,8 @@ def _try_alternative_tools_download(url: str, output_dir: str) -> str | None:
                     "Alternative tool '%s' exited %d: %s",
                     tool_label,
                     proc.returncode,
-                    (proc.stderr or proc.stdout or "")[:200],
+                    (stderr or stdout or "")[:200],
                 )
-        except subprocess.TimeoutExpired:
-            logger.info(
-                "Alternative tool '%s' timed out after 300 s", tool_label
-            )
         except Exception as exc:
             logger.info(
                 "Alternative tool '%s' raised an exception: %s", tool_label, exc
@@ -1773,6 +1795,42 @@ def _try_alternative_tools_download(url: str, output_dir: str) -> str | None:
             shutil.rmtree(alt_tmp, ignore_errors=True)
 
     return None
+
+
+# Extensions of temporary / partial files that yt-dlp may leave behind when a
+# download is cancelled.  Cleaning these up prevents disk clutter.
+_PARTIAL_FILE_EXTS: frozenset[str] = frozenset({
+    ".part", ".ytdl", ".part-Frag0", ".temp",
+})
+
+
+def _cleanup_partial_files(output_template: str) -> None:
+    """Remove partial / temporary download files that match *output_template*.
+
+    yt-dlp typically writes ``<name>.ext.part``, ``<name>.ext.ytdl``,
+    ``<name>.ext.part-Frag0``, and ``<name>.ext.temp`` while a download is in
+    progress.  When the download is cancelled these files are orphaned and
+    should be cleaned up.
+    """
+    folder = os.path.dirname(output_template) or "."
+    base = os.path.splitext(os.path.basename(output_template))[0]
+    # Strip all yt-dlp placeholders like ``%(ext)s``, ``%(title)s``, etc.
+    base = re.sub(r"%\([^)]+\)s", "", base).rstrip(".")
+    if not base:
+        return
+    try:
+        for fname in os.listdir(folder):
+            if not fname.startswith(base):
+                continue
+            if any(fname.endswith(ext) for ext in _PARTIAL_FILE_EXTS):
+                path = os.path.join(folder, fname)
+                try:
+                    os.remove(path)
+                    logger.debug("Cleaned up partial file: %s", path)
+                except OSError:
+                    pass
+    except OSError:
+        pass
 
 
 def format_speed(bytes_per_sec) -> str:
@@ -2270,6 +2328,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                 "status": "cancelled",
                 "end_time": time.time(),
             })
+        _cleanup_partial_files(output_template)
         emit_from_thread("cancelled", {"id": download_id}, room=download_id)
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
@@ -2314,6 +2373,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                         "status": "cancelled",
                         "end_time": time.time(),
                     })
+                _cleanup_partial_files(output_template)
                 emit_from_thread("cancelled", {"id": download_id}, room=download_id)
                 threading.Thread(target=save_downloads_to_disk, daemon=True).start()
                 return
@@ -2321,54 +2381,70 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                 logger.info("Cookieless retry also failed for %s: %s", download_id, retry_err)
                 final_error = retry_err
         # --- Generic fallback chain: try progressively simpler yt-dlp configs ---
-        # Attempted for any URL type so that non-YouTube platforms also benefit.
-        _fallback_strategies = _build_fallback_strategies(ydl_opts)
-        _total_fallbacks = len(_fallback_strategies)
-        for _fb_idx, (_fb_label, _fb_opts) in enumerate(_fallback_strategies, start=1):
-            # Abort the chain early if the user cancelled during a prior strategy
-            with downloads_lock:
-                if downloads.get(download_id, {}).get("status") == "cancelled":
-                    break
-            _fb_backoff = random.uniform(*_FALLBACK_BACKOFF_RANGE)
+        # When info-fetch already reported an error (e.g. "Unsupported URL"),
+        # additional yt-dlp retries are unlikely to help — skip straight to
+        # the alternative tool cluster to save time.
+        _skip_generic_fallbacks = False
+        with downloads_lock:
+            _skip_generic_fallbacks = bool(
+                downloads.get(download_id, {}).get("info_error")
+            )
+        if _skip_generic_fallbacks:
             logger.info(
-                "Download fallback '%s' for %s — sleeping %.1fs then retrying",
-                _fb_label, download_id, _fb_backoff,
+                "Skipping generic yt-dlp fallbacks for %s — info_error was set; "
+                "jumping to alternative tools",
+                download_id,
             )
-            emit_from_thread(
-                "status_update",
-                {
-                    "id": download_id,
-                    "status": "downloading",
-                    "message": (
-                        f"Retrying with a different method… "
-                        f"(attempt {_fb_idx} of {_total_fallbacks})"
-                    ),
-                },
-                room=download_id,
-            )
-            time.sleep(_fb_backoff)
-            try:
-                _do_download(_fb_opts)
-                _finalize_completed()
-                return
-            except yt_dlp.utils.DownloadCancelled:
-                logger.info(
-                    "Download cancelled via hook (fallback '%s'): %s", _fb_label, download_id
-                )
+        else:
+            # Attempted for any URL type so that non-YouTube platforms also benefit.
+            _fallback_strategies = _build_fallback_strategies(ydl_opts)
+            _total_fallbacks = len(_fallback_strategies)
+            for _fb_idx, (_fb_label, _fb_opts) in enumerate(_fallback_strategies, start=1):
+                # Abort the chain early if the user cancelled during a prior strategy
                 with downloads_lock:
-                    downloads[download_id].update({
-                        "status": "cancelled",
-                        "end_time": time.time(),
-                    })
-                emit_from_thread("cancelled", {"id": download_id}, room=download_id)
-                threading.Thread(target=save_downloads_to_disk, daemon=True).start()
-                return
-            except Exception as _fb_err:
+                    if downloads.get(download_id, {}).get("status") == "cancelled":
+                        break
+                _fb_backoff = random.uniform(*_FALLBACK_BACKOFF_RANGE)
                 logger.info(
-                    "Download fallback '%s' also failed for %s: %s",
-                    _fb_label, download_id, _fb_err,
+                    "Download fallback '%s' for %s — sleeping %.1fs then retrying",
+                    _fb_label, download_id, _fb_backoff,
                 )
-                final_error = _fb_err
+                emit_from_thread(
+                    "status_update",
+                    {
+                        "id": download_id,
+                        "status": "downloading",
+                        "message": (
+                            f"Retrying with a different method… "
+                            f"(attempt {_fb_idx} of {_total_fallbacks})"
+                        ),
+                    },
+                    room=download_id,
+                )
+                time.sleep(_fb_backoff)
+                try:
+                    _do_download(_fb_opts)
+                    _finalize_completed()
+                    return
+                except yt_dlp.utils.DownloadCancelled:
+                    logger.info(
+                        "Download cancelled via hook (fallback '%s'): %s", _fb_label, download_id
+                    )
+                    with downloads_lock:
+                        downloads[download_id].update({
+                            "status": "cancelled",
+                            "end_time": time.time(),
+                        })
+                    _cleanup_partial_files(output_template)
+                    emit_from_thread("cancelled", {"id": download_id}, room=download_id)
+                    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                    return
+                except Exception as _fb_err:
+                    logger.info(
+                        "Download fallback '%s' also failed for %s: %s",
+                        _fb_label, download_id, _fb_err,
+                    )
+                    final_error = _fb_err
         # All strategies exhausted — check if the download was cancelled mid-chain
         with downloads_lock:
             if downloads.get(download_id, {}).get("status") == "cancelled":
@@ -2383,7 +2459,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
             },
             room=download_id,
         )
-        _alt_file = _try_alternative_tools_download(url, DOWNLOAD_FOLDER)
+        _alt_file = _try_alternative_tools_download(url, DOWNLOAD_FOLDER, download_id=download_id)
         if _alt_file is not None and os.path.isfile(_alt_file):
             _alt_fname = os.path.basename(_alt_file)
             _alt_size = os.path.getsize(_alt_file)

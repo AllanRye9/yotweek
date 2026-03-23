@@ -23,6 +23,8 @@ from api.app import (
     _try_alternative_tools_download,
     _ALTERNATIVE_TOOL_COMMANDS,
     _ALT_MEDIA_EXTS,
+    _cleanup_partial_files,
+    _PARTIAL_FILE_EXTS,
 )
 
 
@@ -179,12 +181,11 @@ class TestTryAlternativeToolsDownload:
         """All tools installed but all return non-zero exit code → None."""
         failed_proc = MagicMock()
         failed_proc.returncode = 1
-        failed_proc.stderr = "error"
-        failed_proc.stdout = ""
+        failed_proc.communicate.return_value = ("", "error")
 
         with patch("api.app.shutil.which", return_value="/usr/bin/fake"), \
              tempfile.TemporaryDirectory() as tmpdir, \
-             patch("api.app.subprocess.run", return_value=failed_proc):
+             patch("api.app.subprocess.Popen", return_value=failed_proc):
             result = _try_alternative_tools_download(
                 "https://example.com/video", tmpdir
             )
@@ -202,21 +203,19 @@ class TestTryAlternativeToolsDownload:
                     captured_alt_tmp.append(path)
                 real_makedirs(path, **kwargs)
 
-            success_proc = MagicMock()
-            success_proc.returncode = 0
-            success_proc.stderr = ""
-            success_proc.stdout = ""
-
-            def fake_run(cmd, **kwargs):
+            def fake_popen(cmd, **kwargs):
                 # Plant a media file in the alt_tmp directory
                 if captured_alt_tmp:
                     media = os.path.join(captured_alt_tmp[-1], "video.mp4")
                     open(media, "w").close()
-                return success_proc
+                proc = MagicMock()
+                proc.returncode = 0
+                proc.communicate.return_value = ("", "")
+                return proc
 
             with patch("api.app.shutil.which", return_value="/usr/bin/fake"), \
                  patch("api.app.os.makedirs", side_effect=fake_makedirs), \
-                 patch("api.app.subprocess.run", side_effect=fake_run):
+                 patch("api.app.subprocess.Popen", side_effect=fake_popen):
                 result = _try_alternative_tools_download(
                     "https://example.com/video", output_dir
                 )
@@ -228,11 +227,6 @@ class TestTryAlternativeToolsDownload:
         """A tool that exits 0 but creates no media file must not block the next."""
         call_count = {"n": 0}
 
-        success_proc = MagicMock()
-        success_proc.returncode = 0
-        success_proc.stderr = ""
-        success_proc.stdout = ""
-
         with tempfile.TemporaryDirectory() as output_dir:
             captured_alt_tmp: list[str] = []
             real_makedirs = os.makedirs
@@ -242,17 +236,20 @@ class TestTryAlternativeToolsDownload:
                     captured_alt_tmp.append(path)
                 real_makedirs(path, **kwargs)
 
-            def fake_run(cmd, **kwargs):
+            def fake_popen(cmd, **kwargs):
                 call_count["n"] += 1
                 # Only the second call plants a file
                 if call_count["n"] == 2 and captured_alt_tmp:
                     media = os.path.join(captured_alt_tmp[-1], "audio.mp3")
                     open(media, "w").close()
-                return success_proc
+                proc = MagicMock()
+                proc.returncode = 0
+                proc.communicate.return_value = ("", "")
+                return proc
 
             with patch("api.app.shutil.which", return_value="/usr/bin/fake"), \
                  patch("api.app.os.makedirs", side_effect=fake_makedirs), \
-                 patch("api.app.subprocess.run", side_effect=fake_run):
+                 patch("api.app.subprocess.Popen", side_effect=fake_popen):
                 result = _try_alternative_tools_download(
                     "https://example.com/video", output_dir
                 )
@@ -264,10 +261,6 @@ class TestTryAlternativeToolsDownload:
     def test_handles_timeout_gracefully(self):
         """subprocess.TimeoutExpired must be caught; next tool is tried."""
         call_count = {"n": 0}
-        success_proc = MagicMock()
-        success_proc.returncode = 0
-        success_proc.stderr = ""
-        success_proc.stdout = ""
 
         with tempfile.TemporaryDirectory() as output_dir:
             captured_alt_tmp: list[str] = []
@@ -278,19 +271,24 @@ class TestTryAlternativeToolsDownload:
                     captured_alt_tmp.append(path)
                 real_makedirs(path, **kwargs)
 
-            def fake_run(cmd, **kwargs):
+            def fake_popen(cmd, **kwargs):
                 call_count["n"] += 1
+                proc = MagicMock()
                 if call_count["n"] == 1:
-                    raise subprocess.TimeoutExpired(cmd, 300)
-                # Second call succeeds with a media file
-                if captured_alt_tmp:
-                    media = os.path.join(captured_alt_tmp[-1], "video.webm")
-                    open(media, "w").close()
-                return success_proc
+                    proc.communicate.side_effect = subprocess.TimeoutExpired(cmd, 300)
+                    proc.kill.return_value = None
+                else:
+                    # Second call succeeds with a media file
+                    if captured_alt_tmp:
+                        media = os.path.join(captured_alt_tmp[-1], "video.webm")
+                        open(media, "w").close()
+                    proc.returncode = 0
+                    proc.communicate.return_value = ("", "")
+                return proc
 
             with patch("api.app.shutil.which", return_value="/usr/bin/fake"), \
                  patch("api.app.os.makedirs", side_effect=fake_makedirs), \
-                 patch("api.app.subprocess.run", side_effect=fake_run):
+                 patch("api.app.subprocess.Popen", side_effect=fake_popen):
                 result = _try_alternative_tools_download(
                     "https://example.com/video", output_dir
                 )
@@ -302,8 +300,69 @@ class TestTryAlternativeToolsDownload:
         """An unexpected exception from subprocess must not propagate."""
         with patch("api.app.shutil.which", return_value="/usr/bin/fake"), \
              tempfile.TemporaryDirectory() as tmpdir, \
-             patch("api.app.subprocess.run", side_effect=OSError("no such file")):
+             patch("api.app.subprocess.Popen", side_effect=OSError("no such file")):
             result = _try_alternative_tools_download(
                 "https://example.com/video", tmpdir
             )
         assert result is None
+
+    def test_respects_cancellation_between_tools(self):
+        """When download_id is provided and download is cancelled, loop aborts."""
+        with patch("api.app.shutil.which", return_value="/usr/bin/fake"), \
+             tempfile.TemporaryDirectory() as tmpdir, \
+             patch("api.app.downloads_lock"), \
+             patch("api.app.downloads", {"test-id": {"status": "cancelled"}}):
+            result = _try_alternative_tools_download(
+                "https://example.com/video", tmpdir, download_id="test-id"
+            )
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# _cleanup_partial_files: remove partial downloads on cancellation
+# ---------------------------------------------------------------------------
+
+class TestCleanupPartialFiles:
+    """_cleanup_partial_files must remove .part and .ytdl files."""
+
+    def test_removes_part_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            part = os.path.join(tmpdir, "video.mp4.part")
+            open(part, "w").close()
+            template = os.path.join(tmpdir, "video.%(ext)s")
+            _cleanup_partial_files(template)
+            assert not os.path.exists(part)
+
+    def test_removes_ytdl_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ytdl = os.path.join(tmpdir, "video.mp4.ytdl")
+            open(ytdl, "w").close()
+            template = os.path.join(tmpdir, "video.%(ext)s")
+            _cleanup_partial_files(template)
+            assert not os.path.exists(ytdl)
+
+    def test_leaves_completed_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            complete = os.path.join(tmpdir, "video.mp4")
+            open(complete, "w").close()
+            template = os.path.join(tmpdir, "video.%(ext)s")
+            _cleanup_partial_files(template)
+            assert os.path.exists(complete)
+
+    def test_ignores_unrelated_files(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            other = os.path.join(tmpdir, "other.mp4.part")
+            open(other, "w").close()
+            template = os.path.join(tmpdir, "video.%(ext)s")
+            _cleanup_partial_files(template)
+            assert os.path.exists(other)
+
+    def test_handles_empty_directory(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            template = os.path.join(tmpdir, "video.%(ext)s")
+            # Should not raise
+            _cleanup_partial_files(template)
+
+    def test_partial_ext_registry(self):
+        assert ".part" in _PARTIAL_FILE_EXTS
+        assert ".ytdl" in _PARTIAL_FILE_EXTS

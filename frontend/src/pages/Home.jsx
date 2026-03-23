@@ -373,7 +373,7 @@ export default function Home() {
                 key={i}
                 className={[
                   'feature-card-animate text-left bg-gray-900 border border-gray-800 rounded-xl p-4',
-                  'hover:border-gray-600 hover:bg-gray-800/70 transition-all duration-200',
+                  'hover:border-gray-600 hover:bg-gray-800/70 transition-all duration-300',
                   'group focus:outline-none focus:ring-2 focus:ring-red-500/50',
                   activeGlowIndex === i ? 'card-glow-active' : '',
                 ].filter(Boolean).join(' ')}
