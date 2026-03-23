@@ -633,3 +633,38 @@ html:not(.theme-dark) .bg-gradient-to-b {
     max-width: 100% !important;
   }
 }
+
+/* ── Feature-card spotlight animations ───────────────────────────────────── */
+
+/* Rainbow border pulse: cycles through the visible spectrum every second. */
+@keyframes card-border-pulse {
+  0%   { border-color: #ff4444; box-shadow: 0 0 0 2px rgba(255,68,68,.15), 0 0 18px 4px rgba(255,68,68,.45); }
+  16%  { border-color: #ff9900; box-shadow: 0 0 0 2px rgba(255,153,0,.15), 0 0 18px 4px rgba(255,153,0,.45); }
+  33%  { border-color: #ffe000; box-shadow: 0 0 0 2px rgba(255,224,0,.15), 0 0 18px 4px rgba(255,224,0,.45); }
+  50%  { border-color: #00e676; box-shadow: 0 0 0 3px rgba(0,230,118,.2),  0 0 22px 6px rgba(0,230,118,.5);  }
+  66%  { border-color: #00b0ff; box-shadow: 0 0 0 2px rgba(0,176,255,.15), 0 0 18px 4px rgba(0,176,255,.45); }
+  83%  { border-color: #d500f9; box-shadow: 0 0 0 2px rgba(213,0,249,.15), 0 0 18px 4px rgba(213,0,249,.45); }
+  100% { border-color: #ff4444; box-shadow: 0 0 0 2px rgba(255,68,68,.15), 0 0 18px 4px rgba(255,68,68,.45); }
+}
+
+/* Full 360° Y-axis coin-flip so the card spins and returns face-up. */
+@keyframes card-flip-anim {
+  0%   { transform: perspective(700px) rotateY(0deg)   scale(1);    }
+  25%  { transform: perspective(700px) rotateY(90deg)  scale(0.96); }
+  50%  { transform: perspective(700px) rotateY(180deg) scale(1);    }
+  75%  { transform: perspective(700px) rotateY(270deg) scale(0.96); }
+  100% { transform: perspective(700px) rotateY(360deg) scale(1);    }
+}
+
+/* Applied to the card that currently has the spotlight */
+.card-glow-active {
+  animation: card-border-pulse 1s ease-in-out;
+  border-width: 2px !important;
+  /* Disable the hover transition on border/shadow so the animation is crisp */
+  transition: background-color 0.2s, color 0.2s !important;
+}
+
+/* Applied to a card that is doing the flip  */
+.card-flip-active {
+  animation: card-flip-anim 0.75s cubic-bezier(0.4, 0, 0.6, 1);
+}

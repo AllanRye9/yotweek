@@ -78,6 +78,29 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
 
+  // ── Feature-card spotlight animation ──────────────────────────────────────
+  // Cycles the rainbow border glow through the 3 feature cards one per second.
+  // After every complete cycle (3 advances) a random card gets a coin-flip.
+  const [activeGlowIndex, setActiveGlowIndex] = useState(0)
+  const [flipIndex, setFlipIndex]             = useState(-1)
+  const glowCycleCount = useRef(0)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveGlowIndex(prev => {
+        const next = (prev + 1) % 3
+        glowCycleCount.current += 1
+        // After each full cycle through all 3 cards, randomly flip one card.
+        if (glowCycleCount.current % 3 === 0) {
+          const idx = Math.floor(Math.random() * 3)
+          setFlipIndex(idx)
+          setTimeout(() => setFlipIndex(-1), 800)
+        }
+        return next
+      })
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
+
   // Ref to ActiveDownloads so we can call subscribeToDownload on it
   const activeDownloadsRef = useRef(null)
 
@@ -348,7 +371,13 @@ export default function Home() {
             ].map((f, i) => (
               <button
                 key={i}
-                className="feature-card-animate text-left bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-600 hover:bg-gray-800/70 transition-all duration-200 group focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                className={[
+                  'feature-card-animate text-left bg-gray-900 border border-gray-800 rounded-xl p-4',
+                  'hover:border-gray-600 hover:bg-gray-800/70 transition-all duration-200',
+                  'group focus:outline-none focus:ring-2 focus:ring-red-500/50',
+                  activeGlowIndex === i ? 'card-glow-active' : '',
+                  flipIndex === i ? 'card-flip-active' : '',
+                ].filter(Boolean).join(' ')}
                 onClick={() => handleFeatureCardClick(f.action)}
               >
                 <div className="text-3xl mb-3 feature-icon-float" style={{ animationDelay: `${i * 0.4}s` }}>{f.icon}</div>

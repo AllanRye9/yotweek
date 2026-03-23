@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { convertDoc } from '../api'
+import { convertDoc, triggerBlobDownload } from '../api'
 
 // Conversion matrix: source extension → available target formats
 const CONVERSION_MAP = {
@@ -137,10 +137,7 @@ export default function DocConverter() {
       const m = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
       if (m) outName = m[1].replace(/['"]/g, '').trim()
 
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = outName; a.click()
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(blob, outName)
       setStatus({ type: 'success', msg: `Converted and downloaded as "${outName}".` })
     } catch (err) {
       setStatus({ type: 'error', msg: err.message || 'Conversion failed.' })

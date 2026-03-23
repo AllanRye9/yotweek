@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { listFiles, deleteFile, downloadUrl, streamUrl, downloadZip } from '../api'
+import { listFiles, deleteFile, downloadUrl, streamUrl, downloadZip, triggerBlobDownload } from '../api'
 import { SESSION_ID } from '../session'
 import { useAuth } from '../App'
 
@@ -94,11 +94,7 @@ export default function FileList({ version }) {
       const res = await downloadZip([...selected])
       const blob = res instanceof Response ? await res.blob() : null
       if (blob) {
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = `downloads_${new Date().toISOString().slice(0,10)}.zip`
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+        triggerBlobDownload(blob, `downloads_${new Date().toISOString().slice(0,10)}.zip`)
       }
     } catch (err) {
       alert(err.message || 'Failed to create ZIP')
@@ -111,11 +107,7 @@ export default function FileList({ version }) {
       const res = await downloadZip(files.map(f => f.name))
       const blob = res instanceof Response ? await res.blob() : null
       if (blob) {
-        const a = document.createElement('a')
-        a.href = URL.createObjectURL(blob)
-        a.download = `all_downloads_${new Date().toISOString().slice(0,10)}.zip`
-        a.click()
-        setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+        triggerBlobDownload(blob, `all_downloads_${new Date().toISOString().slice(0,10)}.zip`)
       }
     } catch (err) {
       alert(err.message || 'Failed to create ZIP')

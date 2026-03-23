@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { generateCV, extractCV } from '../api'
+import { generateCV, extractCV, triggerBlobDownload } from '../api'
 
 const INITIAL = {
   name: '', email: '', phone: '', location: '',
@@ -397,10 +397,7 @@ export default function CVGenerator() {
       }
       const blob = await res.blob()
       if (blob.size === 0) throw new Error('CV generation produced an empty file.')
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url; a.download = 'cv.pdf'; a.click()
-      URL.revokeObjectURL(url)
+      triggerBlobDownload(blob, 'cv.pdf')
       setStatus({ type: 'success', msg: 'CV generated and downloaded!' })
     } catch (err) {
       setStatus({ type: 'error', msg: err.message || 'Generation failed' })

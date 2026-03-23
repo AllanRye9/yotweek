@@ -3,6 +3,45 @@
  * All requests go to the same origin (served by FastAPI).
  */
 
+/**
+ * Cross-browser (including Safari / iOS Safari) blob download helper.
+ *
+ * Safari quirks addressed:
+ *  - Desktop Safari requires the <a> element to be appended to the DOM before
+ *    .click() has any effect.
+ *  - iOS Safari ignores the `download` attribute on blob: URLs entirely; we
+ *    fall back to window.open() so the file opens in a new tab where the user
+ *    can long-press → "Download Linked File".
+ *
+ * @param {Blob} blob        - The file blob to download.
+ * @param {string} filename  - Suggested filename for the download.
+ */
+export function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream
+  if (isIOS) {
+    // iOS Safari doesn't honour <a download> for blob: URLs.
+    // Open in a new tab so the user can save manually.
+    window.open(url, '_blank', 'noopener')
+    // Keep the object URL alive for 10 s so the tab has time to load.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  } else {
+    // All other browsers (including desktop Safari which needs the element in
+    // the DOM before the click fires).
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.style.display = 'none'
+    document.body.appendChild(a)
+    a.click()
+    // Small delay before removal so the browser has time to start the download.
+    setTimeout(() => {
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    }, 150)
+  }
+}
+
 const BASE = ''  // same origin
 
 async function request(method, path, body = null, isJSON = true) {
