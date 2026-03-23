@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
 import DownloadForm from '../components/DownloadForm'
@@ -68,6 +68,105 @@ const TABS = [
   { id: 'cv',       label: '📄 CV Generator', icon: '📄' },
   { id: 'convert',  label: '🔄 Doc Converter', icon: '🔄' },
 ]
+
+const SERVICE_CARDS = [
+  { id: 'download', icon: '⬇️', title: 'Video Downloader', desc: 'YouTube, TikTok, Instagram & 1,000+ sites' },
+  { id: 'cv',       icon: '📄', title: 'CV Generator',     desc: 'Professional resumes with live preview' },
+  { id: 'convert',  icon: '🔄', title: 'Doc Converter',    desc: 'PDF, Word, Excel, images & more' },
+]
+
+/** Three animated service cards with glowing borders that randomly interchange. */
+function ServiceCards({ activeTab, onSelectTab }) {
+  const [order, setOrder] = useState([0, 1, 2])
+  const cardRefs = useRef({})
+  const positionsRef = useRef({})
+  const reducedMotion = useRef(
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  )
+
+  // Save bounding-rect positions for FLIP animation
+  const savePositions = useCallback(() => {
+    SERVICE_CARDS.forEach(c => {
+      const el = cardRefs.current[c.id]
+      if (el) positionsRef.current[c.id] = el.getBoundingClientRect()
+    })
+  }, [])
+
+  // FLIP: after React re-orders the DOM, animate cards from old → new positions
+  useLayoutEffect(() => {
+    const prev = positionsRef.current
+    if (Object.keys(prev).length === 0) {
+      savePositions()
+      return
+    }
+    if (reducedMotion.current) {
+      savePositions()
+      return
+    }
+
+    SERVICE_CARDS.forEach(card => {
+      const el = cardRefs.current[card.id]
+      if (!el) return
+      const oldRect = prev[card.id]
+      if (!oldRect) return
+      const newRect = el.getBoundingClientRect()
+      const dx = oldRect.left - newRect.left
+      const dy = oldRect.top  - newRect.top
+      if (dx === 0 && dy === 0) return
+
+      el.style.transform  = 'translate(' + dx + 'px,' + dy + 'px)'
+      el.style.transition = 'none'
+      // Force reflow so the inverse transform is applied before we animate
+      void el.offsetHeight
+      el.style.transition = 'transform 0.8s cubic-bezier(.4,0,.2,1)'
+      el.style.transform  = ''
+    })
+
+    const tid = setTimeout(savePositions, 850)
+    return () => clearTimeout(tid)
+  }, [order, savePositions])
+
+  // Randomly swap two cards every ~4 s
+  useEffect(() => {
+    if (reducedMotion.current) return
+    const id = setInterval(() => {
+      savePositions()
+      setOrder(prev => {
+        const next = prev.slice()
+        const a = Math.floor(Math.random() * 3)
+        let b
+        do { b = Math.floor(Math.random() * 3) } while (b === a)
+        ;[next[a], next[b]] = [next[b], next[a]]
+        return next
+      })
+    }, 4000)
+    return () => clearInterval(id)
+  }, [savePositions])
+
+  return (
+    <div className="service-cards-grid" role="tablist" aria-label="Services">
+      {order.map(idx => {
+        const c = SERVICE_CARDS[idx]
+        const isActive = activeTab === c.id
+        return (
+          <button
+            key={c.id}
+            ref={el => { cardRefs.current[c.id] = el }}
+            role="tab"
+            aria-selected={isActive}
+            className={'service-card' + (isActive ? ' service-card-active' : '')}
+            onClick={() => onSelectTab(c.id)}
+          >
+            <span className="service-card-icon" aria-hidden="true">{c.icon}</span>
+            <div className="service-card-title">{c.title}</div>
+            <div className="service-card-desc">{c.desc}</div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function Home() {
   const { admin } = useAuth()
@@ -290,18 +389,10 @@ export default function Home() {
 
       {/* ── Main Content ── */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-[15px] sm:pt-[19px] pb-20 sm:pb-8">
-        {/* Tab buttons */}
-        <div className="flex gap-2 mb-[15px] overflow-x-auto pb-1 scrollbar-thin">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              className={tab === t.id ? 'tab-btn-active whitespace-nowrap' : 'tab-btn-inactive whitespace-nowrap'}
-              onClick={() => setTab(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+        {/* Animated service cards — glowing borders, random interchange */}
+        <ServiceCards activeTab={tab} onSelectTab={setTab} />
+
+        <div className="h-4" />
 
         {/* Tab panels */}
         <div className="card">
