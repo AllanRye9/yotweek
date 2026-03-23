@@ -502,6 +502,44 @@
             background: #f8faff;
             animation: slideIn 0.3s ease-out;
         }
+        /* ── Rotating border animation for actively downloading cards ── */
+        /* Only the border rotates; the card content remains fully visible. */
+        /* .dl-card-active: transparent background so the ::before conic-gradient
+           shows through at the 2 px border strip. The ::after pseudo-element
+           (z-index:1, inset:2px) restores the #f8faff card fill; direct children
+           sit on z-index:2 and remain fully visible at all times.
+           Fallback for browsers without conic-gradient: a solid blue border is
+           kept via the base .dl-card rule (border stays as-is if the pseudo-
+           element doesn't render). */
+        .dl-card-active {
+            position: relative;
+            border: none;
+            background: transparent; /* ::after provides the interior fill */
+        }
+        .dl-card-active::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            border-radius: 14px;
+            background: conic-gradient(#3b82f6, #60a5fa, #93c5fd, #60a5fa, #3b82f6);
+            animation: dlBorderSpin 2s linear infinite;
+            z-index: 0;
+        }
+        .dl-card-active::after {
+            content: '';
+            position: absolute;
+            inset: 2px;
+            border-radius: 10px;
+            background: #f8faff; /* matches .dl-card background */
+            z-index: 1;
+        }
+        .dl-card-active > * {
+            position: relative;
+            z-index: 2;
+        }
+        @keyframes dlBorderSpin {
+            to { transform: rotate(360deg); }
+        }
         .dl-card-header {
             display: flex;
             align-items: center;
@@ -1059,12 +1097,12 @@
         #conn-dot.error { background: #ef4444; }
 
         @keyframes slideUp {
-            from { opacity: 0; transform: translateY(18px); }
-            to   { opacity: 1; transform: translateY(0); }
+            from { transform: translateY(18px); }
+            to   { transform: translateY(0); }
         }
         @keyframes slideIn {
-            from { opacity: 0; transform: translateX(-8px); }
-            to   { opacity: 1; transform: translateX(0); }
+            from { transform: translateX(-8px); }
+            to   { transform: translateX(0); }
         }
 
         /* ── Download progress pop-up ── */
@@ -3698,6 +3736,9 @@
                     if (titleEl) titleEl.innerHTML = `<i class="fas fa-video"></i>${escHtml(dl.title)}`;
                 }
 
+                // Apply rotating border only while the download is actively running
+                card.classList.toggle('dl-card-active', dl.status === 'downloading');
+
                 // Update progress bar in-place so CSS transition animates smoothly
                 const fill = card.querySelector('.progress-fill');
                 if (isQueued) {
@@ -3869,6 +3910,9 @@
                     const titleEl = card.querySelector('.dl-card-title');
                     if (titleEl) titleEl.innerHTML = `<i class="fas fa-video"></i>${escHtml(dl.title)}`;
                 }
+
+                // Apply rotating border only while the download is actively running
+                card.classList.toggle('dl-card-active', dl.status === 'downloading');
 
                 // Update progress bar in-place so CSS transition animates smoothly
                 const fill = card.querySelector('.progress-fill');
