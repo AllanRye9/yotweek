@@ -79,7 +79,7 @@ export default function Home() {
   const [helpOpen, setHelpOpen] = useState(false)
 
   // ── Feature-card spotlight animation ──────────────────────────────────────
-  // Cycles the rainbow border glow through the 3 feature cards one per second.
+  // Cycles the rainbow border glow through the 3 feature cards every 2.5 seconds.
   // After every complete cycle (3 advances) a random card gets a coin-flip.
   const [activeGlowIndex, setActiveGlowIndex] = useState(0)
   const [flipIndex, setFlipIndex]             = useState(-1)
@@ -93,11 +93,11 @@ export default function Home() {
         if (glowCycleCount.current % 3 === 0) {
           const idx = Math.floor(Math.random() * 3)
           setFlipIndex(idx)
-          setTimeout(() => setFlipIndex(-1), 800)
+          setTimeout(() => setFlipIndex(-1), 2000)
         }
         return next
       })
-    }, 1000)
+    }, 2500)
     return () => clearInterval(interval)
   }, [])
 
@@ -115,6 +115,18 @@ export default function Home() {
           if (entry.isIntersecting) {
             entry.target.querySelectorAll('.feature-card-animate').forEach(card => {
               card.classList.add('in-view')
+              // Once the initial fade-up animation finishes, lock the final
+              // styles as inline values.  This prevents the animation from
+              // restarting (and briefly showing opacity:0) whenever the
+              // card-glow-active or card-flip-active class overrides and then
+              // removes the CSS animation property.
+              card.addEventListener('animationend', (e) => {
+                if (e.animationName === 'fade-up') {
+                  card.style.opacity = '1'
+                  card.style.transform = 'translateY(0)'
+                  card.style.animation = 'none'
+                }
+              }, { once: true })
             })
             observer.unobserve(entry.target)
           }

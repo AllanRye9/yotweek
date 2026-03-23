@@ -658,7 +658,7 @@ html:not(.theme-dark) .bg-gradient-to-b {
 
 /* Applied to the card that currently has the spotlight */
 .card-glow-active {
-  animation: card-border-pulse 1s ease-in-out;
+  animation: card-border-pulse 2.5s ease-in-out;
   border-width: 2px !important;
   /* Disable the hover transition on border/shadow so the animation is crisp */
   transition: background-color 0.2s, color 0.2s !important;
@@ -666,5 +666,5 @@ html:not(.theme-dark) .bg-gradient-to-b {
 
 /* Applied to a card that is doing the flip  */
 .card-flip-active {
-  animation: card-flip-anim 0.75s cubic-bezier(0.4, 0, 0.6, 1);
+  animation: card-flip-anim 1.875s cubic-bezier(0.4, 0, 0.6, 1);
 }
