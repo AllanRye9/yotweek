@@ -180,6 +180,9 @@ export default function Home() {
   // Ref to ActiveDownloads so we can call subscribeToDownload on it
   const activeDownloadsRef = useRef(null)
 
+  // Ref to the tab-panel container so we can scroll to it on card click
+  const tabPanelRef = useRef(null)
+
   // Draggable help FAB state
   const fabRef = useRef(null)
   const fabDrag = useRef({ active: false, moved: false, startX: 0, startY: 0, origRight: 24, origBottom: 24 })
@@ -275,6 +278,14 @@ export default function Home() {
       fileListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 600)
   }, [refreshFiles])
+
+  // When a card is clicked, switch tab and scroll the feature panel into view
+  const handleSelectTab = useCallback((id) => {
+    setTab(id)
+    setTimeout(() => {
+      tabPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 100)
+  }, [])
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
@@ -390,12 +401,12 @@ export default function Home() {
       {/* ── Main Content ── */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-[15px] sm:pt-[19px] pb-20 sm:pb-8">
         {/* Animated service cards — glowing borders, random interchange */}
-        <ServiceCards activeTab={tab} onSelectTab={setTab} />
+        <ServiceCards activeTab={tab} onSelectTab={handleSelectTab} />
 
         <div className="h-4" />
 
         {/* Tab panels */}
-        <div className="card">
+        <div className="card" ref={tabPanelRef}>
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'cv'       && <CVGenerator />}
           {tab === 'convert'  && <DocConverter />}
