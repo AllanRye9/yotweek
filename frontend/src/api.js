@@ -265,8 +265,8 @@ export const scanATS = (cvText, jobDescription, file = null) => {
 export const userRegister = (name, email, password, role = 'passenger') =>
   request('POST', '/api/auth/register', { name, email, password, role })
 
-export const userLogin = (email, password) =>
-  request('POST', '/api/auth/login', { email, password })
+export const userLogin = (email, password, remember_me = false) =>
+  request('POST', '/api/auth/login', { email, password, remember_me })
 
 export const userLogout = () => request('POST', '/api/auth/logout', {})
 
@@ -274,6 +274,24 @@ export const getUserProfile = () => request('GET', '/api/auth/me')
 
 export const updateUserLocation = (lat, lng, location_name = '') =>
   request('PUT', '/api/auth/profile', { lat, lng, location_name })
+
+export const requestMagicLink = (email) =>
+  request('POST', '/api/auth/magic_link', { email })
+
+export const verifyMagicLink = (token) =>
+  request('POST', '/api/auth/magic_link/verify', { token })
+
+export const driverApply = (vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate) =>
+  request('POST', '/api/auth/driver_apply', { vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate })
+
+export const getDriverApplication = () => request('GET', '/api/auth/driver_application')
+
+export const getAdminDriverApplications = () => request('GET', '/api/admin/driver_applications')
+
+export const approveDriverApplication = (appId, approved) =>
+  request('POST', `/api/admin/driver_applications/${encodeURIComponent(appId)}/approve`, { approved })
+
+export const getRideHistory = () => request('GET', '/api/rides/history')
 
 // ── Ride Sharing ──────────────────────────────────────────────────────────────
 
