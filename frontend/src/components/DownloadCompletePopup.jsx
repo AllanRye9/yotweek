@@ -1,4 +1,4 @@
-import { downloadUrl, streamUrl, deleteFile } from '../api'
+import { downloadUrl, streamUrl, deleteFile, triggerBlobDownload } from '../api'
 
 const AUDIO_EXTS = new Set(['mp3','m4a','ogg','wav','opus','flac','aac','weba'])
 const VIDEO_EXTS = new Set(['mp4','webm','mkv','avi','mov','ts','3gp'])
@@ -28,14 +28,23 @@ export default function DownloadCompletePopup({ dl, onClose, onDelete }) {
     window.open(streamUrl(filename), '_blank')
   }
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!filename) return
-    const a = document.createElement('a')
-    a.href     = downloadUrl(filename)
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
+    try {
+      const res = await fetch(downloadUrl(filename), { credentials: 'include' })
+      if (!res.ok) throw new Error('Download failed')
+      const blob = await res.blob()
+      triggerBlobDownload(blob, filename)
+    } catch (err) {
+      // Fallback: direct navigation (e.g. if fetch fails due to CORS or large file)
+      console.warn('Blob download failed, falling back to direct navigation:', err)
+      const a = document.createElement('a')
+      a.href     = downloadUrl(filename)
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+    }
   }
 
   const handleDelete = async () => {

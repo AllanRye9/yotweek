@@ -1447,19 +1447,24 @@ def _get_yt_extractor_args() -> dict:
     """
     # ⚠️ DO NOT REMOVE "default" — see docstring above and PR #78
     # web_embedded + tv: no POT required, SUPPORTS_COOKIES=True — reliable fallbacks
-    args: dict = {"player_client": ["default", "web_embedded", "tv"]}
+    # mweb (Mobile Web, m.youtube.com): POT-free with distinct bot-detection heuristics
+    args: dict = {"player_client": ["default", "web_embedded", "tv", "mweb"]}
     return {"youtube": args}
 
 
 def _get_cookieless_extractor_args() -> dict:
     """Build YouTube extractor args using only clients that work without authentication.
 
-    ``web_embedded`` and ``tv`` require no PO tokens and no cookies to fetch
-    publicly available videos.  These clients are used as a last-resort fallback
+    ``web_embedded``, ``tv``, and ``mweb`` require no PO tokens and no cookies to
+    fetch publicly available videos.  These clients are used as a last-resort fallback
     when the normal extraction attempt triggers bot-detection and no cookies file
     is available, giving the best chance of downloading without authentication.
+
+    ``mweb`` (Mobile Web, m.youtube.com) is included for its distinct
+    bot-detection heuristics — it uses different rate-limiting thresholds and
+    is POT-free, making it a useful additional fallback.
     """
-    return {"youtube": {"player_client": ["web_embedded", "tv"]}}
+    return {"youtube": {"player_client": ["web_embedded", "tv", "mweb"]}}
 
 
 def _get_cookie_opts() -> dict:
@@ -1492,6 +1497,17 @@ _AUTH_PATTERNS = (
     "requiring a captcha",
 )
 
+# DRM protection patterns emitted by yt-dlp
+_DRM_PATTERNS = (
+    "drm protected",
+    "this video is drm",
+    "drm-protected",
+    "widevine",
+    "playready",
+    "fairplay",
+    "is drm",
+)
+
 
 def _is_auth_error(error_msg: str) -> bool:
     """Return ``True`` if *error_msg* matches a known authentication/bot-detection pattern."""
@@ -1504,6 +1520,124 @@ def _is_auth_error(error_msg: str) -> bool:
     return False
 
 
+def _is_drm_error(error_msg: str) -> bool:
+    """Return ``True`` if *error_msg* indicates DRM-protected content.
+
+    DRM (Digital Rights Management) errors cannot be resolved by switching
+    player clients or using alternative authentication.  When detected, the
+    downloader should try alternative tools (gallery-dl, you-get, streamlink)
+    which may be able to fetch DRM-free versions of the same content.
+    """
+    lower = error_msg.lower()
+    return any(p in lower for p in _DRM_PATTERNS)
+
+
+# ── Alternative tool fallback ─────────────────────────────────────────────────
+
+# Media file extensions that alternative tools may produce
+_ALT_MEDIA_EXTS: tuple[str, ...] = (
+    ".mp4", ".webm", ".mkv", ".avi", ".mov", ".ts", ".3gp",
+    ".mp3", ".m4a", ".ogg", ".wav", ".opus", ".flac", ".aac",
+    ".flv", ".wmv", ".m4v",
+)
+
+# Alternative download tools tried in order.  Each entry is a list of tokens
+# that will be passed to subprocess.Popen; ``{url}`` and ``{out}`` are
+# replaced at call time with the URL and output directory respectively.
+# Tools absent from PATH are silently skipped.
+_ALTERNATIVE_TOOL_COMMANDS: list[list[str]] = [
+    ["gallery-dl", "--dest", "{out}", "{url}"],
+    ["you-get", "--output-dir", "{out}", "{url}"],
+    ["streamlink", "--output", "{out}/stream.ts", "{url}", "best"],
+]
+
+# Polling interval (seconds) between cancellation checks during alternative tool runs
+_CANCELLATION_CHECK_INTERVAL_SECONDS = 0.5
+_GENTLE_FAILURE_MESSAGE = (
+    "This video could not be downloaded. "
+    "It may be DRM-protected, region-restricted, or temporarily unavailable. "
+    "Please try again later or try a different video."
+)
+
+
+def _find_media_file(directory: str) -> str | None:
+    """Return the path of the first media file found in *directory*, or None."""
+    try:
+        for entry in os.scandir(directory):
+            if entry.is_file() and os.path.splitext(entry.name)[1].lower() in _ALT_MEDIA_EXTS:
+                return entry.path
+    except OSError:
+        pass
+    return None
+
+
+def _try_alternative_tools_download(
+    url: str,
+    output_dir: str,
+    download_id: str | None = None,
+) -> str | None:
+    """Try alternative download tools for URLs that yt-dlp cannot handle.
+
+    Attempts gallery-dl, you-get, and streamlink (whichever are installed and
+    found in PATH) in order, up to a maximum of 3 tools.  Returns the path of
+    the downloaded file on success, or ``None`` if all tools fail.
+
+    The optional *download_id* is used to check for cancellation between tool
+    attempts so that a queued cancel request is honoured promptly.
+    """
+    tried = 0
+    for cmd_template in _ALTERNATIVE_TOOL_COMMANDS:
+        if tried >= 3:
+            break
+        tool_name = cmd_template[0]
+        if not shutil.which(tool_name):
+            logger.debug("Alternative tool %r not found in PATH — skipping", tool_name)
+            continue
+        cmd = [
+            tok.replace("{url}", url).replace("{out}", output_dir)
+            for tok in cmd_template
+        ]
+        tried += 1
+        logger.info("Trying alternative tool %r for %s", tool_name, url)
+        try:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=get_ssl_env(),
+            )
+            # Poll while the process runs so cancellation is detected promptly.
+            while proc.poll() is None:
+                if download_id is not None:
+                    with downloads_lock:
+                        if downloads.get(download_id, {}).get("status") == "cancelled":
+                            proc.terminate()
+                            logger.info("Alternative tool cancelled for %s", download_id)
+                            return None
+                time.sleep(_CANCELLATION_CHECK_INTERVAL_SECONDS)
+            if proc.returncode == 0:
+                media_path = _find_media_file(output_dir)
+                if media_path:
+                    logger.info(
+                        "Alternative tool %r succeeded for %s → %s",
+                        tool_name, url, media_path,
+                    )
+                    return media_path
+                logger.warning(
+                    "Alternative tool %r exited 0 but no media file found for %s",
+                    tool_name, url,
+                )
+            else:
+                stderr = proc.stderr.read().decode(errors="replace")
+                logger.info(
+                    "Alternative tool %r failed (rc=%d) for %s: %s",
+                    tool_name, proc.returncode, url, stderr[:200],
+                )
+        except Exception as exc:
+            logger.warning("Error running alternative tool %r for %s: %s", tool_name, url, exc)
+    return None
+
+
 def _friendly_cookie_error(error_msg: str) -> str:
     """Return a user-friendly message when YouTube bot-detection triggers.
 
@@ -1513,6 +1647,9 @@ def _friendly_cookie_error(error_msg: str) -> str:
     instructions to regular users.
     """
     lower = error_msg.lower()
+
+    if _is_drm_error(error_msg):
+        return _GENTLE_FAILURE_MESSAGE
 
     if _is_auth_error(error_msg):
         return (
@@ -1923,7 +2060,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
 
     except yt_dlp.utils.DownloadError as e:
         # When bot-detection fires and no cookies are present, retry using only
-        # the POT-free clients (web_embedded + tv) that work without authentication.
+        # the POT-free clients (web_embedded + tv + mweb) that work without authentication.
         final_error: Exception = e
         if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
             logger.info(
@@ -1962,7 +2099,55 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
             except Exception as retry_err:
                 logger.info("Cookieless retry also failed for %s: %s", download_id, retry_err)
                 final_error = retry_err
-        error_msg = _friendly_cookie_error(str(final_error))
+
+        # For DRM errors (or after all yt-dlp strategies are exhausted), try
+        # alternative tools: gallery-dl, you-get, streamlink (up to 3 tools).
+        err_str = str(final_error)
+        if _is_drm_error(err_str) or _is_auth_error(err_str):
+            emit_from_thread(
+                "status_update",
+                {
+                    "id": download_id,
+                    "status": "downloading",
+                    "message": "Trying alternative download tools…",
+                },
+                room=download_id,
+            )
+            alt_path = _try_alternative_tools_download(url, DOWNLOAD_FOLDER, download_id)
+            if alt_path:
+                # Adopt the file produced by the alternative tool
+                with downloads_lock:
+                    alt_filename = os.path.basename(alt_path)
+                    downloads[download_id].update({
+                        "status": "completed",
+                        "end_time": time.time(),
+                        "percent": 100,
+                        "filename": alt_filename,
+                        "file_size": os.path.getsize(alt_path),
+                        "file_size_hr": format_size(os.path.getsize(alt_path)),
+                    })
+                emit_from_thread(
+                    "progress",
+                    {"id": download_id, "line": "", "percent": 100,
+                     "speed": "", "eta": "", "size": downloads[download_id].get("size", "")},
+                    room=download_id,
+                )
+                emit_from_thread("completed", {
+                    "id": download_id,
+                    "filename": alt_filename,
+                    "title": downloads[download_id].get("title"),
+                }, room=download_id)
+                emit_from_thread("files_updated")
+                threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                return
+            # Check if cancelled during alternative tool attempts
+            with downloads_lock:
+                if downloads.get(download_id, {}).get("status") == "cancelled":
+                    emit_from_thread("cancelled", {"id": download_id}, room=download_id)
+                    threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                    return
+
+        error_msg = _friendly_cookie_error(err_str)
         with downloads_lock:
             downloads[download_id].update({
                 "status": "failed",
