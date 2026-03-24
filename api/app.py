@@ -11,6 +11,9 @@ import shutil
 import json
 import logging
 import sqlite3
+import hashlib
+import socket
+import urllib.parse
 try:
     import psycopg2
     import psycopg2.extras
@@ -1583,6 +1586,222 @@ _GENTLE_FAILURE_MESSAGE = (
     "Please try again later or try a different video."
 )
 
+# ── URL Validation & Input Sanitization ──────────────────────────────────────
+
+# Schemes that are never valid for media downloads
+_BLOCKED_URL_SCHEMES = {"javascript", "data", "vbscript", "file", "about", "blob"}
+
+# Patterns that indicate script injection or other dangerous input.
+# The event-handler pattern requires whitespace/quote before "on" to avoid
+# matching legitimate query parameters like "version=" or "connection=".
+_URL_INJECTION_PATTERNS = re.compile(
+    r"<\s*script|javascript\s*:|(?:[\s\"']|^)on\w+\s*=|<\s*iframe|<\s*img|"
+    r"eval\s*\(|expression\s*\(",
+    re.IGNORECASE,
+)
+
+
+def _validate_url(url: str) -> str | None:
+    """Validate *url* for safety and basic reachability prerequisites.
+
+    Returns ``None`` when the URL is acceptable, or a short human-readable
+    error string describing the problem.
+    """
+    if not url or not url.strip():
+        return "URL is required"
+
+    # Reject obvious script-injection payloads before parsing
+    if _URL_INJECTION_PATTERNS.search(url):
+        return "Invalid URL: script injection detected"
+
+    try:
+        parsed = urllib.parse.urlparse(url.strip())
+    except Exception:
+        return "Invalid URL"
+
+    scheme = (parsed.scheme or "").lower()
+    if scheme in _BLOCKED_URL_SCHEMES:
+        return f"Invalid URL: scheme '{scheme}' is not allowed"
+    if scheme not in ("http", "https"):
+        return "Invalid URL: only http and https URLs are supported"
+
+    hostname = parsed.hostname or ""
+    if not hostname:
+        return "Invalid URL: missing hostname"
+
+    # Guard against bare IP-like or empty hostnames that are not real domains
+    if hostname in ("localhost", "localhost.localdomain") or hostname.startswith("127.") or hostname.startswith("0."):
+        return "Invalid URL: local addresses are not supported"
+
+    return None
+
+
+# ── URL Deduplication ─────────────────────────────────────────────────────────
+
+# Maps url_hash (hex-digest) → {"download_id": str, "filename": str | None}
+# Protected by downloads_lock.
+_download_url_cache: dict[str, dict] = {}
+
+# How long (seconds) a completed download stays in the deduplication cache
+_URL_CACHE_TTL_SECONDS = 1800  # 30 minutes
+
+
+def _url_hash(url: str) -> str:
+    """Return the SHA-256 hex digest of the normalised *url*."""
+    normalised = url.strip().lower()
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()
+
+
+def _get_cached_download(url: str) -> dict | None:
+    """Return the cached download record for *url* if it is still valid.
+
+    Returns a dict with at least ``download_id`` and ``filename`` keys, or
+    ``None`` when no valid cache entry exists.  Must be called while
+    *downloads_lock* is held.
+    """
+    h = _url_hash(url)
+    entry = _download_url_cache.get(h)
+    if entry is None:
+        return None
+    # Invalidate if the file no longer exists on disk
+    filename = entry.get("filename")
+    if filename:
+        filepath = os.path.join(DOWNLOAD_FOLDER, filename)
+        if not os.path.isfile(filepath):
+            del _download_url_cache[h]
+            return None
+    # Invalidate if the TTL has expired
+    cached_at = entry.get("cached_at", 0)
+    if time.time() - cached_at > _URL_CACHE_TTL_SECONDS:
+        del _download_url_cache[h]
+        return None
+    return entry
+
+
+def _cache_completed_download(url: str, download_id: str, filename: str | None) -> None:
+    """Store a completed download in the deduplication cache.
+
+    Must be called while *downloads_lock* is held.
+    """
+    h = _url_hash(url)
+    _download_url_cache[h] = {
+        "download_id": download_id,
+        "filename": filename,
+        "cached_at": time.time(),
+    }
+
+
+# ── Exponential Backoff Retry ─────────────────────────────────────────────────
+
+# Delays in seconds for each retry attempt (1 s → 3 s → 7 s)
+_RETRY_DELAYS: tuple[float, ...] = (1.0, 3.0, 7.0)
+
+
+def _with_exponential_backoff(
+    fn,
+    max_retries: int = 3,
+    delays: tuple[float, ...] = _RETRY_DELAYS,
+    retriable_exc: tuple = (Exception,),
+):
+    """Call *fn()* with up to *max_retries* retries using exponential backoff.
+
+    *delays* specifies the wait time (in seconds) before each successive retry.
+    Only exceptions that are instances of *retriable_exc* are retried; any
+    other exception propagates immediately.  Returns the value returned by
+    *fn()* on success, or re-raises the last exception after all retries are
+    exhausted.
+    """
+    last_exc: Exception = RuntimeError("_with_exponential_backoff: no attempts made")
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except retriable_exc as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                logger.info(
+                    "Attempt %d/%d failed (%s) — retrying in %.1fs",
+                    attempt + 1, max_retries + 1, type(exc).__name__, delay,
+                )
+                time.sleep(delay)
+    raise last_exc
+
+
+# ── Circuit Breaker ───────────────────────────────────────────────────────────
+
+# Number of consecutive failures before the circuit opens
+_CIRCUIT_BREAKER_THRESHOLD = 5
+# How long (seconds) the circuit stays open before allowing a probe
+_CIRCUIT_BREAKER_COOLDOWN = 300  # 5 minutes
+
+
+class _CircuitBreaker:
+    """Simple thread-safe circuit breaker for the yt-dlp extractor.
+
+    States
+    ------
+    closed  Normal operation — requests pass through.
+    open    Too many consecutive failures — requests are rejected immediately
+            and the caller falls back to alternative tools.
+    half-open  Cooldown has elapsed — one probe attempt is allowed to test if
+               the extractor has recovered.
+    """
+
+    def __init__(
+        self,
+        threshold: int = _CIRCUIT_BREAKER_THRESHOLD,
+        cooldown: float = _CIRCUIT_BREAKER_COOLDOWN,
+    ) -> None:
+        self._threshold = threshold
+        self._cooldown = cooldown
+        self._failures = 0
+        self._open_since: float | None = None
+        self._lock = threading.Lock()
+
+    def is_open(self) -> bool:
+        """Return ``True`` when the circuit is open (extractor should be skipped)."""
+        with self._lock:
+            if self._open_since is None:
+                return False
+            if time.time() - self._open_since >= self._cooldown:
+                # Transition to half-open: allow one probe
+                return False
+            return True
+
+    def record_failure(self) -> None:
+        """Record one extractor failure.  Opens the circuit after *threshold* failures."""
+        with self._lock:
+            self._failures += 1
+            if self._failures >= self._threshold and self._open_since is None:
+                self._open_since = time.time()
+                logger.warning(
+                    "Circuit breaker opened after %d consecutive failures — "
+                    "yt-dlp extractor temporarily disabled for %ds",
+                    self._failures,
+                    int(self._cooldown),
+                )
+
+    def record_success(self) -> None:
+        """Record one successful extraction.  Closes the circuit and resets the counter."""
+        with self._lock:
+            if self._failures > 0 or self._open_since is not None:
+                logger.info(
+                    "Circuit breaker reset after successful extraction "
+                    "(was at %d failures)",
+                    self._failures,
+                )
+            self._failures = 0
+            self._open_since = None
+
+    @property
+    def failure_count(self) -> int:
+        with self._lock:
+            return self._failures
+
+
+# Global circuit breaker instance for the primary yt-dlp extractor
+_extractor_circuit_breaker = _CircuitBreaker()
+
 
 def _find_media_file(directory: str) -> str | None:
     """Return the path of the first media file found in *directory*, or None."""
@@ -2061,6 +2280,13 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                     })
                     break
 
+            # Record in the URL deduplication cache
+            _cache_completed_download(
+                url,
+                download_id,
+                downloads[download_id].get("filename"),
+            )
+
         emit_from_thread(
             "progress",
             {"id": download_id, "line": "", "percent": 100,
@@ -2079,8 +2305,74 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         downloads[download_id]["status"] = "downloading"
         downloads[download_id]["start_time"] = time.time()
 
+    # Check circuit breaker before attempting the primary yt-dlp download.
+    # If the circuit is open (too many recent consecutive failures) we skip
+    # directly to alternative tools so users get faster feedback.
+    if _extractor_circuit_breaker.is_open():
+        logger.warning(
+            "Circuit breaker is open for %s — skipping yt-dlp, trying alternative tools",
+            download_id,
+        )
+        emit_from_thread(
+            "status_update",
+            {
+                "id": download_id,
+                "status": "downloading",
+                "message": "Primary extractor temporarily unavailable — trying fallback…",
+            },
+            room=download_id,
+        )
+        alt_path = _try_alternative_tools_download(url, DOWNLOAD_FOLDER, download_id)
+        if alt_path:
+            with downloads_lock:
+                alt_filename = os.path.basename(alt_path)
+                downloads[download_id].update({
+                    "status": "completed",
+                    "end_time": time.time(),
+                    "percent": 100,
+                    "filename": alt_filename,
+                    "file_size": os.path.getsize(alt_path),
+                    "file_size_hr": format_size(os.path.getsize(alt_path)),
+                })
+                _cache_completed_download(url, download_id, alt_filename)
+            emit_from_thread(
+                "progress",
+                {"id": download_id, "line": "", "percent": 100,
+                 "speed": "", "eta": "", "size": downloads[download_id].get("size", "")},
+                room=download_id,
+            )
+            emit_from_thread("completed", {
+                "id": download_id,
+                "filename": alt_filename,
+                "title": downloads[download_id].get("title"),
+            }, room=download_id)
+            emit_from_thread("files_updated")
+            threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+        else:
+            with downloads_lock:
+                downloads[download_id].update({
+                    "status": "failed",
+                    "error": _GENTLE_FAILURE_MESSAGE,
+                    "end_time": time.time(),
+                })
+            emit_from_thread("failed", {"id": download_id, "error": _GENTLE_FAILURE_MESSAGE}, room=download_id)
+            threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+        return
+
     try:
-        _do_download(ydl_opts)
+        # Wrap the primary yt-dlp download with exponential backoff retry.
+        # DownloadCancelled must NOT be retried (user intent), so we only retry
+        # on generic DownloadError and unexpected exceptions.
+        def _primary_download():
+            _do_download(ydl_opts)
+
+        _with_exponential_backoff(
+            _primary_download,
+            max_retries=3,
+            delays=_RETRY_DELAYS,
+            retriable_exc=(yt_dlp.utils.DownloadError, OSError),
+        )
+        _extractor_circuit_breaker.record_success()
         _finalize_completed()
 
     except yt_dlp.utils.DownloadCancelled:
@@ -2094,6 +2386,9 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
+        # Record failure for circuit breaker tracking
+        _extractor_circuit_breaker.record_failure()
+
         # When bot-detection or HTTP 403 fires and no cookies are present, retry using only
         # the POT-free clients (web_embedded + tv + mweb) that work without authentication.
         final_error: Exception = e
@@ -2120,6 +2415,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
             ydl_opts_retry.pop("cookiefile", None)
             try:
                 _do_download(ydl_opts_retry)
+                _extractor_circuit_breaker.record_success()
                 _finalize_completed()
                 return
             except yt_dlp.utils.DownloadCancelled:
@@ -2162,6 +2458,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                         "file_size": os.path.getsize(alt_path),
                         "file_size_hr": format_size(os.path.getsize(alt_path)),
                     })
+                    _cache_completed_download(url, download_id, alt_filename)
                 emit_from_thread(
                     "progress",
                     {"id": download_id, "line": "", "percent": 100,
@@ -2197,6 +2494,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except Exception as e:
+        _extractor_circuit_breaker.record_failure()
         logger.error(f"Download worker error: {e}")
         error_msg = _friendly_cookie_error(str(e))
         with downloads_lock:
@@ -2210,6 +2508,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
             "error": error_msg
         }, room=download_id)
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+
 
     finally:
         # Cleanup
@@ -2266,12 +2565,76 @@ async def yotweek_icon():
 
 @fastapi_app.get("/health")
 async def health():
-    """Health check endpoint"""
-    return JSONResponse({
-        "status": "healthy",
-        "timestamp": datetime.now().isoformat(),
-        "version": "1.0.0"
-    })
+    """Health check endpoint.
+
+    Verifies:
+    - yt-dlp is importable and returns a version string
+    - Sufficient disk space is available in the downloads folder
+    - Basic network connectivity (DNS resolution)
+    - Circuit breaker state
+
+    Returns HTTP 200 when all checks pass, or HTTP 503 when a critical
+    subsystem is degraded.
+    """
+    checks: dict[str, object] = {}
+    overall_healthy = True
+
+    # --- yt-dlp check ---
+    try:
+        ytdlp_version = yt_dlp.version.__version__
+        checks["yt_dlp"] = {"ok": True, "version": ytdlp_version}
+    except Exception as exc:
+        checks["yt_dlp"] = {"ok": False, "error": str(exc)}
+        overall_healthy = False
+
+    # --- Disk space check (warn below 500 MB, fail below 100 MB) ---
+    try:
+        usage = shutil.disk_usage(DOWNLOAD_FOLDER)
+        free_mb = usage.free // (1024 * 1024)
+        checks["disk"] = {"ok": free_mb >= 100, "free_mb": free_mb}
+        if free_mb < 100:
+            overall_healthy = False
+    except Exception as exc:
+        checks["disk"] = {"ok": False, "error": str(exc)}
+        overall_healthy = False
+
+    # --- Network connectivity check (DNS probe with 2-second timeout) ---
+    # Tries multiple well-known DNS servers so corporate / restricted networks
+    # that block 8.8.8.8 can still succeed via an alternative probe.
+    _DNS_PROBES = [("8.8.8.8", 53), ("1.1.1.1", 53), ("9.9.9.9", 53)]
+    network_ok = False
+    for _host, _port in _DNS_PROBES:
+        try:
+            _sock = socket.create_connection((_host, _port), timeout=2)
+            _sock.close()
+            network_ok = True
+            break
+        except Exception:
+            pass
+    checks["network"] = {"ok": network_ok}
+    # Network failure is reported but does not mark the service unhealthy
+    # because it may be a transient DNS hiccup or environment restriction.
+
+    # --- Circuit breaker state ---
+    cb_open = _extractor_circuit_breaker.is_open()
+    checks["circuit_breaker"] = {
+        "ok": not cb_open,
+        "open": cb_open,
+        "failures": _extractor_circuit_breaker.failure_count,
+    }
+    if cb_open:
+        overall_healthy = False
+
+    status_code = 200 if overall_healthy else 503
+    return JSONResponse(
+        {
+            "status": "healthy" if overall_healthy else "degraded",
+            "timestamp": datetime.now().isoformat(),
+            "version": "1.0.0",
+            "checks": checks,
+        },
+        status_code=status_code,
+    )
 
 
 @fastapi_app.get("/api/youtube_status")
@@ -2386,11 +2749,32 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
     if not url:
         return JSONResponse({"error": "URL is required"}, status_code=400)
 
+    # Validate and sanitize the URL (blocks scripts, invalid schemes, etc.)
+    url_error = _validate_url(url)
+    if url_error:
+        return JSONResponse({"error": url_error}, status_code=400)
+
     # Reject only if the queue is already full
     if _download_queue.full():
         return JSONResponse({
             "error": f"Download queue is full ({Config.MAX_QUEUE_SIZE} items). Please try again later."
         }, status_code=429)
+
+    # Deduplication: return the existing download if this URL was recently completed
+    with downloads_lock:
+        cached = _get_cached_download(url)
+        if cached is not None:
+            cached_id = cached.get("download_id", "")
+            existing = downloads.get(cached_id, {})
+            if existing.get("status") == "completed" and existing.get("filename"):
+                logger.info("Returning cached download for %s → %s", url, cached_id)
+                return JSONResponse({
+                    "download_id": cached_id,
+                    "title": existing.get("title", ""),
+                    "status": "completed",
+                    "filename": existing.get("filename"),
+                    "cached": True,
+                })
 
     download_id = str(uuid.uuid4())
 
