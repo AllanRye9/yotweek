@@ -715,3 +715,155 @@ class TestRidesListFilter:
         statuses = {r["status"] for r in rides}
         # Should never include cancelled
         assert "cancelled" not in statuses
+
+
+# ---------------------------------------------------------------------------
+# Ride chat socket event handlers
+# ---------------------------------------------------------------------------
+
+class TestRideChatSocket:
+    """Tests for the Socket.IO ride live-chat event handlers."""
+
+    def test_join_ride_chat_emits_joined(self):
+        """on_join_ride_chat should enter the ride room and emit ride_chat_joined."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append((evt, data, room)))
+            with patch.object(app_module.sio, "emit", mock_emit), \
+                 patch.object(app_module.sio, "enter_room"):
+                await app_module.on_join_ride_chat("test-sid-join", {
+                    "ride_id": ride_id,
+                    "name": "Alice",
+                })
+
+        _asyncio.run(_run())
+        joined_events = [e for e in emitted if e[0] == "ride_chat_joined"]
+        assert len(joined_events) == 1
+        assert joined_events[0][1]["ride_id"] == ride_id
+
+    def test_join_ride_chat_missing_ride_id_is_noop(self):
+        """on_join_ride_chat with no ride_id should not emit anything."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append(evt))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_join_ride_chat("test-sid-noop", {})
+
+        _asyncio.run(_run())
+        assert emitted == []
+
+    def test_ride_chat_message_broadcast(self):
+        """on_ride_chat_message should broadcast message to the ride room."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append((evt, data, room)))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_ride_chat_message("sender-sid", {
+                    "ride_id": ride_id,
+                    "name":    "Bob",
+                    "text":    "Hello, anyone there?",
+                })
+
+        _asyncio.run(_run())
+        msgs = [e for e in emitted if e[0] == "ride_chat_message"]
+        assert len(msgs) == 1
+        payload = msgs[0][1]
+        assert payload["ride_id"] == ride_id
+        assert payload["name"]    == "Bob"
+        assert payload["text"]    == "Hello, anyone there?"
+        assert msgs[0][2]         == f"ride_chat_{ride_id}"
+
+    def test_ride_chat_message_empty_text_ignored(self):
+        """on_ride_chat_message should not broadcast empty or whitespace messages."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append(evt))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_ride_chat_message("sender-sid", {
+                    "ride_id": ride_id,
+                    "name":    "Carol",
+                    "text":    "   ",
+                })
+
+        _asyncio.run(_run())
+        assert emitted == []
+
+    def test_ride_chat_message_truncated_at_500(self):
+        """Text over 500 chars must be truncated to 500."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        long_text = "x" * 600
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append((evt, data, room)))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_ride_chat_message("sender-sid", {
+                    "ride_id": ride_id,
+                    "name":    "Dave",
+                    "text":    long_text,
+                })
+
+        _asyncio.run(_run())
+        msgs = [e for e in emitted if e[0] == "ride_chat_message"]
+        assert len(msgs) == 1
+        assert len(msgs[0][1]["text"]) == 500
+
+    def test_leave_ride_chat(self):
+        """on_leave_ride_chat should call sio.leave_room for the given ride."""
+        import asyncio as _asyncio
+        from unittest.mock import patch, MagicMock
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        left_rooms = []
+
+        async def _run():
+            with patch.object(app_module.sio, "leave_room",
+                              side_effect=lambda sid, room: left_rooms.append(room)):
+                await app_module.on_leave_ride_chat("test-sid-leave", {"ride_id": ride_id})
+
+        _asyncio.run(_run())
+        assert f"ride_chat_{ride_id}" in left_rooms
+
+    def test_leave_ride_chat_missing_ride_id_is_noop(self):
+        """on_leave_ride_chat with no ride_id should not call leave_room."""
+        import asyncio as _asyncio
+        from unittest.mock import patch
+        import api.app as app_module
+
+        left_rooms = []
+
+        async def _run():
+            with patch.object(app_module.sio, "leave_room",
+                              side_effect=lambda sid, room: left_rooms.append(room)):
+                await app_module.on_leave_ride_chat("test-sid", {})
+
+        _asyncio.run(_run())
+        assert left_rooms == []

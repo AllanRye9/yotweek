@@ -922,3 +922,177 @@ html:not(.theme-dark) .bg-gradient-to-b {
     animation: none !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* RIDE SHARE — gamified animated form inputs                                 */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.ride-field-wrap {
+  position: relative;
+}
+
+/* Animated bottom border shimmer on focus */
+.ride-form-input {
+  position: relative;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.ride-form-input-focused {
+  border-color: #60a5fa !important;
+  animation: ride-input-glow 1.8s ease-in-out infinite;
+}
+
+@keyframes ride-input-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0); }
+  50%       { box-shadow: 0 0 14px 2px rgba(96, 165, 250, 0.22); }
+}
+
+/* Contextual hint that appears below a focused field */
+.ride-field-hint {
+  display: block;
+  margin-top: 3px;
+  padding-left: 2px;
+  animation: ride-hint-in 0.2s ease-out both;
+}
+
+@keyframes ride-hint-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Animated pin icon on the post-ride heading */
+.ride-post-icon {
+  display: inline-block;
+  animation: ride-post-icon-bounce 2s ease-in-out infinite;
+}
+
+@keyframes ride-post-icon-bounce {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-3px); }
+}
+
+/* Gamified submit button glow */
+.ride-post-btn {
+  transition: transform 0.15s, box-shadow 0.15s, background-color 0.15s;
+}
+.ride-post-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(59, 130, 246, 0.45);
+}
+.ride-post-btn:not(:disabled):active {
+  transform: translateY(0);
+}
+
+/* ── Dashboard stat cards ── */
+.ride-stat-card {
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.ride-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* RIDE LIVE CHAT — modal, messages, input bar                                */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* Chat button on ride cards */
+.ride-chat-btn {
+  animation: ride-chat-btn-pulse 3s ease-in-out infinite;
+}
+@keyframes ride-chat-btn-pulse {
+  0%, 100% { box-shadow: none; }
+  50%       { box-shadow: 0 0 6px 1px rgba(96, 165, 250, 0.3); }
+}
+
+/* Modal overlay fade-in */
+.ride-chat-overlay {
+  animation: chat-overlay-in 0.2s ease-out both;
+}
+@keyframes chat-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Modal slide-up on mobile */
+.ride-chat-modal {
+  animation: chat-modal-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes chat-modal-in {
+  from { opacity: 0; transform: translateY(40px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* Message bubble enter animation */
+.ride-chat-msg-anim {
+  animation: chat-msg-in 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes chat-msg-in {
+  from { opacity: 0; transform: scale(0.92) translateY(6px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);   }
+}
+
+/* Connecting pulsing dots */
+.ride-chat-connecting {
+  animation: connecting-blink 1.2s ease-in-out infinite;
+}
+@keyframes connecting-blink {
+  0%, 100% { opacity: 0.4; }
+  50%       { opacity: 1; }
+}
+
+/* Chat send button */
+.ride-chat-send-btn {
+  transition: transform 0.15s, background-color 0.15s;
+}
+.ride-chat-send-btn:not(:disabled):hover {
+  transform: scale(1.1);
+}
+
+/* Chat text input glow on focus */
+.ride-chat-text-input:focus {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.2);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* NAV PROFILE — avatar button & dropdown                                     */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.nav-profile-btn {
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.nav-profile-btn:hover {
+  transform: scale(1.08);
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.45);
+}
+
+.nav-profile-dropdown {
+  animation: profile-dropdown-in 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  transform-origin: top right;
+}
+@keyframes profile-dropdown-in {
+  from { opacity: 0; transform: scale(0.92) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
+}
+
+/* Reduced-motion overrides */
+@media (prefers-reduced-motion: reduce) {
+  .ride-form-input-focused,
+  .ride-field-hint,
+  .ride-post-icon,
+  .ride-post-btn,
+  .ride-stat-card,
+  .ride-chat-btn,
+  .ride-chat-overlay,
+  .ride-chat-modal,
+  .ride-chat-msg-anim,
+  .ride-chat-connecting,
+  .ride-chat-send-btn,
+  .nav-profile-btn,
+  .nav-profile-dropdown {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
