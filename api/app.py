@@ -1508,6 +1508,14 @@ _DRM_PATTERNS = (
     "is drm",
 )
 
+# HTTP 403 Forbidden patterns — CDN-level access denial during video data download
+_HTTP_FORBIDDEN_PATTERNS = (
+    "http error 403",
+    "403: forbidden",
+    "403 forbidden",
+    "unable to download video data",
+)
+
 
 def _is_auth_error(error_msg: str) -> bool:
     """Return ``True`` if *error_msg* matches a known authentication/bot-detection pattern."""
@@ -1530,6 +1538,22 @@ def _is_drm_error(error_msg: str) -> bool:
     """
     lower = error_msg.lower()
     return any(p in lower for p in _DRM_PATTERNS)
+
+
+def _is_http_forbidden_error(error_msg: str) -> bool:
+    """Return ``True`` if *error_msg* indicates an HTTP 403 Forbidden error.
+
+    YouTube CDN servers sometimes return HTTP 403 when downloading video data
+    even though extraction succeeded.  This can happen when:
+    - The CDN stream URL's embedded token has expired between extraction and download
+    - The server IP is temporarily rate-limited or geo-blocked at the CDN level
+    - The selected player client produces stream URLs that YouTube CDN refuses
+
+    When detected, the downloader retries with alternative player clients and,
+    if still failing, falls back to alternative download tools.
+    """
+    lower = error_msg.lower()
+    return any(p in lower for p in _HTTP_FORBIDDEN_PATTERNS)
 
 
 # ── Alternative tool fallback ─────────────────────────────────────────────────
@@ -1650,6 +1674,13 @@ def _friendly_cookie_error(error_msg: str) -> str:
 
     if _is_drm_error(error_msg):
         return _GENTLE_FAILURE_MESSAGE
+
+    if _is_http_forbidden_error(error_msg):
+        return (
+            "This video cannot be downloaded right now — the server received "
+            "HTTP 403 Forbidden from YouTube's CDN. "
+            "Please try again in a few minutes, or try a different video."
+        )
 
     if _is_auth_error(error_msg):
         return (
@@ -1792,6 +1823,8 @@ def get_video_info(url: str) -> dict:
         "http_headers": {"User-Agent": _CHROME_UA},
         "extractor_retries": 5,
         "retries": 5,
+        "fragment_retries": 5,
+        "file_access_retries": 3,
         "sleep_requests": 1,
         "sleep_interval": 5,
         "max_sleep_interval": 10,
@@ -1811,10 +1844,10 @@ def get_video_info(url: str) -> dict:
 
         return _build_info_dict(info)
     except yt_dlp.utils.DownloadError as e:
-        # When bot-detection fires and there are no cookies, retry with only
-        # the POT-free clients (web_embedded + tv) that work without auth.
-        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
-            logger.info("Auth error without cookies — retrying with cookieless clients")
+        # When bot-detection or HTTP 403 fires and there are no cookies, retry
+        # with only the POT-free clients (web_embedded + tv) that work without auth.
+        if (_is_auth_error(str(e)) or _is_http_forbidden_error(str(e))) and not os.path.isfile(COOKIES_FILE):
+            logger.info("Auth/403 error without cookies — retrying with cookieless clients")
             try:
                 ydl_opts_retry = {
                     **_base_opts,
@@ -1982,6 +2015,8 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         "http_headers": {"User-Agent": _CHROME_UA},
         "extractor_retries": 5,
         "retries": 5,
+        "fragment_retries": 5,
+        "file_access_retries": 3,
         "sleep_requests": 1,
         "sleep_interval": 5,
         "max_sleep_interval": 10,
@@ -2059,12 +2094,13 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
     except yt_dlp.utils.DownloadError as e:
-        # When bot-detection fires and no cookies are present, retry using only
+        # When bot-detection or HTTP 403 fires and no cookies are present, retry using only
         # the POT-free clients (web_embedded + tv + mweb) that work without authentication.
         final_error: Exception = e
-        if _is_auth_error(str(e)) and not os.path.isfile(COOKIES_FILE):
+        err_str_initial = str(e)
+        if (_is_auth_error(err_str_initial) or _is_http_forbidden_error(err_str_initial)) and not os.path.isfile(COOKIES_FILE):
             logger.info(
-                f"Auth error without cookies for {download_id} — "
+                f"Auth/403 error without cookies for {download_id} — "
                 "retrying with cookieless clients"
             )
             emit_from_thread(
@@ -2100,10 +2136,10 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                 logger.info("Cookieless retry also failed for %s: %s", download_id, retry_err)
                 final_error = retry_err
 
-        # For DRM errors (or after all yt-dlp strategies are exhausted), try
-        # alternative tools: gallery-dl, you-get, streamlink (up to 3 tools).
+        # For DRM errors, HTTP 403, or after all yt-dlp strategies are exhausted,
+        # try alternative tools: gallery-dl, you-get, streamlink (up to 3 tools).
         err_str = str(final_error)
-        if _is_drm_error(err_str) or _is_auth_error(err_str):
+        if _is_drm_error(err_str) or _is_auth_error(err_str) or _is_http_forbidden_error(err_str):
             emit_from_thread(
                 "status_update",
                 {

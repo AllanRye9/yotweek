@@ -3,7 +3,10 @@
 These tests verify that:
   - _is_drm_error() correctly identifies all known DRM error patterns.
   - _is_drm_error() does NOT fire on unrelated error strings.
+  - _is_http_forbidden_error() correctly identifies HTTP 403 Forbidden errors.
+  - _is_http_forbidden_error() does NOT fire on unrelated error strings.
   - _friendly_cookie_error() maps DRM errors to _GENTLE_FAILURE_MESSAGE.
+  - _friendly_cookie_error() maps HTTP 403 errors to a user-friendly message.
   - _try_alternative_tools_download() succeeds when an alternative tool works.
   - _try_alternative_tools_download() skips tools not present in PATH.
   - _try_alternative_tools_download() returns None when all tools fail.
@@ -21,6 +24,8 @@ import pytest
 from api.app import (
     _is_drm_error,
     _DRM_PATTERNS,
+    _is_http_forbidden_error,
+    _HTTP_FORBIDDEN_PATTERNS,
     _friendly_cookie_error,
     _GENTLE_FAILURE_MESSAGE,
     _try_alternative_tools_download,
@@ -92,6 +97,59 @@ class TestIsDrmErrorNegative:
 
 
 # ---------------------------------------------------------------------------
+# _is_http_forbidden_error: HTTP 403 Forbidden patterns
+# ---------------------------------------------------------------------------
+
+class TestIsHttpForbiddenError:
+    """_is_http_forbidden_error must return True for all known 403 patterns."""
+
+    @pytest.mark.parametrize("pattern", list(_HTTP_FORBIDDEN_PATTERNS))
+    def test_each_forbidden_pattern_is_detected(self, pattern):
+        assert _is_http_forbidden_error(pattern), (
+            f"_is_http_forbidden_error should return True for pattern: {pattern!r}"
+        )
+
+    @pytest.mark.parametrize("pattern", list(_HTTP_FORBIDDEN_PATTERNS))
+    def test_pattern_detection_is_case_insensitive(self, pattern):
+        assert _is_http_forbidden_error(pattern.upper()), (
+            f"_is_http_forbidden_error should be case-insensitive for: {pattern!r}"
+        )
+
+    def test_full_yt_dlp_403_message(self):
+        assert _is_http_forbidden_error(
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        )
+
+    def test_short_403_forbidden(self):
+        assert _is_http_forbidden_error("HTTP Error 403: Forbidden")
+
+    def test_unable_to_download_video_data(self):
+        assert _is_http_forbidden_error("unable to download video data: some reason")
+
+
+class TestIsHttpForbiddenErrorNegative:
+    """_is_http_forbidden_error must return False for unrelated errors."""
+
+    def test_generic_network_error(self):
+        assert not _is_http_forbidden_error("Connection timed out")
+
+    def test_auth_error(self):
+        assert not _is_http_forbidden_error("Sign in to confirm you're not a bot")
+
+    def test_drm_error(self):
+        assert not _is_http_forbidden_error("This video is DRM protected")
+
+    def test_404_error(self):
+        assert not _is_http_forbidden_error("HTTP Error 404: Not Found")
+
+    def test_empty_string(self):
+        assert not _is_http_forbidden_error("")
+
+    def test_format_unavailable(self):
+        assert not _is_http_forbidden_error("Requested format is not available")
+
+
+# ---------------------------------------------------------------------------
 # _friendly_cookie_error: DRM errors map to _GENTLE_FAILURE_MESSAGE
 # ---------------------------------------------------------------------------
 
@@ -111,6 +169,33 @@ class TestFriendlyCookieErrorDrm:
     def test_non_drm_error_unchanged(self):
         original = "Some other unexpected error occurred"
         assert _friendly_cookie_error(original) == original
+
+
+class TestFriendlyCookieErrorHttp403:
+    """HTTP 403 Forbidden errors must be translated to a user-friendly message."""
+
+    def test_403_error_returns_friendly_message_with_403(self):
+        msg = _friendly_cookie_error(
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        )
+        assert "403" in msg
+
+    def test_403_error_returns_friendly_message_with_forbidden(self):
+        msg = _friendly_cookie_error(
+            "ERROR: unable to download video data: HTTP Error 403: Forbidden"
+        )
+        assert "Forbidden" in msg
+
+    def test_403_error_does_not_expose_raw_error(self):
+        raw = "unable to download video data: HTTP Error 403: Forbidden"
+        msg = _friendly_cookie_error(raw)
+        # The friendly message should not just be the raw internal error string
+        assert msg != raw
+
+    def test_403_message_is_actionable(self):
+        msg = _friendly_cookie_error("HTTP Error 403: Forbidden")
+        # Must contain guidance to try again
+        assert "try again" in msg.lower()
 
 
 # ---------------------------------------------------------------------------

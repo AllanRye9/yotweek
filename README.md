@@ -200,6 +200,32 @@ Supply a `cookies.txt` file exported from a logged-in YouTube session in your br
 
 ---
 
+### ❌ "HTTP Error 403: Forbidden" when downloading
+
+**Error message you may see:**
+> This video cannot be downloaded right now — the server received HTTP 403 Forbidden from YouTube's CDN. Please try again in a few minutes, or try a different video.
+
+**Cause:**  
+HTTP 403 Forbidden during video data download (distinct from the bot-detection sign-in gate above) occurs when YouTube's CDN servers deny the actual stream request. Common triggers:
+
+- The CDN stream URL's embedded authentication token expired between extraction and download
+- The server's IP is temporarily rate-limited or geo-blocked at the YouTube CDN level
+- The selected yt-dlp player client produces stream URLs that the CDN rejects
+
+**How the app handles it automatically:**
+
+The downloader uses a multi-stage fallback strategy when a 403 occurs:
+
+1. **Retry with cookieless player clients** (`web_embedded`, `tv`, `mweb`) — these clients produce CDN URLs that bypass many token requirements and often succeed when the default client is blocked.
+2. **Try up to 3 alternative download tools** (gallery-dl, you-get, streamlink) if yt-dlp still fails after the retry. The first tool that succeeds is used.
+3. **Fragment retry resilience** — `fragment_retries: 5` and `file_access_retries: 3` are configured so that transient 403s on individual HLS/DASH fragments are automatically retried without failing the entire download.
+
+**Manual fix (if automatic retries still fail):**
+
+Supply a `cookies.txt` file (same steps as the bot-detection fix above). An authenticated session provides YouTube CDN with a valid session token, which eliminates 403 errors for virtually all videos.
+
+---
+
 ## Changelog
 
 ### 2026-03 — Bot-detection bypass & UI improvements
@@ -239,6 +265,54 @@ remaining edge-cases surface a clear, non-confusing message:
   *"This video cannot be downloaded right now. Please try again in a
   few minutes, or try a different video."* — instead of confusing
   admin-only instructions about uploading a cookies file.
+
+#### HTTP 403 Forbidden fix
+
+YouTube CDN servers can return `HTTP Error 403: Forbidden` when the
+downloader attempts to fetch the actual video stream — even when
+extraction (title, formats) succeeds. The following changes fix this
+error once and for all for the vast majority of cases:
+
+- **403 detection**: A new `_is_http_forbidden_error()` helper detects
+  the full family of 403 patterns emitted by yt-dlp:
+  `"HTTP Error 403: Forbidden"`, `"unable to download video data"`,
+  `"403: forbidden"`. The error is now correctly classified alongside
+  auth and DRM errors rather than silently surfacing as a raw exception.
+
+- **Automatic retry with cookieless clients**: When a 403 occurs,
+  the downloader immediately retries using only `web_embedded`, `tv`,
+  and `mweb` player clients. These clients produce CDN stream URLs that
+  bypass many token requirements and succeed when the default client is
+  CDN-blocked.
+
+- **Alternative tool fallback**: If the cookieless retry also fails,
+  the downloader tries up to 3 alternative tools in order —
+  `gallery-dl`, `you-get`, `streamlink` — before reporting failure.
+  This ensures the best possible chance of success without user
+  intervention.
+
+- **Fragment retry resilience**: `fragment_retries: 5` and
+  `file_access_retries: 3` are now set in yt-dlp options, so transient
+  403 responses on individual HLS/DASH fragments are retried
+  automatically rather than aborting the download.
+
+- **User-friendly 403 message**: Users now see
+  *"This video cannot be downloaded right now — the server received
+  HTTP 403 Forbidden from YouTube's CDN. Please try again in a few
+  minutes, or try a different video."* instead of the raw yt-dlp
+  exception text.
+
+#### Parallel download capacity (merged from PR #140)
+
+- `MAX_CONCURRENT_DOWNLOADS` raised from 3 → 10 (env-configurable)
+- `MAX_DOWNLOADS_PER_IP` raised from 5 → 10
+- `MAX_QUEUE_SIZE=50` (env-configurable): requests queue up instead of
+  being rejected when all slots are busy
+- `_download_queue` + `_active_semaphore` dispatcher replaces the
+  previous hard concurrency cap — downloads start in parallel as slots
+  open without blocking the API
+- Batch and playlist downloads are now dispatched to the shared queue
+  so they run in parallel with other downloads
 
 #### Font — consistent across all theme colours
 
