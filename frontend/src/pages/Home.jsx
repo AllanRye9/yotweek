@@ -8,7 +8,10 @@ import Reviews from '../components/Reviews'
 import ThemeSelector from '../components/ThemeSelector'
 import CVGenerator from '../components/CVGenerator'
 import DocConverter from '../components/DocConverter'
-import { getStats } from '../api'
+import RideShare from '../components/RideShare'
+import UserAuth from '../components/UserAuth'
+import UserProfile from '../components/UserProfile'
+import { getStats, getUserProfile } from '../api'
 import socket from '../socket'
 
 /** Returns true when n is a power-of-10 milestone worth celebrating (≥ 100).
@@ -274,11 +277,12 @@ const TABS = [
   { id: 'download', label: '⬇ Download',     icon: '⬇' },
   { id: 'cv',       label: '📄 CV Generator', icon: '📄' },
   { id: 'convert',  label: '🔄 Doc Converter', icon: '🔄' },
+  { id: 'rides',    label: '🚗 Ride Share',    icon: '🚗' },
 ]
 
 const SERVICE_CARDS = [
   { id: 'download', icon: '⬇️', title: 'Video Downloader', desc: 'YouTube, TikTok, Instagram & 1,000+ sites' },
-  { id: 'cv',       icon: '📄', title: 'CV Generator',     desc: 'Professional resumes with live preview' },
+  { id: 'cv',       icon: '📄', title: 'CV Generator',     desc: 'Professional resumes with ATS scanning' },
   { id: 'convert',  icon: '🔄', title: 'Doc Converter',    desc: 'PDF, Word, Excel, images & more' },
 ]
 
@@ -384,6 +388,11 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
 
+  // Platform user state (separate from admin)
+  const [appUser, setAppUser]     = useState(null)  // null=unknown, false=not logged in, object=logged in
+  const [showAuthModal, setShowAuthModal] = useState(false)
+  const [userLoading, setUserLoading]     = useState(true)
+
   // Ref to ActiveDownloads so we can call subscribeToDownload on it
   const activeDownloadsRef = useRef(null)
 
@@ -457,6 +466,14 @@ export default function Home() {
     fetchStats()
     const id = setInterval(fetchStats, 30_000)
     return () => clearInterval(id)
+  }, [])
+
+  // Load platform user session on mount
+  useEffect(() => {
+    getUserProfile()
+      .then(u => setAppUser(u))
+      .catch(() => setAppUser(false))
+      .finally(() => setUserLoading(false))
   }, [])
 
   const refreshFiles = useCallback(() => setFileListVersion(v => v + 1), [])
@@ -610,6 +627,21 @@ export default function Home() {
         {/* Animated service cards — glowing borders, random interchange */}
         <ServiceCards activeTab={tab} onSelectTab={handleSelectTab} />
 
+        {/* Ride Share tab button */}
+        <div className="mt-2 flex justify-center">
+          <button
+            type="button"
+            onClick={() => handleSelectTab('rides')}
+            className={`text-sm px-4 py-1.5 rounded-full border transition-colors ${
+              tab === 'rides'
+                ? 'bg-yellow-700 border-yellow-600 text-yellow-100'
+                : 'bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
+            }`}
+          >
+            🚗 Ride Share &amp; Driver Alerts
+          </button>
+        </div>
+
         <div className="h-4" />
 
         {/* Tab panels */}
@@ -617,6 +649,42 @@ export default function Home() {
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'cv'       && <CVGenerator />}
           {tab === 'convert'  && <DocConverter />}
+          {tab === 'rides'    && (
+            <div>
+              <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+                <div>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
+                </div>
+                {/* User auth pill */}
+                {!userLoading && (
+                  appUser
+                    ? <UserProfile
+                        user={appUser}
+                        onLogout={() => setAppUser(false)}
+                        onLocationUpdate={() => {}}
+                      />
+                    : <button
+                        onClick={() => setShowAuthModal(true)}
+                        className="text-sm px-4 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
+                      >
+                        Login / Register
+                      </button>
+                )}
+              </div>
+
+              {/* Auth modal */}
+              {showAuthModal && !appUser && (
+                <div className="mb-4">
+                  <UserAuth
+                    onSuccess={(u) => { setAppUser(u); setShowAuthModal(false) }}
+                  />
+                </div>
+              )}
+
+              <RideShare user={appUser || null} />
+            </div>
+          )}
         </div>
 
         {/* Active Downloads — only relevant when download tab is active */}

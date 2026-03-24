@@ -240,3 +240,56 @@ export const uploadCookies      = (file) => {
   return request('POST', '/admin/cookies/upload', fd, false)
 }
 export const deleteCookies      = () => request('DELETE', '/admin/cookies')
+
+// ── ATS CV Scanning ───────────────────────────────────────────────────────────
+
+/**
+ * Scan a CV against a job description and return an ATS score.
+ * @param {string} cvText - Plain text of the CV
+ * @param {string} jobDescription - Plain text of the job description
+ * @param {File|null} file - Optional PDF/DOCX file (replaces cvText if provided)
+ * @returns {Promise<{score, matched, missing, tips, keywords_total}>}
+ */
+export const scanATS = (cvText, jobDescription, file = null) => {
+  if (file) {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    fd.append('job_description', jobDescription)
+    return request('POST', '/api/cv/ats_scan', fd, false)
+  }
+  return request('POST', '/api/cv/ats_scan', { cv_text: cvText, job_description: jobDescription })
+}
+
+// ── User Auth ─────────────────────────────────────────────────────────────────
+
+export const userRegister = (name, email, password, role = 'passenger') =>
+  request('POST', '/api/auth/register', { name, email, password, role })
+
+export const userLogin = (email, password) =>
+  request('POST', '/api/auth/login', { email, password })
+
+export const userLogout = () => request('POST', '/api/auth/logout', {})
+
+export const getUserProfile = () => request('GET', '/api/auth/me')
+
+export const updateUserLocation = (lat, lng, location_name = '') =>
+  request('PUT', '/api/auth/profile', { lat, lng, location_name })
+
+// ── Ride Sharing ──────────────────────────────────────────────────────────────
+
+export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null) =>
+  request('POST', '/api/rides/post', { origin, destination, departure, seats, notes, origin_lat, origin_lng })
+
+export const listRides = () => request('GET', '/api/rides/list')
+
+export const cancelRide = (rideId) => request('DELETE', `/api/rides/${encodeURIComponent(rideId)}`)
+
+// ── Driver Geolocation ────────────────────────────────────────────────────────
+
+export const updateDriverLocation = (lat, lng, empty = true) =>
+  request('POST', '/api/driver/location', { lat, lng, empty })
+
+export const getNearbyDrivers = (lat, lng, radius_km = 10) =>
+  request('GET', `/api/driver/nearby?lat=${lat}&lng=${lng}&radius_km=${radius_km}`)
+
+export const getAllDriverLocations = () => request('GET', '/api/driver/locations')

@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { generateCV, extractCV, triggerBlobDownload, aiCvSuggest } from '../api'
+import ATSScanner from './ATSScanner'
 
 const INITIAL = {
   name: '', email: '', phone: '', location: '',
@@ -380,7 +381,7 @@ function AiPanel({ field, aiState, onSuggest, onApply, onDismiss }) {
   )
 }
 
-export default function CVGenerator() {
+function CVBuilder() {
   const [fields, setFields]       = useState(INITIAL)
   const [logoFile, setLogoFile]   = useState(null)
   const [theme, setTheme]         = useState('classic')
@@ -901,6 +902,35 @@ function MobilePreview({ fields, theme, logoFile }) {
           <CVPreview fields={fields} theme={theme} logoFile={logoFile} />
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Tab wrapper ─────────────────────────────────────────────────────────────
+
+const CV_TABS = [
+  { id: 'builder', label: '📄 CV Builder' },
+  { id: 'ats',     label: '🎯 ATS Scanner' },
+]
+
+export default function CVGenerator() {
+  const [tab, setTab] = useState('builder')
+  return (
+    <div>
+      {/* Sub-tabs */}
+      <div className="flex rounded-lg overflow-hidden border border-gray-700 mb-4">
+        {CV_TABS.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`flex-1 py-2 text-sm font-semibold transition-colors ${tab === t.id ? 'bg-blue-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'builder' ? <CVBuilder /> : <ATSScanner />}
     </div>
   )
 }

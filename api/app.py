@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+import math
 import secrets
 import subprocess
 import threading
@@ -32,7 +33,7 @@ import mimetypes
 import certifi
 import yt_dlp
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 
 import socketio as socketio_pkg
@@ -450,6 +451,37 @@ def init_db():
                         data TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS app_users (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        email TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL DEFAULT 'passenger',
+                        location_lat REAL,
+                        location_lng REAL,
+                        location_name TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS rides (
+                        id SERIAL PRIMARY KEY,
+                        ride_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        driver_name TEXT NOT NULL,
+                        origin TEXT NOT NULL,
+                        destination TEXT NOT NULL,
+                        origin_lat REAL,
+                        origin_lng REAL,
+                        departure TEXT NOT NULL,
+                        seats INTEGER NOT NULL DEFAULT 1,
+                        notes TEXT,
+                        status TEXT NOT NULL DEFAULT 'open',
+                        created_at TEXT NOT NULL
+                    )
+                """)
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -468,6 +500,33 @@ def init_db():
                     CREATE TABLE IF NOT EXISTS reviews (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         data TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS app_users (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        email TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        role TEXT NOT NULL DEFAULT 'passenger',
+                        location_lat REAL,
+                        location_lng REAL,
+                        location_name TEXT,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS rides (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ride_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        driver_name TEXT NOT NULL,
+                        origin TEXT NOT NULL,
+                        destination TEXT NOT NULL,
+                        origin_lat REAL,
+                        origin_lng REAL,
+                        departure TEXT NOT NULL,
+                        seats INTEGER NOT NULL DEFAULT 1,
+                        notes TEXT,
+                        status TEXT NOT NULL DEFAULT 'open',
+                        created_at TEXT NOT NULL
                     );
                 """)
             conn.commit()
@@ -5506,6 +5565,600 @@ async def api_doc_convert(
 
 
 # =========================================================
+# ATS CV SCANNING MODULE
+# =========================================================
+
+# Common stop-words to skip when extracting keywords
+_ATS_STOP_WORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for",
+    "of", "with", "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "do", "does", "did", "will", "would", "shall",
+    "should", "may", "might", "can", "could", "must", "that", "this",
+    "these", "those", "it", "its", "we", "you", "your", "they", "their",
+    "our", "us", "he", "she", "him", "her", "from", "by", "as", "into",
+    "about", "above", "after", "before", "between", "through", "during",
+    "while", "if", "then", "than", "so", "not", "no", "also", "more",
+    "other", "such", "each", "any", "all", "both", "few", "most", "some",
+    "experience", "work", "job", "role", "position", "candidate",
+    "required", "preferred", "minimum", "years", "year", "including",
+    "ability", "strong", "knowledge", "good", "excellent", "team", "own",
+})
+
+# Common tech / domain skill tokens that should be captured as multi-word phrases
+_ATS_TECH_PHRASES = [
+    "machine learning", "deep learning", "natural language processing",
+    "computer vision", "data science", "data analysis", "big data",
+    "cloud computing", "software development", "software engineering",
+    "project management", "product management", "agile methodology",
+    "continuous integration", "continuous deployment", "ci/cd",
+    "object oriented", "test driven development", "rest api", "restful api",
+    "version control", "source control", "microsoft office",
+]
+
+
+def _extract_ats_keywords(text: str) -> list[str]:
+    """Extract meaningful keywords/phrases from a job description."""
+    text_lower = text.lower()
+
+    # First capture multi-word tech phrases
+    found: set[str] = set()
+    for phrase in _ATS_TECH_PHRASES:
+        if phrase in text_lower:
+            found.add(phrase)
+
+    # Then extract individual significant tokens
+    tokens = re.findall(r"[a-zA-Z][a-zA-Z0-9+#./\-]{2,}", text)
+    for tok in tokens:
+        tok_lower = tok.lower().rstrip(".")
+        if tok_lower not in _ATS_STOP_WORDS and len(tok_lower) >= 3:
+            found.add(tok_lower)
+
+    return sorted(found)
+
+
+def _score_ats(cv_text: str, keywords: list[str]) -> dict:
+    """Score CV text against a list of keywords. Returns matched/missing/score."""
+    cv_lower = cv_text.lower()
+    matched  = [kw for kw in keywords if kw in cv_lower]
+    missing  = [kw for kw in keywords if kw not in cv_lower]
+    total    = len(keywords) if keywords else 1
+    score    = round(len(matched) / total * 100)
+
+    # Build improvement tips based on the score
+    tips: list[str] = []
+    if score < 50:
+        tips.append("Your CV matches fewer than half the job keywords — consider adding a tailored skills section.")
+    if score < 75:
+        tips.append("Add the missing keywords naturally into your experience or skills sections.")
+    if missing:
+        tips.append(f"Top missing keywords: {', '.join(missing[:10])}.")
+    if score >= 80:
+        tips.append("Strong keyword alignment — ensure each keyword is backed by concrete examples.")
+
+    return {
+        "score":   score,
+        "matched": matched,
+        "missing": missing,
+        "tips":    tips,
+    }
+
+
+class _AtsRequest(BaseModel):
+    cv_text:         str = ""
+    job_description: str = ""
+
+
+@fastapi_app.post("/api/cv/ats_scan")
+async def api_cv_ats_scan(
+    request: Request,
+    file: UploadFile = File(None),
+    job_description: str = Form(""),
+    cv_text: str = Form(""),
+):
+    """Score a CV against a job description for ATS compatibility.
+
+    Accepts either:
+    - A multipart form with an optional ``file`` (PDF/DOCX) + ``job_description`` text, or
+    - A JSON body: ``{ cv_text, job_description }``
+
+    Returns ``{score, matched, missing, tips, keywords_total}``.
+    """
+    # Support JSON body too
+    ct = request.headers.get("content-type", "")
+    if "application/json" in ct:
+        try:
+            body = await request.json()
+            cv_text         = body.get("cv_text", "")
+            job_description = body.get("job_description", "")
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body."}, status_code=400)
+
+    # If a file was uploaded, extract text from it
+    if file is not None:
+        import tempfile
+        filename = (file.filename or "").lower()
+        if not (filename.endswith(".pdf") or filename.endswith(".docx") or filename.endswith(".doc")):
+            return JSONResponse(
+                {"error": "Only PDF and DOCX files are supported for ATS scanning."},
+                status_code=400,
+            )
+        content = await file.read()
+        if len(content) > _MAX_CV_UPLOAD_BYTES:
+            return JSONResponse({"error": "File too large (max 10 MB)."}, status_code=400)
+        tmpdir = tempfile.mkdtemp(prefix="ats_")
+        try:
+            ext = ".pdf" if filename.endswith(".pdf") else ".docx"
+            tmp_path = os.path.join(tmpdir, "upload" + ext)
+            with open(tmp_path, "wb") as fh:
+                fh.write(content)
+            cv_text = _extract_text_from_pdf(tmp_path) if ext == ".pdf" else _extract_text_from_docx(tmp_path)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    if not cv_text.strip():
+        return JSONResponse({"error": "CV text is required."}, status_code=400)
+    if not job_description.strip():
+        return JSONResponse({"error": "Job description is required."}, status_code=400)
+
+    keywords = _extract_ats_keywords(job_description)
+    result   = _score_ats(cv_text, keywords)
+    result["keywords_total"] = len(keywords)
+    return JSONResponse(result)
+
+
+# =========================================================
+# USER AUTHENTICATION MODULE
+# =========================================================
+
+_APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "50"))
+
+# In-memory driver location store: user_id → {lat, lng, ts, name, user_id, empty}
+_driver_locations: dict[str, dict] = {}
+_driver_loc_lock = Lock()
+_DRIVER_LOC_TTL_SECS = 300  # 5 minutes
+
+# In-memory map of socket sid → user_id for authenticated users
+_sid_to_user: dict[str, str] = {}
+_user_to_sid: dict[str, str] = {}
+_socket_user_lock = Lock()
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return the great-circle distance in kilometres between two lat/lng points."""
+    R = 6371.0
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi  = math.radians(lat2 - lat1)
+    dlam  = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+
+def _get_app_user(user_id: str) -> dict | None:
+    """Fetch a user row from the database by user_id. Returns None if not found."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,created_at FROM app_users WHERE user_id=%s", (user_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,created_at FROM app_users WHERE user_id=?", (user_id,))
+                row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "created_at"]
+            return dict(zip(keys, row))
+        finally:
+            conn.close()
+
+
+def _get_app_user_by_email(email: str) -> dict | None:
+    """Fetch a user row including password_hash by email."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id,name,email,password_hash,role,location_lat,location_lng,location_name,created_at FROM app_users WHERE email=%s", (email.lower(),))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id,name,email,password_hash,role,location_lat,location_lng,location_name,created_at FROM app_users WHERE email=?", (email.lower(),))
+                row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ["user_id", "name", "email", "password_hash", "role", "location_lat", "location_lng", "location_name", "created_at"]
+            return dict(zip(keys, row))
+        finally:
+            conn.close()
+
+
+class _UserRegisterRequest(BaseModel):
+    name:     str
+    email:    str
+    password: str
+    role:     str = "passenger"  # "passenger" | "driver"
+
+
+class _UserLoginRequest(BaseModel):
+    email:    str
+    password: str
+
+
+class _UserLocationUpdate(BaseModel):
+    lat:           float
+    lng:           float
+    location_name: str = ""
+
+
+@fastapi_app.post("/api/auth/register")
+async def api_user_register(body: _UserRegisterRequest):
+    """Register a new platform user (passenger or driver)."""
+    name     = body.name.strip()
+    email    = body.email.strip().lower()
+    password = body.password
+    role     = body.role if body.role in ("passenger", "driver") else "passenger"
+
+    if not name or not email or not password:
+        return JSONResponse({"error": "Name, email and password are required."}, status_code=400)
+    if len(password) < 6:
+        return JSONResponse({"error": "Password must be at least 6 characters."}, status_code=400)
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return JSONResponse({"error": "Invalid email address."}, status_code=400)
+
+    user_id      = str(uuid.uuid4())
+    pw_hash      = generate_password_hash(password)
+    created_at   = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                try:
+                    cur.execute(
+                        "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (user_id, name, email, pw_hash, role, created_at),
+                    )
+                except Exception:
+                    conn.rollback()
+                    return JSONResponse({"error": "Email already registered."}, status_code=409)
+            else:
+                try:
+                    conn.execute(
+                        "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)",
+                        (user_id, name, email, pw_hash, role, created_at),
+                    )
+                except Exception:
+                    return JSONResponse({"error": "Email already registered."}, status_code=409)
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({
+        "ok":      True,
+        "user_id": user_id,
+        "name":    name,
+        "email":   email,
+        "role":    role,
+    }, status_code=201)
+
+
+@fastapi_app.post("/api/auth/login")
+async def api_user_login(request: Request, body: _UserLoginRequest):
+    """Login as a platform user. Sets a session cookie."""
+    email    = body.email.strip().lower()
+    password = body.password
+
+    user = _get_app_user_by_email(email)
+    if user is None or not check_password_hash(user["password_hash"], password):
+        return JSONResponse({"error": "Invalid email or password."}, status_code=401)
+
+    request.session["app_user_id"] = user["user_id"]
+    return JSONResponse({
+        "ok":      True,
+        "user_id": user["user_id"],
+        "name":    user["name"],
+        "email":   user["email"],
+        "role":    user["role"],
+    })
+
+
+@fastapi_app.post("/api/auth/logout")
+async def api_user_logout(request: Request):
+    """Logout the current platform user."""
+    request.session.pop("app_user_id", None)
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/auth/me")
+async def api_user_me(request: Request):
+    """Return the currently logged-in user's profile."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not logged in."}, status_code=401)
+    user = _get_app_user(user_id)
+    if user is None:
+        request.session.pop("app_user_id", None)
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    return JSONResponse(user)
+
+
+@fastapi_app.put("/api/auth/profile")
+async def api_user_update_profile(request: Request, body: _UserLocationUpdate):
+    """Update the logged-in user's location."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not logged in."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE app_users SET location_lat=%s, location_lng=%s, location_name=%s WHERE user_id=%s",
+                    (body.lat, body.lng, body.location_name.strip(), user_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE app_users SET location_lat=?, location_lng=?, location_name=? WHERE user_id=?",
+                    (body.lat, body.lng, body.location_name.strip(), user_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
+# =========================================================
+# RIDE SHARING MODULE
+# =========================================================
+
+class _RidePostRequest(BaseModel):
+    origin:      str
+    destination: str
+    departure:   str
+    seats:       int = 1
+    notes:       str = ""
+    origin_lat:  float | None = None
+    origin_lng:  float | None = None
+
+
+class _RideJoinRequest(BaseModel):
+    ride_id: str
+
+
+@fastapi_app.post("/api/rides/post")
+async def api_ride_post(request: Request, body: _RidePostRequest):
+    """Post a new shared ride offer."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required to post a ride."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    origin      = body.origin.strip()
+    destination = body.destination.strip()
+    departure   = body.departure.strip()
+
+    if not origin or not destination or not departure:
+        return JSONResponse({"error": "Origin, destination and departure are required."}, status_code=400)
+    if body.seats < 1 or body.seats > 20:
+        return JSONResponse({"error": "Seats must be between 1 and 20."}, status_code=400)
+
+    ride_id    = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)""",
+                    (ride_id, user_id, user["name"], origin, destination,
+                     body.origin_lat, body.origin_lng, departure, body.seats,
+                     body.notes.strip(), created_at),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,'open',?)""",
+                    (ride_id, user_id, user["name"], origin, destination,
+                     body.origin_lat, body.origin_lng, departure, body.seats,
+                     body.notes.strip(), created_at),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    ride_data = {
+        "ride_id":     ride_id,
+        "driver_name": user["name"],
+        "origin":      origin,
+        "destination": destination,
+        "departure":   departure,
+        "seats":       body.seats,
+        "notes":       body.notes.strip(),
+        "created_at":  created_at,
+    }
+
+    # Notify all connected users via Socket.IO
+    asyncio.ensure_future(sio.emit("new_ride", ride_data))
+
+    return JSONResponse({"ok": True, "ride_id": ride_id}, status_code=201)
+
+
+@fastapi_app.get("/api/rides/list")
+async def api_rides_list():
+    """Return all open rides ordered by departure time."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at FROM rides WHERE status='open' ORDER BY departure ASC LIMIT 100"
+                )
+                rows = cur.fetchall()
+                cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
+                        "origin_lat", "origin_lng", "departure", "seats", "notes", "status", "created_at"]
+            else:
+                cur = conn.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at FROM rides WHERE status='open' ORDER BY departure ASC LIMIT 100"
+                )
+                rows = cur.fetchall()
+                cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
+                        "origin_lat", "origin_lng", "departure", "seats", "notes", "status", "created_at"]
+        finally:
+            conn.close()
+
+    rides = [dict(zip(cols, row)) for row in rows]
+    return JSONResponse({"rides": rides})
+
+
+@fastapi_app.delete("/api/rides/{ride_id}")
+async def api_ride_cancel(request: Request, ride_id: str):
+    """Cancel a ride (only the poster can cancel it)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM rides WHERE ride_id=%s", (ride_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id FROM rides WHERE ride_id=?", (ride_id,))
+                row = cur.fetchone()
+
+            if row is None:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+            if row[0] != user_id:
+                return JSONResponse({"error": "Not authorised."}, status_code=403)
+
+            if USE_POSTGRES:
+                cur.execute("UPDATE rides SET status='cancelled' WHERE ride_id=%s", (ride_id,))
+            else:
+                conn.execute("UPDATE rides SET status='cancelled' WHERE ride_id=?", (ride_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    asyncio.ensure_future(sio.emit("ride_cancelled", {"ride_id": ride_id}))
+    return JSONResponse({"ok": True})
+
+
+# =========================================================
+# DRIVER GEOLOCATION MODULE
+# =========================================================
+
+class _DriverLocationUpdate(BaseModel):
+    lat:   float
+    lng:   float
+    empty: bool = True  # True = car is empty / available
+
+
+@fastapi_app.post("/api/driver/location")
+async def api_driver_location(request: Request, body: _DriverLocationUpdate):
+    """Driver broadcasts their current location. Notifies nearby connected users."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None or user.get("role") != "driver":
+        return JSONResponse({"error": "Only drivers can broadcast location."}, status_code=403)
+
+    ts = time.time()
+    with _driver_loc_lock:
+        _driver_locations[user_id] = {
+            "user_id": user_id,
+            "name":    user["name"],
+            "lat":     body.lat,
+            "lng":     body.lng,
+            "empty":   body.empty,
+            "ts":      ts,
+        }
+
+    # Notify nearby users who have shared their location.
+    # We include the driver's coordinates in the event so the client-side can
+    # do its own proximity check before surfacing the alert.
+    notification = {
+        "driver_id":   user_id,
+        "driver_name": user["name"],
+        "lat":         body.lat,
+        "lng":         body.lng,
+        "empty":       body.empty,
+        "radius_km":   _APP_USER_PROXIMITY_KM,
+        "message":     f"Driver {user['name']} is nearby and {'has empty seats' if body.empty else 'is occupied'}!",
+    }
+    # Emit to users who have previously identified themselves via socket.
+    # For each identified socket, only notify if the user has a stored location
+    # within APP_USER_PROXIMITY_KM; otherwise fall back to broadcasting.
+    targets_sent = False
+    with _socket_user_lock:
+        identified_sids = list(_sid_to_user.items())
+
+    async def _notify():
+        nonlocal targets_sent
+        for sid, uid in identified_sids:
+            u = _get_app_user(uid)
+            if u and u.get("location_lat") is not None and u.get("location_lng") is not None:
+                dist = _haversine_km(body.lat, body.lng, u["location_lat"], u["location_lng"])
+                if dist <= _APP_USER_PROXIMITY_KM:
+                    await sio.emit("driver_nearby", notification, room=sid)
+                    targets_sent = True
+        if not targets_sent:
+            # No location-aware users connected — broadcast to everyone
+            await sio.emit("driver_nearby", notification)
+
+    asyncio.ensure_future(_notify())
+
+    return JSONResponse({"ok": True, "ts": ts})
+
+
+@fastapi_app.get("/api/driver/nearby")
+async def api_driver_nearby(request: Request, lat: float, lng: float, radius_km: float = 10.0):
+    """Return drivers who are within *radius_km* of the given coordinates."""
+    now = time.time()
+    with _driver_loc_lock:
+        # Evict stale entries
+        stale = [uid for uid, d in _driver_locations.items() if now - d["ts"] > _DRIVER_LOC_TTL_SECS]
+        for uid in stale:
+            del _driver_locations[uid]
+
+        nearby = []
+        for d in _driver_locations.values():
+            dist = _haversine_km(lat, lng, d["lat"], d["lng"])
+            if dist <= radius_km:
+                nearby.append({**d, "distance_km": round(dist, 2), "ts": None})
+
+    return JSONResponse({"drivers": nearby})
+
+
+@fastapi_app.get("/api/driver/locations")
+async def api_driver_locations():
+    """Return all active (non-stale) driver locations (public)."""
+    now = time.time()
+    with _driver_loc_lock:
+        active = [
+            {**d, "ts": None}
+            for d in _driver_locations.values()
+            if now - d["ts"] <= _DRIVER_LOC_TTL_SECS
+        ]
+    return JSONResponse({"drivers": active})
+
+
+# =========================================================
 # SOCKET.IO EVENTS
 # =========================================================
 
@@ -5518,6 +6171,10 @@ async def connect(sid, environ):
 async def disconnect(sid):
     """Handle client disconnection"""
     logger.info(f"Client disconnected: {sid}")
+    with _socket_user_lock:
+        user_id = _sid_to_user.pop(sid, None)
+        if user_id:
+            _user_to_sid.pop(user_id, None)
 
 @sio.on("subscribe")
 async def on_subscribe(sid, data):
@@ -5527,6 +6184,17 @@ async def on_subscribe(sid, data):
         sio.enter_room(sid, download_id)
         await sio.emit("subscribed", {"id": download_id}, room=sid)
         logger.info(f"Client {sid} subscribed to {download_id}")
+
+@sio.on("identify")
+async def on_identify(sid, data):
+    """Associate a socket connection with a logged-in user for targeted notifications."""
+    user_id = data.get("user_id") if isinstance(data, dict) else None
+    if user_id:
+        with _socket_user_lock:
+            _sid_to_user[sid] = user_id
+            _user_to_sid[user_id] = sid
+        await sio.emit("identified", {"user_id": user_id}, room=sid)
+        logger.info(f"Socket {sid} identified as user {user_id}")
 
 # =========================================================
 # CLEANUP THREAD
