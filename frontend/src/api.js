@@ -280,9 +280,14 @@ export const updateUserLocation = (lat, lng, location_name = '') =>
 export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null) =>
   request('POST', '/api/rides/post', { origin, destination, departure, seats, notes, origin_lat, origin_lng })
 
-export const listRides = () => request('GET', '/api/rides/list')
+export const listRides = (status = null) =>
+  request('GET', `/api/rides/list${status ? `?status=${encodeURIComponent(status)}` : ''}`)
 
 export const cancelRide = (rideId) => request('DELETE', `/api/rides/${encodeURIComponent(rideId)}`)
+
+export const takeRide = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/take`, {})
+
+export const getAdminRides = () => request('GET', '/api/admin/rides')
 
 // ── Driver Geolocation ────────────────────────────────────────────────────────
 

@@ -22,6 +22,8 @@ from api.app import (
     api_ride_post,
     api_rides_list,
     api_ride_cancel,
+    api_ride_take,
+    api_admin_rides,
     api_driver_location,
     api_driver_nearby,
     api_driver_locations,
@@ -494,3 +496,165 @@ class TestDriverGeolocation:
         drivers = json.loads(resp.body)["drivers"]
         london_nearby = [d for d in drivers if abs(d["lat"] - 51.5074) < 0.01]
         assert len(london_nearby) == 0
+
+
+# ---------------------------------------------------------------------------
+# Ride take endpoint
+# ---------------------------------------------------------------------------
+
+class TestRideTake:
+    def test_take_own_ride(self):
+        import json
+        _, email = _register_user("TakeOwner")
+        session = _login_session(email)
+        req = _make_request(session)
+        r = run(api_ride_post(req, _RidePostRequest(
+            origin="TakeSrc", destination="TakeDst",
+            departure="2031-01-01T10:00", seats=2,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        resp = run(api_ride_take(req, ride_id))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+
+    def test_take_updates_status_to_taken(self):
+        import json
+        _, email = _register_user("TakeStatus")
+        session = _login_session(email)
+        req = _make_request(session)
+        r = run(api_ride_post(req, _RidePostRequest(
+            origin="TakeSrc2", destination="TakeDst2",
+            departure="2031-02-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        run(api_ride_take(req, ride_id))
+        # Verify it appears as taken in list (all statuses)
+        list_resp = run(api_rides_list(status="taken"))
+        rides = json.loads(list_resp.body)["rides"]
+        taken_ids = [rd["ride_id"] for rd in rides if rd["status"] == "taken"]
+        assert ride_id in taken_ids
+
+    def test_take_not_owner_returns_403(self):
+        import json
+        _, email1 = _register_user("TakeA")
+        session1 = _login_session(email1)
+        req1 = _make_request(session1)
+        r = run(api_ride_post(req1, _RidePostRequest(
+            origin="TakeShared", destination="TakeSharedDst",
+            departure="2031-03-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+
+        _, email2 = _register_user("TakeB")
+        session2 = _login_session(email2)
+        req2 = _make_request(session2)
+        resp = run(api_ride_take(req2, ride_id))
+        assert resp.status_code == 403
+
+    def test_take_nonexistent_returns_404(self):
+        _, email = _register_user("TakeNone")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_take(req, "no-such-ride-xyz"))
+        assert resp.status_code == 404
+
+    def test_take_requires_login(self):
+        req = _make_request({})
+        resp = run(api_ride_take(req, "some-ride-id"))
+        assert resp.status_code == 401
+
+    def test_cannot_take_cancelled_ride(self):
+        import json
+        _, email = _register_user("TakeCancelled")
+        session = _login_session(email)
+        req = _make_request(session)
+        r = run(api_ride_post(req, _RidePostRequest(
+            origin="CancelFirst", destination="ThenTake",
+            departure="2031-04-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        run(api_ride_cancel(req, ride_id))
+        resp = run(api_ride_take(req, ride_id))
+        assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Admin rides endpoint
+# ---------------------------------------------------------------------------
+
+class TestAdminRides:
+    def test_admin_rides_without_session_returns_401(self):
+        req = _make_request({})
+        resp = run(api_admin_rides(req))
+        assert resp.status_code == 401
+
+    def test_admin_rides_with_session_returns_data(self):
+        import json
+        session = {"admin_user": "admin"}
+        req = _make_request(session)
+        resp = run(api_admin_rides(req))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "rides" in body
+        assert "stats" in body
+        stats = body["stats"]
+        assert "total" in stats
+        assert "open" in stats
+        assert "taken" in stats
+        assert "cancelled" in stats
+
+    def test_admin_rides_stats_are_consistent(self):
+        import json
+        # Post a ride then take it so stats cover multiple statuses
+        _, email = _register_user("AdminRideStats")
+        session_user = _login_session(email)
+        req_user = _make_request(session_user)
+        r = run(api_ride_post(req_user, _RidePostRequest(
+            origin="AdminSrc", destination="AdminDst",
+            departure="2031-05-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        run(api_ride_take(req_user, ride_id))
+
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_rides(admin_req))
+        body = json.loads(resp.body)
+        stats = body["stats"]
+        assert stats["total"] == stats["open"] + stats["taken"] + stats["cancelled"]
+
+
+# ---------------------------------------------------------------------------
+# Rides list status filter
+# ---------------------------------------------------------------------------
+
+class TestRidesListFilter:
+    def test_list_open_filter(self):
+        import json
+        resp = run(api_rides_list(status="open"))
+        rides = json.loads(resp.body)["rides"]
+        assert all(r["status"] == "open" for r in rides)
+
+    def test_list_taken_filter(self):
+        import json
+        _, email = _register_user("FilterTaken")
+        session = _login_session(email)
+        req = _make_request(session)
+        r = run(api_ride_post(req, _RidePostRequest(
+            origin="FilterSrc", destination="FilterDst",
+            departure="2031-06-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        run(api_ride_take(req, ride_id))
+
+        resp = run(api_rides_list(status="taken"))
+        rides = json.loads(resp.body)["rides"]
+        assert all(r["status"] == "taken" for r in rides)
+
+    def test_list_default_returns_open_and_taken(self):
+        import json
+        resp = run(api_rides_list())
+        rides = json.loads(resp.body)["rides"]
+        statuses = {r["status"] for r in rides}
+        # Should never include cancelled
+        assert "cancelled" not in statuses

@@ -7,6 +7,7 @@ import {
   adminClearAllDownloads, adminClearAllData,
   adminLogout, adminDbDownloadUrl, adminDbUpload,
   getCookieStatus, uploadCookies, deleteCookies,
+  getAdminRides,
 } from '../api'
 import AdminStats from '../components/admin/AdminStats'
 import AnalyticsCharts from '../components/admin/AnalyticsCharts'
@@ -20,6 +21,7 @@ const SIDEBAR_TABS = [
   { id: 'analytics',  icon: '📈', label: 'Analytics'  },
   { id: 'downloads',  icon: '📥', label: 'Downloads'  },
   { id: 'visitors',   icon: '👥', label: 'Visitors'   },
+  { id: 'rides',      icon: '🚗', label: 'Rides'      },
   { id: 'database',   icon: '🗄',  label: 'Database'   },
   { id: 'cookies',    icon: '🍪',  label: 'Cookies'    },
 ]
@@ -95,10 +97,12 @@ export default function AdminDashboard() {
   const [analytics, setAnalytics]     = useState(null)
   const [downloads, setDownloads]     = useState([])
   const [visitors, setVisitors]       = useState([])
+  const [ridesData, setRidesData]     = useState(null)
   const [cookieStatus, setCookieStatus] = useState(null)
   const [loadingAnalytics, setLoadingAnalytics] = useState(false)
   const [loadingDl, setLoadingDl]     = useState(false)
   const [loadingVis, setLoadingVis]   = useState(false)
+  const [loadingRides, setLoadingRides] = useState(false)
   const [notice, setNotice]           = useState('')
   const [error, setError]             = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -140,6 +144,12 @@ export default function AdminDashboard() {
     getCookieStatus().then(setCookieStatus).catch(() => {})
   }, [])
 
+  const fetchRides = useCallback(async () => {
+    setLoadingRides(true)
+    try { setRidesData(await getAdminRides()) } catch {}
+    finally { setLoadingRides(false) }
+  }, [])
+
   // Load data based on active tab
   useEffect(() => {
     if (tab === 'dashboard' || tab === 'analytics') {
@@ -149,6 +159,7 @@ export default function AdminDashboard() {
     if (tab === 'downloads')  fetchDownloads()
     if (tab === 'visitors')   fetchVisitors()
     if (tab === 'cookies')    fetchCookies()
+    if (tab === 'rides')      fetchRides()
   }, [tab])
 
   const handleLogout = async () => {
@@ -291,6 +302,7 @@ export default function AdminDashboard() {
               if (tab === 'dashboard' || tab === 'analytics') fetchAnalytics()
               if (tab === 'downloads') fetchDownloads()
               if (tab === 'visitors')  fetchVisitors()
+              if (tab === 'rides')     fetchRides()
             }}
           >↻ Refresh</button>
         </header>
@@ -352,6 +364,91 @@ export default function AdminDashboard() {
               loading={loadingVis}
               onClear={handleClearVisitors}
             />
+          )}
+
+          {/* Rides tab */}
+          {tab === 'rides' && (
+            <div className="space-y-6">
+              {loadingRides && (
+                <div className="flex justify-center py-12">
+                  <div className="spinner w-8 h-8" />
+                </div>
+              )}
+              {!loadingRides && ridesData && (
+                <>
+                  {/* Stats row */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="rounded-xl border border-blue-800/50 bg-blue-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Rides</p>
+                      <p className="text-2xl font-bold text-white">{ridesData.stats.total}</p>
+                    </div>
+                    <div className="rounded-xl border border-green-800/50 bg-green-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <span className="ride-status-tag ride-tag-open" style={{fontSize:'0.6rem'}}>Open</span>
+                      </p>
+                      <p className="text-2xl font-bold text-white">{ridesData.stats.open}</p>
+                    </div>
+                    <div className="rounded-xl border border-amber-700/50 bg-amber-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <span className="ride-status-tag ride-tag-taken" style={{fontSize:'0.6rem'}}>Taken</span>
+                      </p>
+                      <p className="text-2xl font-bold text-white">{ridesData.stats.taken}</p>
+                    </div>
+                    <div className="rounded-xl border border-red-800/40 bg-red-900/10 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1">
+                        <span className="ride-status-tag ride-tag-cancelled" style={{fontSize:'0.6rem'}}>Cancelled</span>
+                      </p>
+                      <p className="text-2xl font-bold text-white">{ridesData.stats.cancelled}</p>
+                    </div>
+                  </div>
+
+                  {/* Rides table */}
+                  <div className="card overflow-x-auto">
+                    <h3 className="font-semibold text-white mb-3">🗺️ All Rides</h3>
+                    {ridesData.rides.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-4 text-center">No rides yet.</p>
+                    ) : (
+                      <table className="w-full text-xs text-left text-gray-300 border-collapse">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-700">
+                            <th className="py-2 pr-3">Status</th>
+                            <th className="py-2 pr-3">Origin → Dest</th>
+                            <th className="py-2 pr-3">Driver</th>
+                            <th className="py-2 pr-3">Departure</th>
+                            <th className="py-2 pr-3">Seats</th>
+                            <th className="py-2">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ridesData.rides.map(r => (
+                            <tr key={r.ride_id} className="border-b border-gray-800/60 hover:bg-gray-800/30">
+                              <td className="py-2 pr-3">
+                                <span className={`ride-status-tag ${
+                                  r.status === 'open' ? 'ride-tag-open'
+                                  : r.status === 'taken' ? 'ride-tag-taken'
+                                  : 'ride-tag-cancelled'
+                                }`}>
+                                  {r.status}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3 max-w-[160px] truncate">
+                                {r.origin} → {r.destination}
+                              </td>
+                              <td className="py-2 pr-3">{r.driver_name}</td>
+                              <td className="py-2 pr-3 whitespace-nowrap">
+                                {new Date(r.departure).toLocaleString()}
+                              </td>
+                              <td className="py-2 pr-3 text-center">{r.seats}</td>
+                              <td className="py-2 max-w-[140px] truncate text-gray-500">{r.notes || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
           )}
 
           {/* Database tab */}

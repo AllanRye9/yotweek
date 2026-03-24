@@ -5995,26 +5995,45 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
 
 
 @fastapi_app.get("/api/rides/list")
-async def api_rides_list():
-    """Return all open rides ordered by departure time."""
+async def api_rides_list(status: str | None = None):
+    """Return rides ordered by departure time.
+
+    Query param ``status`` can be 'open', 'taken', 'cancelled', or omitted to
+    return open and taken rides (everything visible to passengers).
+    """
+    _VALID_RIDE_STATUSES = ("open", "taken", "cancelled")
+    # Default: show open and taken rides so passengers can see status tags.
+    if status and status in _VALID_RIDE_STATUSES:
+        status_filter = [status]
+    else:
+        status_filter = ["open", "taken"]
+
+    # Build parameterised placeholders from a fixed count — no user data
+    # enters the SQL string itself, so this is safe from injection.
+    n = len(status_filter)
+    pg_placeholders  = ",".join(["%s"] * n)
+    sql_placeholders = ",".join(["?"]  * n)
+
     with _db_lock:
         conn = _get_db()
         try:
+            cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
+                    "origin_lat", "origin_lng", "departure", "seats", "notes", "status", "created_at"]
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at FROM rides WHERE status='open' ORDER BY departure ASC LIMIT 100"
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at"
+                    f" FROM rides WHERE status IN ({pg_placeholders}) ORDER BY departure ASC LIMIT 200",
+                    status_filter,
                 )
                 rows = cur.fetchall()
-                cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
-                        "origin_lat", "origin_lng", "departure", "seats", "notes", "status", "created_at"]
             else:
                 cur = conn.execute(
-                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at FROM rides WHERE status='open' ORDER BY departure ASC LIMIT 100"
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at"
+                    f" FROM rides WHERE status IN ({sql_placeholders}) ORDER BY departure ASC LIMIT 200",
+                    status_filter,
                 )
                 rows = cur.fetchall()
-                cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
-                        "origin_lat", "origin_lng", "departure", "seats", "notes", "status", "created_at"]
         finally:
             conn.close()
 
@@ -6055,6 +6074,87 @@ async def api_ride_cancel(request: Request, ride_id: str):
 
     asyncio.ensure_future(sio.emit("ride_cancelled", {"ride_id": ride_id}))
     return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/rides/{ride_id}/take")
+async def api_ride_take(request: Request, ride_id: str):
+    """Mark a ride as taken (only the poster can confirm this)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, status FROM rides WHERE ride_id=%s", (ride_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id, status FROM rides WHERE ride_id=?", (ride_id,))
+                row = cur.fetchone()
+
+            if row is None:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+            if row[0] != user_id:
+                return JSONResponse({"error": "Not authorised."}, status_code=403)
+            if row[1] == "cancelled":
+                return JSONResponse({"error": "Cannot mark a cancelled ride as taken."}, status_code=409)
+
+            if USE_POSTGRES:
+                cur.execute("UPDATE rides SET status='taken' WHERE ride_id=%s", (ride_id,))
+            else:
+                conn.execute("UPDATE rides SET status='taken' WHERE ride_id=?", (ride_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    asyncio.ensure_future(sio.emit("ride_taken", {"ride_id": ride_id}))
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/admin/rides")
+async def api_admin_rides(request: Request):
+    """Return ride-sharing statistics for the admin dashboard."""
+    user_id = request.session.get("admin_user")
+    if not user_id:
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
+                    "departure", "seats", "notes", "status", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,departure,seats,notes,status,created_at FROM rides ORDER BY created_at DESC LIMIT 500"
+                )
+                rows = cur.fetchall()
+                cur.execute("SELECT status, COUNT(*) FROM rides GROUP BY status")
+                counts_rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,departure,seats,notes,status,created_at FROM rides ORDER BY created_at DESC LIMIT 500"
+                )
+                rows = cur.fetchall()
+                counts_cur = conn.execute("SELECT status, COUNT(*) FROM rides GROUP BY status")
+                counts_rows = counts_cur.fetchall()
+        finally:
+            conn.close()
+
+    rides = [dict(zip(cols, row)) for row in rows]
+    counts = {r[0]: r[1] for r in counts_rows}
+    total = sum(counts.values())
+    return JSONResponse({
+        "rides": rides,
+        "stats": {
+            "total": total,
+            "open": counts.get("open", 0),
+            "taken": counts.get("taken", 0),
+            "cancelled": counts.get("cancelled", 0),
+        },
+    })
 
 
 # =========================================================

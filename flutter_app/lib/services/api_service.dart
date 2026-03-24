@@ -302,4 +302,58 @@ class ApiService {
     }
     return streamed.stream.toBytes();
   }
+
+  // ── Ride Sharing ──────────────────────────────────────────────────────────
+
+  /// Return all visible rides (open + taken).
+  Future<List<Map<String, dynamic>>> listRides() async {
+    final res = await http.get(_uri('/api/rides/list'));
+    final data = (await _parseResponse(res)) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(data['rides'] as List);
+  }
+
+  /// Post a new shared ride.
+  Future<String> postRide({
+    required String origin,
+    required String destination,
+    required String departure,
+    required int seats,
+    String notes = '',
+    double? originLat,
+    double? originLng,
+  }) async {
+    final body = <String, dynamic>{
+      'origin': origin,
+      'destination': destination,
+      'departure': departure,
+      'seats': seats,
+      'notes': notes,
+    };
+    if (originLat != null) body['origin_lat'] = originLat;
+    if (originLng != null) body['origin_lng'] = originLng;
+
+    final res = await http.post(
+      _uri('/api/rides/post'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode(body),
+    );
+    final data = (await _parseResponse(res)) as Map<String, dynamic>;
+    return data['ride_id'] as String;
+  }
+
+  /// Mark a ride as taken (poster only).
+  Future<void> takeRide(String rideId) async {
+    final res = await http.post(
+      _uri('/api/rides/$rideId/take'),
+      headers: {'Content-Type': 'application/json'},
+      body: '{}',
+    );
+    await _parseResponse(res);
+  }
+
+  /// Cancel a ride (poster only).
+  Future<void> cancelRide(String rideId) async {
+    final res = await http.delete(_uri('/api/rides/$rideId'));
+    await _parseResponse(res);
+  }
 }

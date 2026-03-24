@@ -63,3 +63,41 @@ export function playErrorSound() {
     setTimeout(() => ctx.close().catch(() => {}), 700)
   } catch (_) {}
 }
+
+/** Urgent rising pulse — played when a driver nearby alert arrives. */
+export function playDriverAlertSound() {
+  try {
+    const ctx = makeCtx()
+    if (!ctx) return
+    const t = ctx.currentTime
+    playTone(ctx, 600, t,        0.10, 0.30)
+    playTone(ctx, 800, t + 0.12, 0.10, 0.30)
+    playTone(ctx, 600, t + 0.28, 0.10, 0.30)
+    playTone(ctx, 800, t + 0.40, 0.12, 0.32)
+    setTimeout(() => ctx.close().catch(() => {}), 900)
+  } catch (_) {}
+}
+
+/** Positive two-note chime — played when a ride is marked as taken. */
+export function playRideTakenSound() {
+  try {
+    const ctx = makeCtx()
+    if (!ctx) return
+    const t = ctx.currentTime
+    playTone(ctx, 523, t,        0.14)
+    playTone(ctx, 784, t + 0.16, 0.20, 0.28)
+    setTimeout(() => ctx.close().catch(() => {}), 800)
+  } catch (_) {}
+}
+
+/** Short cheerful ding — played when a new ride is posted. */
+export function playNewRideSound() {
+  try {
+    const ctx = makeCtx()
+    if (!ctx) return
+    const t = ctx.currentTime
+    playTone(ctx, 660, t,        0.10, 0.20)
+    playTone(ctx, 880, t + 0.12, 0.10, 0.20)
+    setTimeout(() => ctx.close().catch(() => {}), 600)
+  } catch (_) {}
+}

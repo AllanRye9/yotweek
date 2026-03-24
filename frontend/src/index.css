@@ -798,3 +798,127 @@ html:not(.theme-dark) .bg-gradient-to-b {
     transform: none;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* RIDE SHARE — status tags, card animations, driver alert toast              */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* ── Status tags ── */
+.ride-status-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+}
+
+.ride-tag-open {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  border-color: rgba(74, 222, 128, 0.35);
+  animation: ride-tag-open-pulse 2.4s ease-in-out infinite;
+}
+
+.ride-tag-taken {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.12);
+  border-color: rgba(251, 191, 36, 0.35);
+}
+
+.ride-tag-cancelled {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.10);
+  border-color: rgba(248, 113, 113, 0.30);
+  text-decoration: line-through;
+}
+
+@keyframes ride-tag-open-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74, 222, 128, 0); }
+  50%       { box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.18); }
+}
+
+/* ── Ride card enter animation ── */
+.ride-card {
+  animation: ride-card-in 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes ride-card-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Driver alert toast ── */
+.driver-alert-toast {
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.driver-alert-enter {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.driver-alert-exit {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.95);
+}
+
+/* Bouncing car icon inside the alert */
+.driver-alert-icon {
+  display: inline-block;
+  animation: driver-alert-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+             driver-alert-wiggle 1.2s ease-in-out 0.6s infinite;
+}
+
+@keyframes driver-alert-bounce {
+  0%   { transform: scale(0) rotate(-15deg); }
+  60%  { transform: scale(1.25) rotate(8deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes driver-alert-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  25%       { transform: rotate(-6deg); }
+  75%       { transform: rotate(6deg); }
+}
+
+/* Pulsing car icon on the driver broadcast panel */
+.driver-pulse-icon {
+  display: inline-block;
+  animation: driver-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes driver-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1;   }
+  50%       { transform: scale(1.18); opacity: 0.8; }
+}
+
+/* Spinning indicator while broadcasting */
+.driver-broadcast-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .ride-status-tag,
+  .ride-card,
+  .driver-alert-toast,
+  .driver-alert-icon,
+  .driver-pulse-icon,
+  .driver-broadcast-spinner {
+    animation: none !important;
+  }
+}
