@@ -392,6 +392,8 @@ export default function Home() {
   const [appUser, setAppUser]     = useState(null)  // null=unknown, false=not logged in, object=logged in
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [userLoading, setUserLoading]     = useState(true)
+  const [profileOpen, setProfileOpen]     = useState(false)  // navbar profile dropdown
+  const profileRef                        = useRef(null)
 
   // Ref to ActiveDownloads so we can call subscribeToDownload on it
   const activeDownloadsRef = useRef(null)
@@ -476,6 +478,17 @@ export default function Home() {
       .finally(() => setUserLoading(false))
   }, [])
 
+  // Close profile dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (profileRef.current && !profileRef.current.contains(e.target)) {
+        setProfileOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
   const refreshFiles = useCallback(() => setFileListVersion(v => v + 1), [])
 
   // Called by DownloadForm/PlaylistForm when a download is queued.
@@ -544,6 +557,40 @@ export default function Home() {
 
           {/* Theme selector */}
           <ThemeSelector />
+
+          {/* User profile avatar — top-right navbar */}
+          {!userLoading && (
+            <div className="relative" ref={profileRef}>
+              {appUser ? (
+                <>
+                  <button
+                    onClick={() => setProfileOpen(o => !o)}
+                    className="nav-profile-btn w-8 h-8 rounded-full bg-blue-700 hover:bg-blue-600 flex items-center justify-center text-base transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    aria-label="Profile"
+                    title={appUser.name}
+                  >
+                    {appUser.role === 'driver' ? '🚗' : '🧍'}
+                  </button>
+                  {profileOpen && (
+                    <div className="nav-profile-dropdown absolute right-0 top-10 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                      <UserProfile
+                        user={appUser}
+                        onLogout={() => { setAppUser(false); setProfileOpen(false) }}
+                        onLocationUpdate={() => {}}
+                      />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <button
+                  onClick={() => { setShowAuthModal(true); setTab('rides') }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors hidden sm:inline-flex items-center gap-1"
+                >
+                  Login / Register
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Admin link */}
           {admin && (
@@ -654,25 +701,16 @@ export default function Home() {
           {tab === 'convert'  && <DocConverter />}
           {tab === 'rides'    && (
             <div>
-              <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
-                </div>
-                {/* User auth pill */}
-                {!userLoading && (
-                  appUser
-                    ? <UserProfile
-                        user={appUser}
-                        onLogout={() => setAppUser(false)}
-                        onLocationUpdate={() => {}}
-                      />
-                    : <button
-                        onClick={() => setShowAuthModal(true)}
-                        className="text-sm px-4 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
-                      >
-                        Login / Register
-                      </button>
+              <div className="mb-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
+                {!appUser && !userLoading && (
+                  <button
+                    onClick={() => setShowAuthModal(true)}
+                    className="mt-2 text-sm px-4 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
+                  >
+                    Login / Register to Post or Chat
+                  </button>
                 )}
               </div>
 

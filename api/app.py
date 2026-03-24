@@ -6309,6 +6309,56 @@ async def on_identify(sid, data):
         await sio.emit("identified", {"user_id": user_id}, room=sid)
         logger.info(f"Socket {sid} identified as user {user_id}")
 
+
+# ── Ride live-chat ──────────────────────────────────────────────────────────
+
+@sio.on("join_ride_chat")
+async def on_join_ride_chat(sid, data):
+    """Subscribe the caller to a ride's chat room."""
+    ride_id = data.get("ride_id") if isinstance(data, dict) else None
+    if not ride_id:
+        return
+    room = f"ride_chat_{ride_id}"
+    sio.enter_room(sid, room)
+    sender_name = data.get("name", "Someone")
+    await sio.emit("ride_chat_joined", {"ride_id": ride_id, "name": sender_name}, room=sid)
+    logger.info(f"Socket {sid} joined ride chat room {room}")
+
+
+@sio.on("leave_ride_chat")
+async def on_leave_ride_chat(sid, data):
+    """Unsubscribe the caller from a ride's chat room."""
+    ride_id = data.get("ride_id") if isinstance(data, dict) else None
+    if not ride_id:
+        return
+    room = f"ride_chat_{ride_id}"
+    sio.leave_room(sid, room)
+    logger.info(f"Socket {sid} left ride chat room {room}")
+
+
+@sio.on("ride_chat_message")
+async def on_ride_chat_message(sid, data):
+    """Broadcast a chat message to all members of a ride's chat room."""
+    if not isinstance(data, dict):
+        return
+    ride_id = data.get("ride_id")
+    text    = str(data.get("text", "")).strip()
+    name    = str(data.get("name", "Anonymous")).strip()
+    if not ride_id or not text:
+        return
+    import time as _time
+    msg = {
+        "ride_id":   ride_id,
+        "name":      name,
+        "text":      text[:500],          # cap at 500 chars
+        "ts":        _time.time(),
+        "sender_sid": sid,
+    }
+    room = f"ride_chat_{ride_id}"
+    await sio.emit("ride_chat_message", msg, room=room)
+    logger.info(f"Ride chat [{ride_id}] from {name}: {text[:80]}")
+
+
 # =========================================================
 # CLEANUP THREAD
 # =========================================================
