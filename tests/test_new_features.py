@@ -867,3 +867,255 @@ class TestRideChatSocket:
 
         _asyncio.run(_run())
         assert left_rooms == []
+
+
+# ===========================================================================
+# Magic Link (passwordless)
+# ===========================================================================
+
+class TestMagicLink:
+    """Tests for /api/auth/magic_link and /api/auth/magic_link/verify."""
+
+    def test_magic_link_invalid_email_returns_400(self):
+        from api.app import api_magic_link_request, _MagicLinkRequest
+        resp = run(api_magic_link_request(_MagicLinkRequest(email="not-an-email")))
+        assert resp.status_code == 400
+
+    def test_magic_link_unknown_email_returns_ok_without_token(self):
+        """Should not reveal whether address is registered."""
+        from api.app import api_magic_link_request, _MagicLinkRequest
+        resp = run(api_magic_link_request(_MagicLinkRequest(email="nobody_xyz@nowhere.com")))
+        body = resp.body
+        import json
+        data = json.loads(body)
+        assert data.get("ok") is True
+        # Token must NOT be returned for unregistered emails
+        assert "token" not in data
+
+    def test_magic_link_known_email_returns_token(self):
+        _, email = _register_user("MagicUser")
+        from api.app import api_magic_link_request, _MagicLinkRequest
+        import json
+        resp = run(api_magic_link_request(_MagicLinkRequest(email=email)))
+        data = json.loads(resp.body)
+        assert data.get("ok") is True
+        assert data.get("token")
+
+    def test_magic_link_verify_valid_token(self):
+        _, email = _register_user("MagicVerify")
+        from api.app import api_magic_link_request, api_magic_link_verify, _MagicLinkRequest
+        import json
+        token_resp = run(api_magic_link_request(_MagicLinkRequest(email=email)))
+        token = json.loads(token_resp.body)["token"]
+
+        # Build a minimal request-like object with a JSON body
+        class _Req:
+            session = {}
+            async def json(self):
+                return {"token": token}
+
+        resp = run(api_magic_link_verify(_Req()))
+        data = json.loads(resp.body)
+        assert data.get("ok") is True
+        assert data.get("email") == email
+
+    def test_magic_link_verify_invalid_token_returns_401(self):
+        from api.app import api_magic_link_verify
+        import json
+
+        class _Req:
+            session = {}
+            async def json(self):
+                return {"token": "invalid-token-xyz"}
+
+        resp = run(api_magic_link_verify(_Req()))
+        assert resp.status_code == 401
+
+    def test_magic_link_single_use(self):
+        """Token should be consumed and fail on second use."""
+        _, email = _register_user("MagicSingleUse")
+        from api.app import api_magic_link_request, api_magic_link_verify, _MagicLinkRequest
+        import json
+        token_resp = run(api_magic_link_request(_MagicLinkRequest(email=email)))
+        token = json.loads(token_resp.body)["token"]
+
+        class _Req:
+            session = {}
+            async def json(self):
+                return {"token": token}
+
+        run(api_magic_link_verify(_Req()))       # first use — ok
+        resp2 = run(api_magic_link_verify(_Req()))  # second use — should fail
+        assert resp2.status_code == 401
+
+
+# ===========================================================================
+# Driver Application
+# ===========================================================================
+
+class TestDriverApplication:
+    """Tests for driver role application and admin approval."""
+
+    def _apply(self, user_id):
+        from api.app import api_driver_apply, _DriverApplyRequest
+        req = _make_request({"app_user_id": user_id})
+        body = _DriverApplyRequest(
+            vehicle_make="Toyota", vehicle_model="Camry",
+            vehicle_year=2020, vehicle_color="Blue", license_plate="ABC123"
+        )
+        return run(api_driver_apply(req, body))
+
+    def test_driver_apply_requires_login(self):
+        from api.app import api_driver_apply, _DriverApplyRequest
+        req = _make_request({})
+        body = _DriverApplyRequest(
+            vehicle_make="Toyota", vehicle_model="Camry",
+            vehicle_year=2020, vehicle_color="Blue", license_plate="ABC123"
+        )
+        resp = run(api_driver_apply(req, body))
+        assert resp.status_code == 401
+
+    def test_driver_apply_ok(self):
+        import json
+        resp, uid = _register_user("ApplyDriver")
+        user_body = json.loads(resp.body)
+        user_id = user_body["user_id"]
+        apply_resp = self._apply(user_id)
+        assert apply_resp.status_code == 201
+        data = json.loads(apply_resp.body)
+        assert data.get("ok") is True
+
+    def test_driver_apply_missing_make_returns_400(self):
+        from api.app import api_driver_apply, _DriverApplyRequest
+        import json
+        resp, uid = _register_user("ApplyBadDriver")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        body = _DriverApplyRequest(
+            vehicle_make="", vehicle_model="Camry",
+            vehicle_year=2020, vehicle_color="Blue", license_plate="ABC123"
+        )
+        resp2 = run(api_driver_apply(req, body))
+        assert resp2.status_code == 400
+
+    def test_driver_application_status(self):
+        from api.app import api_driver_application_status
+        import json
+        resp, uid = _register_user("AppStatus")
+        user_id = json.loads(resp.body)["user_id"]
+        self._apply(user_id)
+        req = _make_request({"app_user_id": user_id})
+        status_resp = run(api_driver_application_status(req))
+        data = json.loads(status_resp.body)
+        assert data["application"] is not None
+        assert data["application"]["status"] == "pending"
+
+    def test_admin_approve_driver_application(self):
+        from api.app import api_admin_driver_approve, _DriverApproveRequest, _get_app_user
+        import json
+        resp, uid = _register_user("ToApprove")
+        user_id = json.loads(resp.body)["user_id"]
+        apply_resp = self._apply(user_id)
+        app_id = json.loads(apply_resp.body)["app_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        approve_resp = run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=True)))
+        data = json.loads(approve_resp.body)
+        assert data.get("ok") is True
+        assert data.get("status") == "approved"
+
+        # User role should now be 'driver'
+        user = _get_app_user(user_id)
+        assert user["role"] == "driver"
+
+    def test_admin_reject_driver_application(self):
+        from api.app import api_admin_driver_approve, _DriverApproveRequest, _get_app_user
+        import json
+        resp, uid = _register_user("ToReject")
+        user_id = json.loads(resp.body)["user_id"]
+        apply_resp = self._apply(user_id)
+        app_id = json.loads(apply_resp.body)["app_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        reject_resp = run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=False)))
+        data = json.loads(reject_resp.body)
+        assert data["status"] == "rejected"
+
+        # User role should remain 'passenger'
+        user = _get_app_user(user_id)
+        assert user["role"] == "passenger"
+
+
+# ===========================================================================
+# Ride History
+# ===========================================================================
+
+class TestRideHistory:
+    """Tests for /api/rides/history."""
+
+    def test_ride_history_requires_login(self):
+        from api.app import api_ride_history
+        req = _make_request({})
+        resp = run(api_ride_history(req))
+        assert resp.status_code == 401
+
+    def test_ride_history_empty_for_new_user(self):
+        from api.app import api_ride_history
+        import json
+        resp, uid = _register_user("HistEmpty")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        hist_resp = run(api_ride_history(req))
+        data = json.loads(hist_resp.body)
+        assert data["rides"] == []
+
+    def test_ride_history_includes_user_rides(self):
+        from api.app import api_ride_history, api_ride_post, _RidePostRequest
+        import json
+        resp, uid = _register_user("HistHasRides")
+        user_id = json.loads(resp.body)["user_id"]
+        session = {"app_user_id": user_id}
+
+        # Post a ride
+        post_req = _make_request(session)
+        run(api_ride_post(post_req, _RidePostRequest(
+            origin="A", destination="B", departure="2026-01-01T10:00", seats=2
+        )))
+
+        # Check history
+        hist_req = _make_request(session)
+        hist_resp = run(api_ride_history(hist_req))
+        data = json.loads(hist_resp.body)
+        assert len(data["rides"]) == 1
+        assert data["rides"][0]["origin"] == "A"
+
+
+# ===========================================================================
+# Remember Me login
+# ===========================================================================
+
+class TestRememberMe:
+    """Tests for remember_me flag on /api/auth/login."""
+
+    def test_remember_me_sets_session_flag(self):
+        from api.app import api_user_login, _UserLoginRequest
+        import json
+        _, email = _register_user("RememberMe")
+        session = {}
+        req = _make_request(session)
+        resp = run(api_user_login(req, _UserLoginRequest(
+            email=email, password="password123", remember_me=True
+        )))
+        assert resp.status_code == 200
+        assert session.get("remember_me") is True
+
+    def test_no_remember_me_does_not_set_flag(self):
+        from api.app import api_user_login, _UserLoginRequest
+        import json
+        _, email = _register_user("NoRememberMe")
+        session = {}
+        req = _make_request(session)
+        run(api_user_login(req, _UserLoginRequest(
+            email=email, password="password123", remember_me=False
+        )))
+        assert "remember_me" not in session

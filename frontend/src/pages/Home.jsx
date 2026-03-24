@@ -715,14 +715,20 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Auth modal */}
+              {/* Auth modal — rendered as portal overlay, triggered by button */}
               {showAuthModal && !appUser && (
-                <div className="mb-4">
-                  <UserAuth
-                    onSuccess={(u) => { setAppUser(u); setShowAuthModal(false) }}
-                  />
-                </div>
+                <UserAuth
+                  onSuccess={(u) => { setAppUser(u); setShowAuthModal(false) }}
+                  onClose={() => setShowAuthModal(false)}
+                />
               )}
+
+              {/* Live map */}
+              <div className="mb-4">
+                <RideShareMap
+                  userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
+                />
+              </div>
 
               <RideShare user={appUser || null} />
             </div>

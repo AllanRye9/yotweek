@@ -482,6 +482,20 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS driver_applications (
+                        id SERIAL PRIMARY KEY,
+                        app_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT UNIQUE NOT NULL,
+                        vehicle_make TEXT NOT NULL,
+                        vehicle_model TEXT NOT NULL,
+                        vehicle_year INTEGER NOT NULL,
+                        vehicle_color TEXT NOT NULL DEFAULT '',
+                        license_plate TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    )
+                """)
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -526,6 +540,18 @@ def init_db():
                         seats INTEGER NOT NULL DEFAULT 1,
                         notes TEXT,
                         status TEXT NOT NULL DEFAULT 'open',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS driver_applications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        app_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT UNIQUE NOT NULL,
+                        vehicle_make TEXT NOT NULL,
+                        vehicle_model TEXT NOT NULL,
+                        vehicle_year INTEGER NOT NULL,
+                        vehicle_color TEXT NOT NULL DEFAULT '',
+                        license_plate TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
                         created_at TEXT NOT NULL
                     );
                 """)
@@ -5781,8 +5807,25 @@ class _UserRegisterRequest(BaseModel):
 
 
 class _UserLoginRequest(BaseModel):
-    email:    str
-    password: str
+    email:       str
+    password:    str
+    remember_me: bool = False
+
+
+class _MagicLinkRequest(BaseModel):
+    email: str
+
+
+class _DriverApplyRequest(BaseModel):
+    vehicle_make:  str
+    vehicle_model: str
+    vehicle_year:  int
+    vehicle_color: str
+    license_plate: str
+
+
+class _DriverApproveRequest(BaseModel):
+    approved: bool
 
 
 class _UserLocationUpdate(BaseModel):
@@ -5836,11 +5879,12 @@ async def api_user_register(body: _UserRegisterRequest):
             conn.close()
 
     return JSONResponse({
-        "ok":      True,
-        "user_id": user_id,
-        "name":    name,
-        "email":   email,
-        "role":    role,
+        "ok":        True,
+        "user_id":   user_id,
+        "name":      name,
+        "email":     email,
+        "role":      role,
+        "created_at": created_at,
     }, status_code=201)
 
 
@@ -5855,12 +5899,16 @@ async def api_user_login(request: Request, body: _UserLoginRequest):
         return JSONResponse({"error": "Invalid email or password."}, status_code=401)
 
     request.session["app_user_id"] = user["user_id"]
+    if body.remember_me:
+        # Extend session lifetime to 30 days for "Remember Me"
+        request.session["remember_me"] = True
     return JSONResponse({
         "ok":      True,
         "user_id": user["user_id"],
         "name":    user["name"],
         "email":   user["email"],
         "role":    user["role"],
+        "created_at": user.get("created_at", ""),
     })
 
 
@@ -5911,6 +5959,271 @@ async def api_user_update_profile(request: Request, body: _UserLocationUpdate):
 
     return JSONResponse({"ok": True})
 
+
+# ── Magic link (passwordless) ──────────────────────────────────────────────────
+
+# In-memory store: token → {email, expires_at}
+_magic_link_tokens: dict = {}
+_magic_link_lock = threading.Lock()
+_MAGIC_LINK_TTL_SECONDS = 900  # 15 minutes
+
+
+@fastapi_app.post("/api/auth/magic_link")
+async def api_magic_link_request(body: _MagicLinkRequest):
+    """Generate a one-time magic-link token for passwordless login.
+
+    In a production deployment this token would be emailed to the user.
+    The endpoint returns the token in the response for demo / testing purposes.
+    """
+    email = body.email.strip().lower()
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return JSONResponse({"error": "Invalid email address."}, status_code=400)
+
+    user = _get_app_user_by_email(email)
+    if user is None:
+        # Don't reveal whether the address is registered
+        return JSONResponse({"ok": True, "message": "If that address is registered, a login link has been sent."})
+
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + _MAGIC_LINK_TTL_SECONDS
+    with _magic_link_lock:
+        _magic_link_tokens[token] = {"email": email, "expires_at": expires_at}
+
+    # In a real app: send email here.  For now, return token so the UI can demonstrate the flow.
+    return JSONResponse({
+        "ok":     True,
+        "token":  token,
+        "message": "Magic link generated. Check your email (demo: token returned in response).",
+    })
+
+
+@fastapi_app.post("/api/auth/magic_link/verify")
+async def api_magic_link_verify(request: Request):
+    """Verify a magic-link token and log the user in."""
+    data = await request.json()
+    token = (data.get("token") or "").strip()
+    if not token:
+        return JSONResponse({"error": "Token required."}, status_code=400)
+
+    with _magic_link_lock:
+        entry = _magic_link_tokens.get(token)
+        if entry is None or time.time() > entry["expires_at"]:
+            _magic_link_tokens.pop(token, None)
+            return JSONResponse({"error": "Invalid or expired token."}, status_code=401)
+        del _magic_link_tokens[token]  # single-use
+
+    user = _get_app_user_by_email(entry["email"])
+    if user is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    request.session["app_user_id"] = user["user_id"]
+    return JSONResponse({
+        "ok":        True,
+        "user_id":   user["user_id"],
+        "name":      user["name"],
+        "email":     user["email"],
+        "role":      user["role"],
+        "created_at": user.get("created_at", ""),
+    })
+
+
+# ── Driver registration & approval ────────────────────────────────────────────
+
+@fastapi_app.post("/api/auth/driver_apply")
+async def api_driver_apply(request: Request, body: _DriverApplyRequest):
+    """Submit a driver-role application."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    # Basic validation
+    if not body.vehicle_make.strip() or not body.vehicle_model.strip():
+        return JSONResponse({"error": "Vehicle make and model are required."}, status_code=400)
+    if body.vehicle_year < 1900 or body.vehicle_year > datetime.now().year + 1:
+        return JSONResponse({"error": "Invalid vehicle year."}, status_code=400)
+    if not body.license_plate.strip():
+        return JSONResponse({"error": "License plate is required."}, status_code=400)
+
+    app_id   = str(uuid.uuid4())
+    created  = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO driver_applications
+                       (app_id, user_id, vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, status, created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s)
+                       ON CONFLICT (user_id) DO UPDATE SET
+                         vehicle_make=EXCLUDED.vehicle_make, vehicle_model=EXCLUDED.vehicle_model,
+                         vehicle_year=EXCLUDED.vehicle_year, vehicle_color=EXCLUDED.vehicle_color,
+                         license_plate=EXCLUDED.license_plate, status='pending', created_at=EXCLUDED.created_at""",
+                    (app_id, user_id, body.vehicle_make.strip(), body.vehicle_model.strip(),
+                     body.vehicle_year, body.vehicle_color.strip(), body.license_plate.strip().upper(), created),
+                )
+            else:
+                conn.execute(
+                    """INSERT OR REPLACE INTO driver_applications
+                       (app_id, user_id, vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, status, created_at)
+                       VALUES (?,?,?,?,?,?,?,'pending',?)""",
+                    (app_id, user_id, body.vehicle_make.strip(), body.vehicle_model.strip(),
+                     body.vehicle_year, body.vehicle_color.strip(), body.license_plate.strip().upper(), created),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True, "app_id": app_id}, status_code=201)
+
+
+@fastapi_app.get("/api/auth/driver_application")
+async def api_driver_application_status(request: Request):
+    """Return the current user's driver application status."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["app_id", "user_id", "vehicle_make", "vehicle_model", "vehicle_year",
+                    "vehicle_color", "license_plate", "status", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,status,created_at FROM driver_applications WHERE user_id=%s",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(
+                    "SELECT app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,status,created_at FROM driver_applications WHERE user_id=?",
+                    (user_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"application": None})
+    return JSONResponse({"application": dict(zip(cols, row))})
+
+
+@fastapi_app.get("/api/admin/driver_applications")
+async def api_admin_driver_applications(request: Request):
+    """Return all pending driver applications (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["app_id", "user_id", "vehicle_make", "vehicle_model", "vehicle_year",
+                    "vehicle_color", "license_plate", "status", "created_at", "name", "email"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """SELECT da.app_id, da.user_id, da.vehicle_make, da.vehicle_model,
+                              da.vehicle_year, da.vehicle_color, da.license_plate, da.status,
+                              da.created_at, au.name, au.email
+                       FROM driver_applications da
+                       JOIN app_users au ON da.user_id = au.user_id
+                       ORDER BY da.created_at DESC"""
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    """SELECT da.app_id, da.user_id, da.vehicle_make, da.vehicle_model,
+                              da.vehicle_year, da.vehicle_color, da.license_plate, da.status,
+                              da.created_at, au.name, au.email
+                       FROM driver_applications da
+                       JOIN app_users au ON da.user_id = au.user_id
+                       ORDER BY da.created_at DESC"""
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    return JSONResponse({"applications": [dict(zip(cols, r)) for r in rows]})
+
+
+@fastapi_app.post("/api/admin/driver_applications/{app_id}/approve")
+async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverApproveRequest):
+    """Approve or reject a driver application (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    new_status = "approved" if body.approved else "rejected"
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM driver_applications WHERE app_id=%s", (app_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id FROM driver_applications WHERE app_id=?", (app_id,))
+                row = cur.fetchone()
+
+            if row is None:
+                return JSONResponse({"error": "Application not found."}, status_code=404)
+
+            target_user_id = row[0]
+
+            if USE_POSTGRES:
+                cur.execute("UPDATE driver_applications SET status=%s WHERE app_id=%s", (new_status, app_id))
+                if body.approved:
+                    cur.execute("UPDATE app_users SET role='driver' WHERE user_id=%s", (target_user_id,))
+            else:
+                conn.execute("UPDATE driver_applications SET status=? WHERE app_id=?", (new_status, app_id))
+                if body.approved:
+                    conn.execute("UPDATE app_users SET role='driver' WHERE user_id=?", (target_user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True, "status": new_status})
+
+
+# ── Ride history ───────────────────────────────────────────────────────────────
+
+@fastapi_app.get("/api/rides/history")
+async def api_ride_history(request: Request):
+    """Return all rides associated with the logged-in user."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
+                    "departure", "seats", "notes", "status", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,departure,seats,notes,status,created_at FROM rides WHERE user_id=%s ORDER BY created_at DESC",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,departure,seats,notes,status,created_at FROM rides WHERE user_id=? ORDER BY created_at DESC",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    rides = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({"rides": rides})
 
 # =========================================================
 # RIDE SHARING MODULE
@@ -6344,19 +6657,62 @@ async def on_ride_chat_message(sid, data):
     ride_id = data.get("ride_id")
     text    = str(data.get("text", "")).strip()
     name    = str(data.get("name", "Anonymous")).strip()
+    role    = str(data.get("role", "passenger")).strip()
+    msg_id  = data.get("id") or f"{time.time()}-{sid}"
     if not ride_id or not text:
         return
-    import time as _time
     msg = {
-        "ride_id":   ride_id,
-        "name":      name,
-        "text":      text[:500],          # cap at 500 chars
-        "ts":        _time.time(),
+        "ride_id":    ride_id,
+        "name":       name,
+        "text":       text[:500],          # cap at 500 chars
+        "ts":         time.time(),
+        "role":       role,
+        "id":         msg_id,
         "sender_sid": sid,
     }
     room = f"ride_chat_{ride_id}"
     await sio.emit("ride_chat_message", msg, room=room)
     logger.info(f"Ride chat [{ride_id}] from {name}: {text[:80]}")
+
+
+@sio.on("ride_chat_typing")
+async def on_ride_chat_typing(sid, data):
+    """Broadcast typing indicator to the ride's chat room (exclude sender)."""
+    if not isinstance(data, dict):
+        return
+    ride_id = data.get("ride_id")
+    name    = str(data.get("name", "")).strip()
+    if not ride_id or not name:
+        return
+    room = f"ride_chat_{ride_id}"
+    await sio.emit("ride_chat_typing", {"ride_id": ride_id, "name": name}, room=room, skip_sid=sid)
+
+
+@sio.on("ride_chat_stop_typing")
+async def on_ride_chat_stop_typing(sid, data):
+    """Broadcast stop-typing event to the ride's chat room."""
+    if not isinstance(data, dict):
+        return
+    ride_id = data.get("ride_id")
+    name    = str(data.get("name", "")).strip()
+    if not ride_id or not name:
+        return
+    room = f"ride_chat_{ride_id}"
+    await sio.emit("ride_chat_stop_typing", {"ride_id": ride_id, "name": name}, room=room, skip_sid=sid)
+
+
+@sio.on("ride_chat_read")
+async def on_ride_chat_read(sid, data):
+    """Broadcast read receipt to the ride's chat room."""
+    if not isinstance(data, dict):
+        return
+    ride_id = data.get("ride_id")
+    msg_id  = data.get("msg_id")
+    reader  = str(data.get("reader", "")).strip()
+    if not ride_id or not msg_id or not reader:
+        return
+    room = f"ride_chat_{ride_id}"
+    await sio.emit("ride_chat_read", {"ride_id": ride_id, "msg_id": msg_id, "reader": reader}, room=room)
 
 
 # =========================================================
