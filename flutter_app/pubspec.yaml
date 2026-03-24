@@ -1,0 +1,50 @@
+name: yot_downloader
+description: YOT Downloader Flutter app – video downloader, CV generator, and document converter connected to the FastAPI backend.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.19.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # HTTP client
+  http: ^1.2.1
+
+  # State management
+  provider: ^6.1.2
+
+  # File picking (document converter, CV logo)
+  file_picker: ^8.0.0
+
+  # Launch URLs / open downloaded files
+  url_launcher: ^6.3.0
+
+  # Cached thumbnails
+  cached_network_image: ^3.3.1
+
+  # Persist base-URL setting
+  shared_preferences: ^2.2.3
+
+  # Path utilities
+  path: ^1.9.0
+
+  # Star rating widget
+  flutter_rating_bar: ^4.0.1
+
+  # Icons
+  cupertino_icons: ^1.0.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

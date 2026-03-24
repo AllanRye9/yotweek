@@ -11,3 +11,25 @@ static/
 frontend/node_modules/
 
 # Keep frontend_dist (pre-built output committed for deployments without Node)
+
+# Flutter app build artifacts and generated files
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/.packages
+flutter_app/build/
+flutter_app/android/.gradle/
+flutter_app/android/local.properties
+flutter_app/android/key.properties
+flutter_app/ios/.symlinks/
+flutter_app/ios/Flutter/flutter_export_environment.sh
+flutter_app/ios/Pods/
+flutter_app/ios/Podfile.lock
+flutter_app/macos/Flutter/GeneratedPluginRegistrant.swift
+flutter_app/linux/flutter/generated_plugin_registrant.cc
+flutter_app/linux/flutter/generated_plugin_registrant.h
+flutter_app/linux/flutter/generated_plugins.cmake
+flutter_app/windows/flutter/generated_plugin_registrant.cc
+flutter_app/windows/flutter/generated_plugin_registrant.h
+flutter_app/windows/flutter/generated_plugins.cmake
+flutter_app/web/
