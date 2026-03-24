@@ -3,13 +3,14 @@ import { getVideoInfo, startDownload } from '../api'
 import { SESSION_ID } from '../session'
 
 const VIDEO_FORMATS = [
-  { value: 'best',                    label: 'Best Quality (auto)' },
+  { value: 'bv*+ba/b',                         label: 'Best Quality (auto)' },
+  { value: 'best',                              label: 'Best (single stream)' },
   { value: 'bestvideo[ext=mp4]+bestaudio/best', label: 'Best MP4' },
   { value: 'bestvideo[height<=1080]+bestaudio/best', label: '1080p HD' },
   { value: 'bestvideo[height<=720]+bestaudio/best',  label: '720p HD' },
   { value: 'bestvideo[height<=480]+bestaudio/best',  label: '480p SD' },
   { value: 'bestvideo[height<=360]+bestaudio/best',  label: '360p' },
-  { value: 'bestaudio/best',          label: 'Audio only' },
+  { value: 'bestaudio/best',                    label: 'Audio only' },
 ]
 const OUTPUT_EXTS = ['mp4','webm','mkv','avi','mp3','m4a','ogg','wav']
 
@@ -24,7 +25,7 @@ function fmtDuration(sec) {
 
 export default function DownloadForm({ onDownloadStarted }) {
   const [url, setUrl]       = useState('')
-  const [format, setFormat] = useState('best')
+  const [format, setFormat] = useState('bv*+ba/b')
   const [ext, setExt]       = useState('mp4')
   const [info, setInfo]     = useState(null)
   const [loading, setLoading] = useState(false)

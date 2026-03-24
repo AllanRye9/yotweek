@@ -414,3 +414,87 @@ class TestHealthEndpoint:
         import json
         data = json.loads(response.body)
         assert data["status"] == "degraded"
+
+
+# ---------------------------------------------------------------------------
+# Default format spec and queue behaviour
+# ---------------------------------------------------------------------------
+
+class TestDefaultFormatSpec:
+    """The download engine must default to bv*+ba/b (best video + best audio)."""
+
+    def test_default_format_is_bv_plus_ba(self):
+        from api.app import normalize_format_spec
+        # bv*+ba/b already contains '/' so it must be returned unchanged
+        assert normalize_format_spec("bv*+ba/b") == "bv*+ba/b"
+
+    def test_bv_plus_ba_passes_through_normalize(self):
+        from api.app import normalize_format_spec
+        # Confirm the fallback logic does not append an extra '/best'
+        result = normalize_format_spec("bv*+ba/b")
+        assert result.count("/") == 1
+
+
+class TestQueueFullMessage:
+    """When the download queue is full the API must return the 'Waiting' message."""
+
+    def test_queue_full_returns_waiting_message(self):
+        import asyncio
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from api.app import start_download, _download_queue
+
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+
+        with patch.object(_download_queue, "full", return_value=True):
+            response = asyncio.run(
+                start_download(
+                    request=request,
+                    url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    format="bv*+ba/b",
+                    ext="mp4",
+                    session_id=None,
+                )
+            )
+
+        assert response.status_code == 429
+        body = json.loads(response.body)
+        assert body["error"] == "Waiting for available slot…"
+
+    def test_queue_full_message_not_old_message(self):
+        import asyncio
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from api.app import start_download, _download_queue
+
+        request = SimpleNamespace(headers={}, client=SimpleNamespace(host="127.0.0.1"))
+
+        with patch.object(_download_queue, "full", return_value=True):
+            response = asyncio.run(
+                start_download(
+                    request=request,
+                    url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                    format="bv*+ba/b",
+                    ext="mp4",
+                    session_id=None,
+                )
+            )
+
+        body = json.loads(response.body)
+        assert "queue is full" not in body["error"].lower()
+
+
+class TestMaxConcurrentDownloadsDefault:
+    """MAX_CONCURRENT_DOWNLOADS default must be 5 (within the 3–5 per-server range)."""
+
+    def test_default_concurrent_limit_is_five(self):
+        from api.app import Config
+        import os
+        # Only test the Python-level default, not an overridden env value
+        if "MAX_CONCURRENT_DOWNLOADS" not in os.environ:
+            assert Config.MAX_CONCURRENT_DOWNLOADS == 5
+        else:
+            assert 3 <= Config.MAX_CONCURRENT_DOWNLOADS <= 10
+

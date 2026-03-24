@@ -57,7 +57,7 @@ class Config:
     STATIC_FOLDER = "static"
     MAX_DOWNLOADS_PER_IP = 10
     MAX_REVIEWS_PER_IP = 1
-    MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 10))
+    MAX_CONCURRENT_DOWNLOADS = int(os.environ.get("MAX_CONCURRENT_DOWNLOADS", 5))
     MAX_QUEUE_SIZE = int(os.environ.get("MAX_QUEUE_SIZE", 50))
     DOWNLOAD_TIMEOUT = 3600  # 1 hour
     CLEANUP_INTERVAL = 60    # Run cleanup every 60 seconds
@@ -2741,7 +2741,7 @@ async def video_info_endpoint(request: Request, url: str = Form(None)):
 
 @fastapi_app.post("/start_download")
 @rate_limit()
-async def start_download(request: Request, url: str = Form(None), format: str = Form("best"), ext: str = Form("mp4"), session_id: str = Form(None)):
+async def start_download(request: Request, url: str = Form(None), format: str = Form("bv*+ba/b"), ext: str = Form("mp4"), session_id: str = Form(None)):
     """Start a download with better error feedback"""
     format_spec = format
     output_ext  = _normalize_output_ext(ext, allow_audio=True)
@@ -2757,7 +2757,7 @@ async def start_download(request: Request, url: str = Form(None), format: str = 
     # Reject only if the queue is already full
     if _download_queue.full():
         return JSONResponse({
-            "error": f"Download queue is full ({Config.MAX_QUEUE_SIZE} items). Please try again later."
+            "error": "Waiting for available slot…"
         }, status_code=429)
 
     # Deduplication: return the existing download if this URL was recently completed

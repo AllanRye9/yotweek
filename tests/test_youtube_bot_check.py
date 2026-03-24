@@ -156,7 +156,7 @@ class TestStartDownloadValidation:
             start_download(
                 request=request,
                 url=None,
-                format="best",
+                format="bv*+ba/b",
                 ext="mp4",
                 session_id=None,
             )
