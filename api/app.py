@@ -4229,10 +4229,19 @@ def _build_cv_pdf(
     HEADER_BG = t["header_bg"]
     HEADER_FG = t["header_fg"]
 
-    # ---- Unicode → Latin-1 safe text normaliser ----
-    # Helvetica is a core PDF font that uses Latin-1 encoding.  Any character
-    # outside Latin-1 (e.g. em-dashes, bullets, curly quotes) must be replaced
-    # with ASCII equivalents before being passed to fpdf.
+    # ---- Unicode font setup ----
+    # Prefer DejaVu Sans (TTF) for full Unicode support so accented letters,
+    # CJK characters, special symbols, etc. render correctly instead of showing
+    # "?" (which happens with the Latin-1-only Helvetica core font).
+    # Fall back to Helvetica + a best-effort transliteration map when the font
+    # files are not present on the server.
+    _DEJAVU_DIR   = "/usr/share/fonts/truetype/dejavu"
+    _DEJAVU_REG   = os.path.join(_DEJAVU_DIR, "DejaVuSans.ttf")
+    _DEJAVU_BOLD  = os.path.join(_DEJAVU_DIR, "DejaVuSans-Bold.ttf")
+    _DEJAVU_OBLI  = os.path.join(_DEJAVU_DIR, "DejaVuSans-Oblique.ttf")
+    _use_unicode  = all(os.path.isfile(p) for p in (_DEJAVU_REG, _DEJAVU_BOLD, _DEJAVU_OBLI))
+
+    # Latin-1 fallback: map common Unicode punctuation/symbols to ASCII equivalents.
     _UNICODE_MAP = str.maketrans({
         "\u2013": " - ",   # en dash
         "\u2014": " - ",   # em dash
@@ -4244,23 +4253,54 @@ def _build_cv_pdf(
         "\u201D": '"',     # right double quote
         "\u2026": "...",   # ellipsis
         "\u00A0": " ",     # non-breaking space
+        "\u00AB": '"',     # left guillemet
+        "\u00BB": '"',     # right guillemet
+        "\u2039": "'",     # single left angle quotation
+        "\u203A": "'",     # single right angle quotation
+        "\u2032": "'",     # prime
+        "\u2033": '"',     # double prime
+        "\u00B7": "*",     # middle dot
+        "\u2010": "-",     # hyphen
+        "\u2011": "-",     # non-breaking hyphen
+        "\u2012": "-",     # figure dash
+        "\u2212": "-",     # minus sign
     })
 
     def _safe(text: str) -> str:
-        """Return *text* with all non-Latin-1 characters replaced safely."""
+        """Transliterate *text* to Latin-1, replacing unmapped chars with '?'.
+
+        Used only when DejaVu TTF fonts are unavailable and fpdf2 falls back to
+        the Helvetica core font (Latin-1 encoding).
+        """
         text = text.translate(_UNICODE_MAP)
         return text.encode("latin-1", errors="replace").decode("latin-1")
+
+    def _t(text: str) -> str:
+        """Pass *text* through unchanged (Unicode fonts handle it natively),
+        or apply the Latin-1 safe conversion when falling back to Helvetica."""
+        return text if _use_unicode else _safe(text)
 
     class CV(FPDF):
         def header(self):
             pass  # custom header drawn in body
         def footer(self):
             self.set_y(-12)
-            self.set_font("Helvetica", "I", 8)
+            self.set_font(_FONT, "I", 8)
             self.set_text_color(*LIGHT)
             self.cell(0, 8, f"Page {self.page_no()}", align="C")
 
     pdf = CV(orientation="P", unit="mm", format="A4")
+
+    # Register the TTF font family so fpdf2 can embed it in the PDF output.
+    if _use_unicode:
+        pdf.add_font("DejaVu", "",   _DEJAVU_REG)
+        pdf.add_font("DejaVu", "B",  _DEJAVU_BOLD)
+        pdf.add_font("DejaVu", "I",  _DEJAVU_OBLI)
+        pdf.add_font("DejaVu", "BI", _DEJAVU_OBLI)
+        _FONT = "DejaVu"
+    else:
+        _FONT = "Helvetica"
+
     pdf.set_auto_page_break(auto=True, margin=18)
     pdf.add_page()
     pdf.set_margins(18, 18, 18)
@@ -4270,9 +4310,9 @@ def _build_cv_pdf(
     # ---- Helper: section divider ----
     def section_heading(title: str):
         pdf.ln(4)
-        pdf.set_font("Helvetica", "B", 10)
+        pdf.set_font(_FONT, "B", 10)
         pdf.set_text_color(*ACCENT)
-        pdf.cell(0, 7, _safe(title.upper()), **_NL)
+        pdf.cell(0, 7, _t(title.upper()), **_NL)
         pdf.set_draw_color(*ACCENT)
         pdf.set_line_width(0.4)
         pdf.line(18, pdf.get_y(), 18 + page_w, pdf.get_y())
@@ -4281,11 +4321,11 @@ def _build_cv_pdf(
 
     # ---- Helper: wrap long text ----
     def multi(txt: str, font_size: int = 9, style: str = "", indent: float = 0):
-        pdf.set_font("Helvetica", style, font_size)
+        pdf.set_font(_FONT, style, font_size)
         pdf.set_text_color(*DARK)
         if indent:
             pdf.set_x(18 + indent)
-        pdf.multi_cell(page_w - indent, 5, _safe(txt), **_NL)
+        pdf.multi_cell(page_w - indent, 5, _t(txt), **_NL)
 
     # ================================================================
     # HEADER BLOCK
@@ -4311,25 +4351,25 @@ def _build_cv_pdf(
 
     name_fg = HEADER_FG if HEADER_BG else DARK
     pdf.set_xy(x_text, header_top_y)
-    pdf.set_font("Helvetica", "B", 20)
+    pdf.set_font(_FONT, "B", 20)
     pdf.set_text_color(*name_fg)
-    pdf.cell(w_text, 10, _safe(name), **_NL)
+    pdf.cell(w_text, 10, _t(name), **_NL)
 
     # Contact line
     contact_parts = [p for p in (email, phone, location) if p]
     if contact_parts:
         pdf.set_x(x_text)
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font(_FONT, "", 9)
         contact_fg = HEADER_FG if HEADER_BG else LIGHT
         pdf.set_text_color(*contact_fg)
-        pdf.cell(w_text, 5, _safe("  |  ".join(contact_parts)), **_NL)
+        pdf.cell(w_text, 5, _t("  |  ".join(contact_parts)), **_NL)
 
     if link:
         pdf.set_x(x_text)
-        pdf.set_font("Helvetica", "U", 9)
+        pdf.set_font(_FONT, "", 9)
         link_fg = HEADER_FG if HEADER_BG else ACCENT
         pdf.set_text_color(*link_fg)
-        pdf.cell(w_text, 5, _safe(link), **_NL)
+        pdf.cell(w_text, 5, _t(link), **_NL)
 
     # Move below the header band
     pdf.ln(3)
@@ -4358,14 +4398,14 @@ def _build_cv_pdf(
     if skill_list:
         section_heading("Skills")
         # Render as a flowing comma-separated line with * bullets per item
-        pdf.set_font("Helvetica", "", 9)
+        pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*DARK)
         # Group into rows of ~5 items each
         row_size = 5
         for i in range(0, len(skill_list), row_size):
             row = skill_list[i:i + row_size]
             pdf.set_x(18)
-            pdf.cell(0, 5, _safe("  *  ".join(row)), **_NL)
+            pdf.cell(0, 5, _t("  *  ".join(row)), **_NL)
         pdf.ln(1)
 
     # ================================================================
@@ -4378,17 +4418,17 @@ def _build_cv_pdf(
             if not lines:
                 continue
             # Header line: "Company - Title - Dates"
-            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_font(_FONT, "B", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _safe(lines[0]), **_NL)
+            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
             # Bullet points
             for bullet in lines[1:]:
                 bullet_text = bullet.lstrip("*-\u2022\u2013\u2014 ").strip()
                 if bullet_text:
-                    pdf.set_font("Helvetica", "", 9)
+                    pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*DARK)
                     pdf.set_x(22)  # indent bullets
-                    pdf.multi_cell(page_w - 4, 5, _safe(f"* {bullet_text}"), **_NL)
+                    pdf.multi_cell(page_w - 4, 5, _t(f"* {bullet_text}"), **_NL)
             pdf.ln(1)
 
     # ================================================================
@@ -4400,15 +4440,15 @@ def _build_cv_pdf(
             lines = [l.strip() for l in block.split('\n') if l.strip()]
             if not lines:
                 continue
-            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_font(_FONT, "B", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _safe(lines[0]), **_NL)
+            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
             for extra in lines[1:]:
                 if extra.strip():
-                    pdf.set_font("Helvetica", "", 9)
+                    pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*LIGHT)
                     pdf.set_x(22)
-                    pdf.multi_cell(page_w - 4, 5, _safe(extra.strip()), **_NL)
+                    pdf.multi_cell(page_w - 4, 5, _t(extra.strip()), **_NL)
             pdf.ln(1)
 
     # ================================================================
@@ -4420,15 +4460,15 @@ def _build_cv_pdf(
             lines = [l.strip() for l in block.split('\n') if l.strip()]
             if not lines:
                 continue
-            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_font(_FONT, "B", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _safe(lines[0]), **_NL)
+            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
             for extra in lines[1:]:
                 if extra.strip():
-                    pdf.set_font("Helvetica", "", 9)
+                    pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*DARK)
                     pdf.set_x(22)
-                    pdf.multi_cell(page_w - 4, 5, _safe(extra.strip()), **_NL)
+                    pdf.multi_cell(page_w - 4, 5, _t(extra.strip()), **_NL)
             pdf.ln(1)
 
     # ================================================================
@@ -4440,15 +4480,15 @@ def _build_cv_pdf(
             lines = [l.strip() for l in block.split('\n') if l.strip()]
             if not lines:
                 continue
-            pdf.set_font("Helvetica", "I", 9)
+            pdf.set_font(_FONT, "I", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _safe(lines[0]), **_NL)
+            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
             for extra in lines[1:]:
                 if extra.strip():
-                    pdf.set_font("Helvetica", "", 9)
+                    pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*LIGHT)
                     pdf.set_x(22)
-                    pdf.multi_cell(page_w - 4, 5, _safe(extra.strip()), **_NL)
+                    pdf.multi_cell(page_w - 4, 5, _t(extra.strip()), **_NL)
             pdf.ln(1)
 
     pdf.output(output_path)

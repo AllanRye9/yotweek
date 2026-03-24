@@ -11,20 +11,50 @@ import DocConverter from '../components/DocConverter'
 import { getStats } from '../api'
 import socket from '../socket'
 
+/** Returns true when n is a power-of-10 milestone worth celebrating (≥ 100).
+ * Checks whether n equals the nearest power of 10 within ±0.5 integer units
+ * (i.e., exactly 100, 1000, 10000, 100000, …).
+ */
+function isRoundMilestone(n) {
+  if (!n || n < 100) return false
+  const exp = Math.round(Math.log10(n))
+  return Math.abs(n - Math.pow(10, exp)) < 0.5
+}
+
+/** How much the value must grow beyond a milestone before the celebration stops.
+ *  5 % means: if the milestone was 1000, celebrations stop once value ≥ 1050. */
+const MILESTONE_GROWTH_THRESHOLD = 0.05
+
 /** Animate a numeric counter from its previous value to a new target.
- * @param {number|null} target - The target number to animate toward.
- * @param {number} duration - Animation duration in milliseconds (default 1800).
+ * Every 15 minutes the counter re-animates from 0 to the current value so
+ * the digits visibly "spin up" even when the underlying value has not changed.
+ *
+ * @param {number|null} target   - The target number to animate toward.
+ * @param {number}      duration - Animation duration in ms (default 1800).
  * @returns {number} The current animated display value.
  */
 function useAnimatedCounter(target, duration = 1800) {
   const [display, setDisplay] = useState(0)
   const prevRef = useRef(0)
   const rafRef  = useRef(null)
+  // Incrementing this key resets prevRef to 0 and forces a re-animation.
+  const [periodicTick, setPeriodicTick] = useState(0)
+
+  // Every 15 minutes, reset the start position and trigger a fresh animation.
+  useEffect(() => {
+    const id = setInterval(() => {
+      prevRef.current = 0
+      setPeriodicTick(t => t + 1)
+    }, 15 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   useEffect(() => {
     if (target == null) return
     const start = prevRef.current
     const diff  = target - start
+    // Skip only when there is genuinely nothing to animate (diff = 0 and this
+    // is not a forced periodic re-animation where prevRef was already reset).
     if (diff === 0) return
     const t0 = performance.now()
     if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -40,26 +70,203 @@ function useAnimatedCounter(target, duration = 1800) {
     }
     rafRef.current = requestAnimationFrame(tick)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-  }, [target, duration])
+  }, [target, duration, periodicTick])
 
   return display
 }
 
+// ---------------------------------------------------------------------------
+// Celebration confetti overlay
+// ---------------------------------------------------------------------------
+
+/** Inject the CSS keyframes for the confetti particles once. */
+function useCelebrationStyles() {
+  useEffect(() => {
+    const id = 'yot-celebration-styles'
+    if (document.getElementById(id)) return
+    const el = document.createElement('style')
+    el.id = id
+    el.textContent = `
+@keyframes confettiFall {
+  0%   { transform: translateY(-20px) rotate(0deg);   opacity: 1; }
+  80%  { opacity: 1; }
+  100% { transform: translateY(90vh) rotate(720deg); opacity: 0; }
+}
+@keyframes celebFadeIn  { from { opacity: 0; transform: scale(0.7); } to { opacity: 1; transform: scale(1); } }
+@keyframes celebFadeOut { from { opacity: 1; } to { opacity: 0; } }
+.celeb-banner {
+  animation: celebFadeIn 0.4s ease-out both, celebFadeOut 0.5s ease-in 3.5s both;
+}
+.confetti-particle {
+  position: fixed;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: confettiFall linear both;
+  z-index: 9500;
+}
+`
+    document.head.appendChild(el)
+  }, [])
+}
+
+const CONFETTI_COLORS = [
+  '#dc2626', '#ea580c', '#d97706', '#16a34a',
+  '#2563eb', '#7c3aed', '#db2777', '#0891b2',
+]
+
+/**
+ * Full-screen confetti burst + congratulations banner.
+ * Rendered at the React root so it overlays everything.
+ */
+function CelebrationOverlay({ value, label, celebKey, onDone }) {
+  useCelebrationStyles()
+  const [visible, setVisible] = useState(true)
+
+  // Auto-dismiss after 4 s
+  useEffect(() => {
+    setVisible(true)
+    const id = setTimeout(() => { setVisible(false); onDone?.() }, 4000)
+    return () => clearTimeout(id)
+  }, [celebKey, onDone])
+
+  if (!visible) return null
+
+  // Deterministic-ish set of particles based on celebKey
+  const particles = Array.from({ length: 28 }, (_, i) => {
+    const seed   = (celebKey * 31 + i * 17) % 100
+    const left   = ((seed * 7 + i * 13) % 100)
+    const delay  = (seed % 12) / 10
+    const dur    = 2.5 + (seed % 15) / 10
+    const color  = CONFETTI_COLORS[i % CONFETTI_COLORS.length]
+    const size   = 7 + (i % 7)
+    const shape  = i % 3 === 0 ? '0' : i % 3 === 1 ? '2px' : '50%'
+    return { left, delay, dur, color, size, shape }
+  })
+
+  return (
+    <>
+      {/* Confetti particles */}
+      {particles.map((p, i) => (
+        <div
+          key={i}
+          className="confetti-particle"
+          style={{
+            left:             `${p.left}%`,
+            backgroundColor:  p.color,
+            width:            p.size,
+            height:           p.size,
+            borderRadius:     p.shape,
+            animationDelay:   `${p.delay}s`,
+            animationDuration:`${p.dur}s`,
+          }}
+        />
+      ))}
+
+      {/* Congratulations banner */}
+      <div
+        role="alert"
+        aria-live="polite"
+        style={{
+          position:   'fixed',
+          top:        '18%',
+          left:       '50%',
+          transform:  'translateX(-50%)',
+          zIndex:     9600,
+          background: 'linear-gradient(135deg,#1e1b4b,#312e81)',
+          border:     '2px solid #6366f1',
+          borderRadius: 16,
+          padding:    '18px 28px',
+          textAlign:  'center',
+          boxShadow:  '0 8px 40px rgba(99,102,241,0.6)',
+          minWidth:   260,
+          maxWidth:   360,
+          pointerEvents: 'none',
+        }}
+        className="celeb-banner"
+      >
+        <div style={{ fontSize: '2rem', lineHeight: 1 }}>🎉</div>
+        <div style={{ color: '#fff', fontWeight: 700, fontSize: '1rem', marginTop: 6 }}>
+          Congratulations!
+        </div>
+        <div style={{ color: '#c7d2fe', fontSize: '0.82rem', marginTop: 4 }}>
+          {value.toLocaleString()} {label}
+        </div>
+      </div>
+    </>
+  )
+}
+
+/**
+ * Detects when a stat value hits a round-number milestone and triggers a
+ * celebration overlay.  Re-triggers every 15 minutes while the value is still
+ * within 5 % of the milestone; stops once it has grown by ≥ 5 %.
+ */
+function useCelebration(value) {
+  const [celebState, setCelebState] = useState({ active: false, key: 0 })
+  const milestoneRef = useRef(null)
+  const valueRef     = useRef(value)
+  useEffect(() => { valueRef.current = value }, [value])
+
+  // Trigger when value first hits a round milestone.
+  useEffect(() => {
+    if (value == null || value < 100) return
+    if (isRoundMilestone(value) && milestoneRef.current !== value) {
+      milestoneRef.current = value
+      setCelebState(prev => ({ active: true, key: prev.key + 1 }))
+    }
+  }, [value])
+
+  // Every 15 minutes, re-trigger if still within the growth threshold of the milestone.
+  useEffect(() => {
+    const id = setInterval(() => {
+      const milestone = milestoneRef.current
+      if (milestone == null) return
+      const cur = valueRef.current
+      if (cur != null && cur < milestone * (1 + MILESTONE_GROWTH_THRESHOLD)) {
+        setCelebState(prev => ({ active: true, key: prev.key + 1 }))
+      } else {
+        milestoneRef.current = null
+        setCelebState(prev => ({ ...prev, active: false }))
+      }
+    }, 15 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  const dismiss = useCallback(() => setCelebState(prev => ({ ...prev, active: false })), [])
+  return { ...celebState, dismiss }
+}
+
 /** Displays a labelled stat that animates from 0 (or its prior value) to `value`.
+ * Shows a confetti celebration when the value hits a round milestone.
  * @param {Object} props
  * @param {number} props.value - The numeric value to display.
  * @param {string} props.label - The caption shown below the number.
  * @param {string} props.icon  - Emoji icon shown before the number.
  */
 function AnimatedCounter({ value, label, icon }) {
-  const count = useAnimatedCounter(value ?? 0)
+  const count  = useAnimatedCounter(value ?? 0)
+  const celeb  = useCelebration(value)
   return (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="text-2xl sm:text-3xl font-bold text-white tabular-nums">
-        {icon} {count.toLocaleString()}
-      </span>
-      <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
-    </div>
+    <>
+      <div className="flex flex-col items-center gap-0.5">
+        <span className="text-2xl sm:text-3xl font-bold text-white tabular-nums">
+          {icon} {count.toLocaleString()}
+        </span>
+        <span className="text-xs text-gray-400 uppercase tracking-wide">{label}</span>
+      </div>
+
+      {celeb.active && (
+        <CelebrationOverlay
+          value={value}
+          label={label}
+          celebKey={celeb.key}
+          onDone={celeb.dismiss}
+        />
+      )}
+    </>
   )
 }
 
