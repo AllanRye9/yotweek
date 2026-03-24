@@ -4935,8 +4935,7 @@ _WEAK_PHRASES = {
     r"\bwas involved in\b":       "describe your direct contribution",
     r"\bduties included?\b":      "list accomplishments, not duties",
     r"\bresponsibilities\b":      "focus on impact and results",
-    r"\bi am a\b":                "avoid first-person pronouns in CVs",
-    r"\bmy\b":                    "avoid first-person pronouns in CVs",
+    r"\b(i am a|my)\b":           "avoid first-person pronouns in CVs",
     r"\b(very|really|quite)\b":   "remove filler adverbs for conciseness",
     r"\b(etc\.?|and so on)\b":    "be explicit — list every item",
 }
@@ -5049,6 +5048,7 @@ def _call_groq(prompt: str, max_tokens: int = 400) -> str:
     Returns an empty string on any error so callers can fall back gracefully.
     """
     import urllib.request
+    import urllib.error
     import json as _json
 
     if not _GROQ_API_KEY:
@@ -5072,7 +5072,7 @@ def _call_groq(prompt: str, max_tokens: int = 400) -> str:
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = _json.loads(resp.read())
             return data["choices"][0]["message"]["content"].strip()
-    except Exception as exc:  # noqa: BLE001
+    except (urllib.error.URLError, _json.JSONDecodeError, KeyError, ValueError, OSError) as exc:
         logger.warning("Groq API call failed: %s", exc)
         return ""
 
@@ -5086,6 +5086,7 @@ def _call_hf_inference(prompt: str, max_new_tokens: int = 300) -> str:
     generated text.  Returns an empty string on any error.
     """
     import urllib.request
+    import urllib.error
     import json as _json
 
     url = f"https://api-inference.huggingface.co/models/{_AI_MODEL_HF}"
@@ -5107,7 +5108,7 @@ def _call_hf_inference(prompt: str, max_new_tokens: int = 300) -> str:
             if isinstance(data, list) and data:
                 return (data[0].get("generated_text") or "").strip()
             return ""
-    except Exception as exc:  # noqa: BLE001
+    except (urllib.error.URLError, _json.JSONDecodeError, KeyError, ValueError, OSError) as exc:
         logger.warning("HF Inference API call failed: %s", exc)
         return ""
 
