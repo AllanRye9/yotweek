@@ -4,6 +4,7 @@ import { getAdminAuthStatus } from './api'
 import { deleteSession } from './api'
 import { SESSION_ID } from './session'
 import Home from './pages/Home'
+import RidesPage from './pages/RidesPage'
 import UserDashboard from './pages/UserDashboard'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
@@ -108,6 +109,7 @@ export default function App() {
         <AuthProvider>
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/rides" element={<RidesPage />} />
             <Route path="/dashboard" element={<UserDashboard />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin/register" element={<AdminLogin register />} />

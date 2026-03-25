@@ -8,8 +8,6 @@ import Reviews from '../components/Reviews'
 import ThemeSelector from '../components/ThemeSelector'
 import CVGenerator from '../components/CVGenerator'
 import DocConverter from '../components/DocConverter'
-import RideShare from '../components/RideShare'
-import RideShareMap from '../components/RideShareMap'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
 import { getStats, getUserProfile } from '../api'
@@ -278,7 +276,6 @@ const TABS = [
   { id: 'download', label: '⬇ Download',     icon: '⬇' },
   { id: 'cv',       label: '📄 CV Generator', icon: '📄' },
   { id: 'convert',  label: '🔄 Doc Converter', icon: '🔄' },
-  { id: 'rides',    label: '🚗 Ride Share',    icon: '🚗' },
 ]
 
 const SERVICE_CARDS = [
@@ -708,19 +705,14 @@ export default function Home() {
         {/* Animated service cards — glowing borders, random interchange */}
         <ServiceCards activeTab={tab} onSelectTab={handleSelectTab} />
 
-        {/* Ride Share tab button */}
+        {/* Ride Share & Driver Alerts — dedicated page link */}
         <div className="mt-2 flex justify-center">
-          <button
-            type="button"
-            onClick={() => handleSelectTab('rides')}
-            className={`text-sm px-4 py-1.5 rounded-full border transition-colors ${
-              tab === 'rides'
-                ? 'bg-yellow-700 border-yellow-600 text-yellow-100'
-                : 'bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
-            }`}
+          <Link
+            to="/rides"
+            className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-yellow-700 hover:border-yellow-600 hover:text-yellow-100"
           >
             🚗 Ride Share &amp; Driver Alerts
-          </button>
+          </Link>
         </div>
 
         <div className="h-4" />
@@ -730,31 +722,6 @@ export default function Home() {
           {tab === 'download' && <DownloadForm onDownloadStarted={handleDownloadStarted} />}
           {tab === 'cv'       && <CVGenerator />}
           {tab === 'convert'  && <DocConverter />}
-          {tab === 'rides'    && (
-            <div>
-              <div className="mb-4">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
-                {!appUser && !userLoading && (
-                  <button
-                    onClick={() => setShowAuthModal(true)}
-                    className="mt-2 text-sm px-4 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
-                  >
-                    Login / Register to Post or Chat
-                  </button>
-                )}
-              </div>
-
-              {/* Live map */}
-              <div className="mb-4">
-                <RideShareMap
-                  userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
-                />
-              </div>
-
-              <RideShare user={appUser || null} />
-            </div>
-          )}
         </div>
 
         {/* Active Downloads — only relevant when download tab is active */}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { userRegister, userLogin, requestMagicLink, verifyMagicLink } from '../api'
+import { userRegister, userLogin } from '../api'
 
 // ─── Password-strength helper ───────────────────────────────────────────────
 
@@ -20,21 +20,6 @@ function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-// ─── OAuth / Social button ──────────────────────────────────────────────────
-
-function SocialButton({ icon, label, onClick }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full flex items-center justify-center gap-3 py-2.5 rounded-lg border border-gray-600 bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium transition-colors"
-    >
-      <span className="text-lg">{icon}</span>
-      {label}
-    </button>
-  )
-}
-
 // ─── Main component ──────────────────────────────────────────────────────────
 
 /**
@@ -47,7 +32,7 @@ function SocialButton({ icon, label, onClick }) {
  *   defaultTab         — 'signin' | 'register' (default: 'signin')
  */
 export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) {
-  const [tab, setTab]             = useState(defaultTab) // 'signin' | 'register' | 'magic'
+  const [tab, setTab]             = useState(defaultTab) // 'signin' | 'register'
   const [name, setName]           = useState('')
   const [email, setEmail]         = useState('')
   const [password, setPass]       = useState('')
@@ -56,8 +41,6 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
   const [loading, setLoading]     = useState(false)
   const [error, setError]         = useState('')
   const [success, setSuccess]     = useState('')
-  const [magicToken, setMagicToken] = useState('')
-  const [magicStep, setMagicStep] = useState('email') // 'email' | 'token'
 
   // Real-time validation
   const [emailTouched, setEmailTouched]   = useState(false)
@@ -78,7 +61,6 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
   const reset = () => {
     setError(''); setSuccess(''); setName(''); setEmail(''); setPass('')
     setEmailTouched(false); setPassTouched(false)
-    setMagicToken(''); setMagicStep('email')
   }
 
   const switchTab = (t) => { reset(); setTab(t) }
@@ -108,48 +90,6 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
     }
   }
 
-  // ── Magic Link ─────────────────────────────────────────────────────────────
-
-  const handleMagicRequest = async (e) => {
-    e.preventDefault()
-    setError('')
-    if (!isValidEmail(email)) return setError('Please enter a valid email address.')
-    setLoading(true)
-    try {
-      const res = await requestMagicLink(email.trim())
-      setSuccess(res.message || 'Magic link sent — check your email.')
-      // In demo mode the token is returned directly for testing convenience
-      if (res.token) setMagicToken(res.token)
-      setMagicStep('token')
-    } catch (err) {
-      setError(err.message || 'Failed to send magic link.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleMagicVerify = async (e) => {
-    e.preventDefault()
-    setError('')
-    if (!magicToken.trim()) return setError('Please enter the magic link token.')
-    setLoading(true)
-    try {
-      const user = await verifyMagicLink(magicToken.trim())
-      onSuccess?.(user)
-    } catch (err) {
-      setError(err.message || 'Invalid or expired token.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // ── OAuth placeholders ─────────────────────────────────────────────────────
-
-  const handleOAuth = (provider) => {
-    // Placeholder — wire up to real OAuth redirect when credentials are configured
-    setError(`${provider} OAuth is not yet configured on this server.`)
-  }
-
   // ── Render ─────────────────────────────────────────────────────────────────
 
   const modal = (
@@ -174,7 +114,7 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
 
         {/* Tab bar */}
         <div className="flex border-b border-gray-700">
-          {[['signin', 'Sign In'], ['register', 'Create Account'], ['magic', '✉ Magic Link']].map(([id, label]) => (
+          {[['signin', 'Sign In'], ['register', 'Create Account']].map(([id, label]) => (
             <button
               key={id}
               type="button"
@@ -191,19 +131,6 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
         </div>
 
         <div className="p-6 space-y-4">
-          {/* OAuth buttons — shown on sign-in and register tabs */}
-          {tab !== 'magic' && (
-            <div className="space-y-2">
-              <SocialButton icon="🇬" label="Continue with Google"  onClick={() => handleOAuth('Google')} />
-              <SocialButton icon="🍎" label="Continue with Apple"   onClick={() => handleOAuth('Apple')} />
-              <div className="flex items-center gap-3 py-1">
-                <div className="flex-1 border-t border-gray-700" />
-                <span className="text-xs text-gray-500">or</span>
-                <div className="flex-1 border-t border-gray-700" />
-              </div>
-            </div>
-          )}
-
           {/* ── Sign In form ── */}
           {tab === 'signin' && (
             <form onSubmit={handleSubmit} className="space-y-3">
@@ -360,68 +287,6 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
                 {loading ? '…' : 'Create Account'}
               </button>
             </form>
-          )}
-
-          {/* ── Magic Link form ── */}
-          {tab === 'magic' && (
-            <div className="space-y-4">
-              <p className="text-sm text-gray-400">
-                Enter your email and we'll send you a one-time link to sign in — no password needed.
-              </p>
-
-              {magicStep === 'email' && (
-                <form onSubmit={handleMagicRequest} className="space-y-3">
-                  <input
-                    type="email"
-                    placeholder="Your registered email"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    required
-                    className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {error   && <p className="text-red-400 text-xs bg-red-900/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>}
-                  {success && <p className="text-green-400 text-xs bg-green-900/30 border border-green-800 rounded-lg px-3 py-2">{success}</p>}
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-2.5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    {loading ? '…' : 'Send Magic Link'}
-                  </button>
-                </form>
-              )}
-
-              {magicStep === 'token' && (
-                <form onSubmit={handleMagicVerify} className="space-y-3">
-                  {success && <p className="text-green-400 text-xs bg-green-900/30 border border-green-800 rounded-lg px-3 py-2">{success}</p>}
-                  <input
-                    type="text"
-                    placeholder="Paste magic-link token here"
-                    value={magicToken}
-                    onChange={e => setMagicToken(e.target.value)}
-                    required
-                    className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2.5 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {error && <p className="text-red-400 text-xs bg-red-900/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>}
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setMagicStep('email'); setError(''); setSuccess('') }}
-                      className="flex-1 py-2 rounded-lg border border-gray-600 text-gray-400 hover:text-white text-sm transition-colors"
-                    >
-                      Back
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="flex-1 py-2 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm transition-colors"
-                    >
-                      {loading ? '…' : 'Verify & Sign In'}
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
           )}
         </div>
       </div>
