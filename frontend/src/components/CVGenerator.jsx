@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { generateCV, extractCV, triggerBlobDownload, aiCvSuggest } from '../api'
+import { generateCV, generateCVTxt, extractCV, triggerBlobDownload, aiCvSuggest } from '../api'
 import ATSScanner from './ATSScanner'
 
 const INITIAL = {
@@ -385,6 +385,7 @@ function CVBuilder() {
   const [fields, setFields]       = useState(INITIAL)
   const [logoFile, setLogoFile]   = useState(null)
   const [theme, setTheme]         = useState('classic')
+  const [layout, setLayout]       = useState('chronological')
   const [step, setStep]           = useState(0)
   const [status, setStatus]       = useState(null)
   const [stepError, setStepError] = useState(null)
@@ -392,6 +393,7 @@ function CVBuilder() {
   const [animKey, setAnimKey]     = useState(0)
   const [cvUploadStatus, setCvUploadStatus] = useState(null)
   const [aiState, setAiState]     = useState({ loading: false, suggestions: [], sampleVerbs: [], enhancedText: '', source: '', error: '' })
+  const [copied, setCopied]       = useState(false)
   const submitRef    = useRef(null)
   const cvUploadRef  = useRef(null)
 
@@ -515,7 +517,7 @@ function CVBuilder() {
     setStatus({ type: 'loading', msg: 'Generating CV… please wait.' })
     if (submitRef.current) submitRef.current.disabled = true
     try {
-      const res = await generateCV(fields, logoFile, theme)
+      const res = await generateCV(fields, logoFile, theme, layout)
       if (!res.ok) {
         let errMsg = 'Server error (' + res.status + ')'
         try { const json = await res.json(); if (json.error) errMsg = json.error } catch {}
@@ -529,6 +531,47 @@ function CVBuilder() {
       setStatus({ type: 'error', msg: err.message || 'Generation failed' })
     } finally {
       if (submitRef.current) submitRef.current.disabled = false
+    }
+  }
+
+  const handleGenerateTxt = async () => {
+    const err = validate()
+    if (err) { setStatus({ type: 'error', msg: err }); return }
+    setStatus({ type: 'loading', msg: 'Generating plain-text CV…' })
+    try {
+      const res = await generateCVTxt(fields, layout)
+      if (!res.ok) {
+        let errMsg = 'Server error (' + res.status + ')'
+        try { const json = await res.json(); if (json.error) errMsg = json.error } catch {}
+        throw new Error(errMsg)
+      }
+      const blob = await res.blob()
+      if (blob.size === 0) throw new Error('CV generation produced an empty file.')
+      triggerBlobDownload(blob, 'cv.txt')
+      setStatus({ type: 'success', msg: 'Plain-text CV downloaded!' })
+    } catch (err) {
+      setStatus({ type: 'error', msg: err.message || 'Generation failed' })
+    }
+  }
+
+  const handleCopyToClipboard = async () => {
+    const err = validate()
+    if (err) { setStatus({ type: 'error', msg: err }); return }
+    setStatus({ type: 'loading', msg: 'Building CV text…' })
+    try {
+      const res = await generateCVTxt(fields, layout)
+      if (!res.ok) {
+        let errMsg = 'Server error (' + res.status + ')'
+        try { const json = await res.json(); if (json.error) errMsg = json.error } catch {}
+        throw new Error(errMsg)
+      }
+      const text = await res.text()
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2500)
+      setStatus({ type: 'success', msg: 'CV copied to clipboard!' })
+    } catch (err) {
+      setStatus({ type: 'error', msg: err.message || 'Copy failed' })
     }
   }
 
@@ -730,6 +773,33 @@ function CVBuilder() {
             {/* Step 6: Theme & Logo */}
             {step === 6 && (
               <div className="space-y-4">
+                {/* Layout selector */}
+                <div className="space-y-2">
+                  <label className="form-label">📐 CV Layout</label>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {[
+                      { value: 'chronological', label: '📅 Chronological', desc: 'Experience → Education → Skills' },
+                      { value: 'functional',    label: '⭐ Functional',    desc: 'Skills → Experience → Education' },
+                    ].map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setLayout(opt.value)}
+                        style={{
+                          flex: 1, borderRadius: 8, textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s',
+                          border: layout === opt.value ? '2px solid #dc2626' : '1px solid #374151',
+                          background: layout === opt.value ? '#dc262622' : '#1f293780',
+                          padding: '8px 12px',
+                        }}
+                      >
+                        <div style={{ fontSize: '0.82rem', fontWeight: 600, color: layout === opt.value ? '#fff' : '#d1d5db' }}>
+                          {opt.label}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#6b7280', marginTop: 1 }}>{opt.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <label className="form-label">🎨 CV Theme</label>
                   <div className="grid grid-cols-2 gap-2">
@@ -786,9 +856,35 @@ function CVBuilder() {
               </button>
             )}
             {isLast && (
-              <button ref={submitRef} type="button" onClick={handleGenerate} className="btn-primary" style={{ flex: 1 }}>
-                📄 Generate PDF CV
-              </button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
+                <button ref={submitRef} type="button" onClick={handleGenerate} className="btn-primary" style={{ width: '100%' }}>
+                  📄 Download PDF CV
+                </button>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    onClick={handleGenerateTxt}
+                    style={{
+                      flex: 1, borderRadius: 8, padding: '8px 0', fontSize: '0.82rem', fontWeight: 600,
+                      cursor: 'pointer', border: '1px solid #374151', background: '#1f2937', color: '#d1d5db',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    📝 Download .txt
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyToClipboard}
+                    style={{
+                      flex: 1, borderRadius: 8, padding: '8px 0', fontSize: '0.82rem', fontWeight: 600,
+                      cursor: 'pointer', border: '1px solid #374151', background: '#1f2937', color: '#d1d5db',
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {copied ? '✅ Copied!' : '📋 Copy to Clipboard'}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 

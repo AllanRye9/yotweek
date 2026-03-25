@@ -9,6 +9,7 @@ const CONVERSION_MAP = {
     { value: 'powerpoint',  label: '📊 PowerPoint (.pptx)',  icon: '📊' },
     { value: 'jpeg',        label: '🖼 JPEG image',          icon: '🖼' },
     { value: 'png',         label: '🖼 PNG image',           icon: '🖼' },
+    { value: 'text',        label: '📄 Plain Text (.txt)',   icon: '📄' },
   ],
   docx: [
     { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
@@ -16,6 +17,7 @@ const CONVERSION_MAP = {
     { value: 'powerpoint',  label: '📊 PowerPoint (.pptx)',  icon: '📊' },
     { value: 'jpeg',        label: '🖼 JPEG image',          icon: '🖼' },
     { value: 'png',         label: '🖼 PNG image',           icon: '🖼' },
+    { value: 'text',        label: '📄 Plain Text (.txt)',   icon: '📄' },
   ],
   doc: [
     { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
@@ -23,6 +25,14 @@ const CONVERSION_MAP = {
     { value: 'powerpoint',  label: '📊 PowerPoint (.pptx)',  icon: '📊' },
     { value: 'jpeg',        label: '🖼 JPEG image',          icon: '🖼' },
     { value: 'png',         label: '🖼 PNG image',           icon: '🖼' },
+    { value: 'text',        label: '📄 Plain Text (.txt)',   icon: '📄' },
+  ],
+  rtf:  [
+    { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
+    { value: 'text',        label: '📄 Plain Text (.txt)',   icon: '📄' },
+  ],
+  txt:  [
+    { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
   ],
   xlsx: [
     { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
@@ -56,6 +66,7 @@ const CONVERSION_MAP = {
     { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
     { value: 'word',        label: '📝 Word (.docx)',        icon: '📝' },
     { value: 'excel',       label: '📊 Excel (.xlsx)',       icon: '📊' },
+    { value: 'text',        label: '📄 Plain Text (.txt)',   icon: '📄' },
   ],
   ods: [
     { value: 'pdf',         label: '📄 PDF',                 icon: '📄' },
@@ -83,7 +94,7 @@ const SUPPORTED_EXTS = Object.keys(CONVERSION_MAP)
 
 const ACCEPT_TYPES = [
   '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt',
-  '.odt', '.ods', '.jpg', '.jpeg', '.png',
+  '.odt', '.ods', '.jpg', '.jpeg', '.png', '.rtf', '.txt',
 ].join(',')
 
 function getExt(filename) {
@@ -98,7 +109,7 @@ function humanSize(bytes) {
 
 // ─── Text Extractor sub-component ─────────────────────────────────────────────
 
-const TEXT_EXTRACT_EXTS = ['.pdf', '.docx', '.doc', '.odt', '.txt']
+const TEXT_EXTRACT_EXTS = ['.pdf', '.docx', '.doc', '.odt', '.txt', '.rtf']
 const TEXT_EXTRACT_ACCEPT = TEXT_EXTRACT_EXTS.join(',')
 
 function TextExtractor() {
@@ -314,6 +325,12 @@ export default function DocConverter() {
   const [file, setFile]               = useState(null)
   const [target, setTarget]           = useState(null)
   const [status, setStatus]           = useState(null)
+  // Preview-first state:
+  //   null            = no result yet
+  //   { blob, outName, textPreview? } = converted result ready to download
+  const [result, setResult]           = useState(null)
+  const [previewText, setPreviewText] = useState(null)   // editable text for text-output conversions
+  const [copied, setCopied]           = useState(false)
   const fileInputRef                  = useRef(null)
 
   const ext       = file ? getExt(file.name) : null
@@ -325,6 +342,8 @@ export default function DocConverter() {
     setFile(f)
     setTarget(null)
     setStatus(null)
+    setResult(null)
+    setPreviewText(null)
     if (f) {
       const fExt = getExt(f.name)
       const opts = CONVERSION_MAP[fExt] || []
@@ -332,9 +351,12 @@ export default function DocConverter() {
     }
   }
 
+  // Step 1: Convert and show preview — do NOT auto-download
   const handleConvert = async () => {
     if (!file || !target) return
     setStatus({ type: 'loading', msg: 'Converting… please wait.' })
+    setResult(null)
+    setPreviewText(null)
     try {
       const res = await convertDoc(file, target)
       if (!res.ok) {
@@ -345,23 +367,54 @@ export default function DocConverter() {
       const blob = await res.blob()
       if (blob.size === 0) throw new Error('Conversion produced an empty file.')
 
-      // Determine output filename
+      // Determine output filename from Content-Disposition
       const cd = res.headers.get('content-disposition') || ''
       let outName = 'converted'
       const m = cd.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
       if (m) outName = m[1].replace(/['"]/g, '').trim()
 
-      triggerBlobDownload(blob, outName)
-      setStatus({ type: 'success', msg: `Converted and downloaded as "${outName}".` })
+      // For plain-text output, read the text so the user can preview / edit it
+      let textContent = null
+      if (target === 'text') {
+        textContent = await blob.text()
+      }
+
+      setResult({ blob, outName })
+      setPreviewText(textContent)
+      setStatus({ type: 'ready', msg: `Conversion complete — review the preview, then click Download.` })
     } catch (err) {
       setStatus({ type: 'error', msg: err.message || 'Conversion failed.' })
     }
+  }
+
+  // Step 2: User explicitly triggers the download
+  const handleDownload = () => {
+    if (!result) return
+    if (previewText !== null) {
+      // Download the (possibly edited) text
+      const blob = new Blob([previewText], { type: 'text/plain;charset=utf-8' })
+      triggerBlobDownload(blob, result.outName)
+    } else {
+      triggerBlobDownload(result.blob, result.outName)
+    }
+    setStatus({ type: 'success', msg: `Downloaded as "${result.outName}".` })
+  }
+
+  const handleCopy = () => {
+    if (!previewText) return
+    navigator.clipboard.writeText(previewText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   const reset = () => {
     setFile(null)
     setTarget(null)
     setStatus(null)
+    setResult(null)
+    setPreviewText(null)
+    setCopied(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
@@ -413,12 +466,13 @@ export default function DocConverter() {
         </div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
           {[
-            { from: 'PDF',        to: 'Word / Excel / PowerPoint / JPEG / PNG' },
-            { from: 'Word',       to: 'PDF / Excel / PowerPoint / JPEG / PNG'  },
-            { from: 'Excel',      to: 'PDF / Word / PowerPoint / JPEG / PNG'   },
-            { from: 'PowerPoint', to: 'PDF / Word / Excel / JPEG / PNG'        },
-            { from: 'JPEG/PNG',   to: 'PDF / Word / JPEG↔PNG'                 },
-            { from: 'ODT/ODS',    to: 'PDF / Word / Excel'                     },
+            { from: 'PDF',        to: 'Word / Excel / PowerPoint / JPEG / PNG / Text' },
+            { from: 'Word / ODT', to: 'PDF / Text'                                    },
+            { from: 'RTF',        to: 'PDF / Text'                                    },
+            { from: 'TXT',        to: 'PDF'                                           },
+            { from: 'Excel',      to: 'PDF / Word / PowerPoint / JPEG / PNG'          },
+            { from: 'PowerPoint', to: 'PDF / Word / Excel / JPEG / PNG'               },
+            { from: 'JPEG/PNG',   to: 'PDF / Word / JPEG↔PNG'                        },
           ].map(({ from, to }) => (
             <span key={from} style={{
               background: '#374151', borderRadius: 6,
@@ -452,6 +506,8 @@ export default function DocConverter() {
                 setFile(f)
                 setTarget(null)
                 setStatus(null)
+                setResult(null)
+                setPreviewText(null)
                 const fExt = getExt(f.name)
                 const opts = CONVERSION_MAP[fExt] || []
                 if (opts.length === 1) setTarget(opts[0].value)
@@ -484,7 +540,7 @@ export default function DocConverter() {
                   Click to browse or drag &amp; drop a file here
                 </div>
                 <div style={{ color: '#4b5563', fontSize: '0.72rem', marginTop: 4 }}>
-                  PDF, DOCX, DOC, XLSX, XLS, PPTX, PPT, ODT, ODS, JPEG, PNG — up to 50 MB
+                  PDF, DOCX, DOC, RTF, TXT, XLSX, XLS, PPTX, PPT, ODT, ODS, JPEG, PNG — up to 50 MB
                 </div>
               </div>
             )}
@@ -512,7 +568,7 @@ export default function DocConverter() {
                 <button
                   key={opt.value}
                   type="button"
-                  onClick={() => { setTarget(opt.value); setStatus(null) }}
+                  onClick={() => { setTarget(opt.value); setStatus(null); setResult(null); setPreviewText(null) }}
                   style={{
                     borderRadius: 8, padding: '8px 16px',
                     fontSize: '0.82rem', fontWeight: 600, cursor: 'pointer',
@@ -530,7 +586,7 @@ export default function DocConverter() {
         )}
 
         {/* Step 3: Convert button */}
-        {file && target && (
+        {file && target && !result && (
           <button
             type="button"
             onClick={handleConvert}
@@ -538,31 +594,134 @@ export default function DocConverter() {
             className="btn-primary"
             style={{ width: '100%', fontSize: '0.9rem', padding: '10px 0' }}
           >
-            {status?.type === 'loading' ? '⏳ Converting…' : '🔄 Convert & Download'}
+            {status?.type === 'loading' ? '⏳ Converting…' : '🔄 Convert & Preview'}
           </button>
         )}
 
-        {/* Status */}
-        {status && status.type !== 'loading' && (
-          <div style={{
-            borderRadius: 8, padding: '10px 14px',
-            background: status.type === 'success' ? '#064e3b33' : '#7f1d1d33',
-            border: `1px solid ${status.type === 'success' ? '#065f4644' : '#991b1b44'}`,
-            fontSize: '0.82rem',
-            color: status.type === 'success' ? '#34d399' : '#f87171',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <span>{status.type === 'success' ? '✅' : '❌'}</span>
-            <span>{status.msg}</span>
-            {status.type === 'error' && (
+        {/* Step 4: Preview pane — shown after conversion, before download */}
+        {result && (
+          <div>
+            {/* Status banner */}
+            <div style={{
+              borderRadius: 8, padding: '10px 14px', marginBottom: 12,
+              background: '#1a3a2a33', border: '1px solid #065f4644',
+              fontSize: '0.82rem', color: '#34d399',
+              display: 'flex', alignItems: 'center', gap: 8,
+            }}>
+              <span>✅</span>
+              <span>Conversion ready — <strong>{result.outName}</strong></span>
+              <span style={{ marginLeft: 'auto', fontSize: '0.72rem', color: '#6b7280' }}>
+                {humanSize(previewText !== null ? new Blob([previewText]).size : result.blob.size)}
+              </span>
+            </div>
+
+            {/* Text preview / editor (for text-output conversions) */}
+            {previewText !== null && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{
+                  fontSize: '0.72rem', color: '#6b7280', marginBottom: 4, fontWeight: 600,
+                  textTransform: 'uppercase', letterSpacing: '0.04em',
+                }}>
+                  Preview — you can edit the text before downloading
+                </div>
+                <textarea
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: '#111827', border: '1px solid #374151',
+                    borderRadius: 8, padding: '10px 12px',
+                    fontFamily: 'monospace', fontSize: '0.78rem',
+                    color: '#e5e7eb', whiteSpace: 'pre-wrap',
+                    minHeight: 200, resize: 'vertical',
+                    lineHeight: 1.6,
+                  }}
+                  value={previewText}
+                  onChange={e => setPreviewText(e.target.value)}
+                  aria-label="Converted text preview — editable"
+                />
+              </div>
+            )}
+
+            {/* For non-text outputs, show a file info card */}
+            {previewText === null && (
+              <div style={{
+                background: '#1f2937', border: '1px solid #374151',
+                borderRadius: 8, padding: '12px 14px', marginBottom: 12,
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <span style={{ fontSize: '2rem' }}>
+                  {['pdf'].includes(target) ? '📄'
+                    : ['word'].includes(target) ? '📝'
+                    : ['excel'].includes(target) ? '📊'
+                    : ['jpeg', 'png'].includes(target) ? '🖼'
+                    : '📁'}
+                </span>
+                <div>
+                  <div style={{ color: '#f3f4f6', fontSize: '0.85rem', fontWeight: 600 }}>{result.outName}</div>
+                  <div style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 2 }}>
+                    {humanSize(result.blob.size)} — ready to download
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 8 }}>
               <button
                 type="button"
-                onClick={() => setStatus(null)}
-                style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}
+                onClick={handleDownload}
+                className="btn-primary"
+                style={{ flex: 2, fontSize: '0.9rem', padding: '10px 0' }}
               >
-                Dismiss
+                ⬇️ Download
               </button>
-            )}
+              {previewText !== null && (
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  style={{
+                    flex: 1, borderRadius: 8, padding: '10px 0', fontSize: '0.82rem',
+                    fontWeight: 600, cursor: 'pointer',
+                    border: '1px solid #374151', background: '#1f2937', color: '#d1d5db',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {copied ? '✅ Copied!' : '📋 Copy'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={reset}
+                style={{
+                  flex: 1, borderRadius: 8, padding: '10px 0', fontSize: '0.82rem',
+                  fontWeight: 600, cursor: 'pointer',
+                  border: '1px solid #374151', background: '#1f293780', color: '#9ca3af',
+                  transition: 'all 0.15s',
+                }}
+              >
+                🔄 New
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Status — error only; 'ready' state is shown inline above */}
+        {status && status.type === 'error' && (
+          <div style={{
+            borderRadius: 8, padding: '10px 14px',
+            background: '#7f1d1d33',
+            border: '1px solid #991b1b44',
+            fontSize: '0.82rem', color: '#f87171',
+            display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span>❌</span>
+            <span>{status.msg}</span>
+            <button
+              type="button"
+              onClick={() => setStatus(null)}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}
+            >
+              Dismiss
+            </button>
           </div>
         )}
       </div>

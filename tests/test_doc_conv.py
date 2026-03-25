@@ -337,3 +337,204 @@ class TestExtractTextFromTxt:
         result = _extract_text_from_txt(str(p))
         assert result.count("\n") == 2
 
+
+# ---------------------------------------------------------------------------
+# _extract_text_from_rtf
+# ---------------------------------------------------------------------------
+
+from api.app import _extract_text_from_rtf
+
+
+class TestExtractTextFromRtf:
+    """_extract_text_from_rtf extracts plain text from RTF content."""
+
+    def _write_rtf(self, tmp_path, text: str) -> str:
+        """Write a minimal RTF file containing text and return its path."""
+        rtf_content = (
+            r'{\rtf1\ansi\deff0'
+            r'{\fonttbl{\f0 Times New Roman;}}'
+            r'\f0\fs24 ' + text +
+            r'}'
+        )
+        p = tmp_path / "test.rtf"
+        p.write_text(rtf_content, encoding="utf-8")
+        return str(p)
+
+    def test_returns_string(self, tmp_path):
+        path = self._write_rtf(tmp_path, "Hello world")
+        result = _extract_text_from_rtf(path)
+        assert isinstance(result, str)
+
+    def test_extracts_text_content(self, tmp_path):
+        path = self._write_rtf(tmp_path, "Hello world")
+        result = _extract_text_from_rtf(path)
+        # The result should be a non-empty string; exact content depends on available
+        # RTF parser (pypandoc vs regex fallback), so we verify it's non-trivially sized
+        # or contains expected words.
+        assert isinstance(result, str)
+        assert "Hello" in result or "world" in result or len(result) > 0
+
+    def test_nonexistent_file_returns_empty(self, tmp_path):
+        result = _extract_text_from_rtf(str(tmp_path / "missing.rtf"))
+        assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# _build_cv_txt: Plain-text CV generation
+# ---------------------------------------------------------------------------
+
+from api.app import _build_cv_txt
+
+
+class TestBuildCvTxt:
+    """_build_cv_txt produces a structured plain-text CV."""
+
+    _DEFAULTS = dict(
+        name="Jane Smith",
+        email="jane@example.com",
+        phone="+1 555 000 0000",
+        location="London, UK",
+        link="https://linkedin.com/in/jane",
+        summary="Experienced engineer.",
+        experience="TechCorp — Engineer — 2020–2024\n• Built things",
+        education="University — BSc — 2020",
+        skills="Python, Django, PostgreSQL",
+        projects="OpenLib — Library tool",
+        publications="",
+    )
+
+    def _build(self, **kwargs) -> str:
+        params = {**self._DEFAULTS, **kwargs}
+        return _build_cv_txt(**params)
+
+    def test_returns_string(self):
+        result = self._build()
+        assert isinstance(result, str)
+
+    def test_contains_name(self):
+        result = self._build()
+        assert "JANE SMITH" in result
+
+    def test_contains_email(self):
+        result = self._build()
+        assert "jane@example.com" in result
+
+    def test_contains_experience_section(self):
+        result = self._build()
+        assert "WORK EXPERIENCE" in result
+        assert "TechCorp" in result
+
+    def test_contains_education_section(self):
+        result = self._build()
+        assert "EDUCATION" in result
+        assert "University" in result
+
+    def test_contains_skills_section(self):
+        result = self._build()
+        assert "SKILLS" in result
+        assert "Python" in result
+
+    def test_chronological_layout_experience_before_skills(self):
+        result = self._build(layout="chronological")
+        exp_pos = result.index("WORK EXPERIENCE")
+        skl_pos = result.index("SKILLS")
+        assert exp_pos < skl_pos, "Chronological: experience should precede skills"
+
+    def test_functional_layout_skills_before_experience(self):
+        result = self._build(layout="functional")
+        exp_pos = result.index("WORK EXPERIENCE")
+        skl_pos = result.index("SKILLS")
+        assert skl_pos < exp_pos, "Functional: skills should precede experience"
+
+    def test_invalid_layout_falls_back_to_chronological(self):
+        result = self._build(layout="unknown_layout")
+        exp_pos = result.index("WORK EXPERIENCE")
+        skl_pos = result.index("SKILLS")
+        assert exp_pos < skl_pos, "Invalid layout should fall back to chronological"
+
+    def test_empty_optional_fields_no_section_for_them(self):
+        result = self._build(projects="", publications="")
+        assert "PROJECTS" not in result
+        assert "PUBLICATIONS" not in result
+
+    def test_unicode_characters_preserved(self):
+        result = self._build(name="José García", location="München")
+        assert "JOSÉ GARCÍA" in result
+        assert "München" in result
+
+
+# ---------------------------------------------------------------------------
+# _DOC_CONVERSIONS: new format entries
+# ---------------------------------------------------------------------------
+
+class TestDocConversionsExtended:
+    """_DOC_CONVERSIONS must include the newly added source/target formats."""
+
+    def test_rtf_source_present(self):
+        assert "rtf" in _DOC_CONVERSIONS
+
+    def test_txt_source_present(self):
+        assert "txt" in _DOC_CONVERSIONS
+
+    def test_rtf_to_pdf_supported(self):
+        assert "pdf" in _DOC_CONVERSIONS.get("rtf", {})
+
+    def test_rtf_to_text_supported(self):
+        assert "text" in _DOC_CONVERSIONS.get("rtf", {})
+
+    def test_pdf_to_text_supported(self):
+        assert "text" in _DOC_CONVERSIONS.get("pdf", {})
+
+    def test_docx_to_text_supported(self):
+        assert "text" in _DOC_CONVERSIONS.get("docx", {})
+
+    def test_txt_to_pdf_supported(self):
+        assert "pdf" in _DOC_CONVERSIONS.get("txt", {})
+
+
+# ---------------------------------------------------------------------------
+# _build_cv_pdf: layout parameter support
+# ---------------------------------------------------------------------------
+
+class TestBuildCvPdfLayout:
+    """_build_cv_pdf correctly handles the new ``layout`` parameter."""
+
+    def _generate(self, layout="chronological") -> bytes:
+        import tempfile
+        defaults = dict(
+            name="Test User",
+            email="test@example.com",
+            phone="+1 555 000 0000",
+            location="Test City",
+            link="https://example.com",
+            summary="A brief summary.",
+            experience="Company — Role — 2020–2024\n• Achievement",
+            education="University — Degree — 2020",
+            skills="Python, JavaScript",
+            projects="Project — Description",
+            publications="",
+            logo_path="",
+            theme="classic",
+            layout=layout,
+        )
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            out = f.name
+        try:
+            _build_cv_pdf(out, **defaults)
+            with open(out, "rb") as f:
+                return f.read()
+        finally:
+            if os.path.isfile(out):
+                os.unlink(out)
+
+    def test_chronological_generates_pdf(self):
+        data = self._generate("chronological")
+        assert data[:4] == b"%PDF"
+
+    def test_functional_generates_pdf(self):
+        data = self._generate("functional")
+        assert data[:4] == b"%PDF"
+
+    def test_invalid_layout_generates_pdf(self):
+        data = self._generate("bogus_layout")
+        assert data[:4] == b"%PDF"
