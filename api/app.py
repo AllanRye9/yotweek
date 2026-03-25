@@ -7380,9 +7380,6 @@ async def api_driver_locations():
             for d in _driver_locations.values()
             if now - d["ts"] <= _DRIVER_LOC_TTL_SECS
         ]
-for d in _driver_locations.values()
-            if now - d["ts"] <= _DRIVER_LOC_TTL_SECS
-        ]
     return JSONResponse({"drivers": active})
 
 
