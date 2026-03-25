@@ -169,14 +169,30 @@ export const adminDbUpload      = (file) => {
  *   'creative', 'tech', 'elegant', 'vibrant')
  * @returns {Promise<Response>} Raw response (blob) — caller should call res.blob()
  */
-export const generateCV = (fields, logoFile = null, theme = 'classic') => {
+export const generateCV = (fields, logoFile = null, theme = 'classic', layout = 'chronological') => {
   const fd = new FormData()
   Object.entries(fields).forEach(([k, v]) => {
     if (v !== undefined && v !== null) fd.append(k, v)
   })
   if (logoFile) fd.append('logo', logoFile, logoFile.name)
   fd.append('theme', theme)
+  fd.append('layout', layout)
   return request('POST', '/api/cv/generate', fd, false)
+}
+
+/**
+ * Generate a plain-text CV (.txt) for download.
+ * @param {Object} fields  - CV fields
+ * @param {string} layout  - 'chronological' or 'functional'
+ * @returns {Promise<Response>} Raw response (text blob)
+ */
+export const generateCVTxt = (fields, layout = 'chronological') => {
+  const fd = new FormData()
+  Object.entries(fields).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) fd.append(k, v)
+  })
+  fd.append('layout', layout)
+  return request('POST', '/api/cv/generate_txt', fd, false)
 }
 
 // ── AI Assistant ──────────────────────────────────────────────────────────────

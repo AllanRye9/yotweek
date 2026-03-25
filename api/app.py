@@ -4403,11 +4403,16 @@ def _build_cv_pdf(
     publications: str = "",
     logo_path: str = "",
     theme: str = "classic",
+    layout: str = "chronological",
 ) -> None:
     """Build a professional single-file PDF CV using fpdf2.
 
     Supported themes: 'classic' (blue), 'modern' (dark header), 'minimal' (B&W),
     'executive' (navy/gold).
+
+    ``layout`` controls section order:
+    - ``chronological`` – experience first, then education, then skills
+    - ``functional``    – skills first (prominently), then experience, then education
     """
     from fpdf import FPDF, XPos, YPos
 
@@ -4725,16 +4730,14 @@ def _build_cv_pdf(
         section_heading("Professional Summary")
         multi(summary.strip())
 
-    # ================================================================
-    # SKILLS
-    # ================================================================
-    skill_list = [s.strip() for s in skills.split(",") if s.strip()]
-    if skill_list:
+    # ---- helpers for optional sections ----
+    def _render_skills():
+        skill_list = [s.strip() for s in skills.split(",") if s.strip()]
+        if not skill_list:
+            return
         section_heading("Skills")
-        # Render as a flowing comma-separated line with * bullets per item
         pdf.set_font(_FONT, "", 9)
         pdf.set_text_color(*DARK)
-        # Group into rows of ~5 items each
         row_size = 5
         for i in range(0, len(skill_list), row_size):
             row = skill_list[i:i + row_size]
@@ -4742,42 +4745,38 @@ def _build_cv_pdf(
             pdf.cell(0, 5, _t("  *  ".join(row)), **_NL)
         pdf.ln(1)
 
-    # ================================================================
-    # EXPERIENCE
-    # ================================================================
-    if experience.strip():
+    def _render_experience():
+        if not experience.strip():
+            return
         section_heading("Work Experience")
         for block in re.split(r'\n\s*\n', experience.strip()):
-            lines = [l.strip() for l in block.split('\n') if l.strip()]
-            if not lines:
+            block_lines = [l.strip() for l in block.split('\n') if l.strip()]
+            if not block_lines:
                 continue
-            # Header line: "Company - Title - Dates"
             pdf.set_font(_FONT, "B", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
-            # Bullet points
-            for bullet in lines[1:]:
+            pdf.multi_cell(page_w, 5, _t(block_lines[0]), **_NL)
+            for bullet in block_lines[1:]:
                 bullet_text = bullet.lstrip("*-\u2022\u2013\u2014 ").strip()
                 if bullet_text:
                     pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*DARK)
-                    pdf.set_x(22)  # indent bullets
+                    pdf.set_x(22)
                     pdf.multi_cell(page_w - 4, 5, _t(f"* {bullet_text}"), **_NL)
             pdf.ln(1)
 
-    # ================================================================
-    # EDUCATION
-    # ================================================================
-    if education.strip():
+    def _render_education():
+        if not education.strip():
+            return
         section_heading("Education")
         for block in re.split(r'\n\s*\n', education.strip()):
-            lines = [l.strip() for l in block.split('\n') if l.strip()]
-            if not lines:
+            block_lines = [l.strip() for l in block.split('\n') if l.strip()]
+            if not block_lines:
                 continue
             pdf.set_font(_FONT, "B", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
-            for extra in lines[1:]:
+            pdf.multi_cell(page_w, 5, _t(block_lines[0]), **_NL)
+            for extra in block_lines[1:]:
                 if extra.strip():
                     pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*LIGHT)
@@ -4785,19 +4784,18 @@ def _build_cv_pdf(
                     pdf.multi_cell(page_w - 4, 5, _t(extra.strip()), **_NL)
             pdf.ln(1)
 
-    # ================================================================
-    # PROJECTS
-    # ================================================================
-    if projects.strip():
+    def _render_projects():
+        if not projects.strip():
+            return
         section_heading("Projects")
         for block in re.split(r'\n\s*\n', projects.strip()):
-            lines = [l.strip() for l in block.split('\n') if l.strip()]
-            if not lines:
+            block_lines = [l.strip() for l in block.split('\n') if l.strip()]
+            if not block_lines:
                 continue
             pdf.set_font(_FONT, "B", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
-            for extra in lines[1:]:
+            pdf.multi_cell(page_w, 5, _t(block_lines[0]), **_NL)
+            for extra in block_lines[1:]:
                 if extra.strip():
                     pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*DARK)
@@ -4805,25 +4803,39 @@ def _build_cv_pdf(
                     pdf.multi_cell(page_w - 4, 5, _t(extra.strip()), **_NL)
             pdf.ln(1)
 
-    # ================================================================
-    # PUBLICATIONS
-    # ================================================================
-    if publications.strip():
+    def _render_publications():
+        if not publications.strip():
+            return
         section_heading("Publications")
         for block in re.split(r'\n\s*\n', publications.strip()):
-            lines = [l.strip() for l in block.split('\n') if l.strip()]
-            if not lines:
+            block_lines = [l.strip() for l in block.split('\n') if l.strip()]
+            if not block_lines:
                 continue
             pdf.set_font(_FONT, "I", 9)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(page_w, 5, _t(lines[0]), **_NL)
-            for extra in lines[1:]:
+            pdf.multi_cell(page_w, 5, _t(block_lines[0]), **_NL)
+            for extra in block_lines[1:]:
                 if extra.strip():
                     pdf.set_font(_FONT, "", 9)
                     pdf.set_text_color(*LIGHT)
                     pdf.set_x(22)
                     pdf.multi_cell(page_w - 4, 5, _t(extra.strip()), **_NL)
             pdf.ln(1)
+
+    # Section order depends on layout
+    if layout == "functional":
+        # Functional: skills prominently before experience
+        _render_skills()
+        _render_experience()
+        _render_education()
+    else:
+        # Chronological (default): experience → education → skills
+        _render_experience()
+        _render_education()
+        _render_skills()
+
+    _render_projects()
+    _render_publications()
 
     pdf.output(output_path)
 
@@ -4844,6 +4856,7 @@ async def api_cv_generate(
     publications: str = Form(""),
     logo: UploadFile = File(None),
     theme: str = Form("classic"),
+    layout: str = Form("chronological"),
 ):
     """Generate a professional PDF CV using fpdf2 (pure Python, no LaTeX required)."""
     import tempfile
@@ -4859,6 +4872,9 @@ async def api_cv_generate(
     name = name.strip()
     email = email.strip()
     theme = (theme or "").strip().lower() or "classic"
+    layout = (layout or "chronological").strip().lower()
+    if layout not in ("chronological", "functional"):
+        layout = "chronological"
     _VALID_THEMES = {
         "classic", "modern", "minimal", "executive",
         "creative", "tech", "elegant", "vibrant",
@@ -4903,6 +4919,7 @@ async def api_cv_generate(
             publications=publications,
             logo_path=logo_path,
             theme=theme,
+            layout=layout,
         )
 
         if not os.path.isfile(output_pdf):
@@ -4946,6 +4963,118 @@ async def api_cv_generate(
             time.sleep(delay)
             shutil.rmtree(path, ignore_errors=True)
         threading.Thread(target=_delayed_rm, args=(tmpdir,), daemon=True).start()
+
+
+# =========================================================
+# CV TXT EXPORT
+# =========================================================
+
+def _build_cv_txt(
+    *,
+    name: str,
+    email: str,
+    phone: str = "",
+    location: str = "",
+    link: str = "",
+    summary: str = "",
+    experience: str = "",
+    education: str = "",
+    skills: str = "",
+    projects: str = "",
+    publications: str = "",
+    layout: str = "chronological",
+) -> str:
+    """Build a plain-text representation of the CV.
+
+    ``layout`` controls section order:
+    - ``chronological`` – standard order: summary, experience, education, skills, ...
+    - ``functional``    – skills-first: summary, skills, experience, education, ...
+    """
+    lines: list[str] = []
+    sep = "=" * 60
+
+    # ── Header ──
+    lines.append(name.upper())
+    contact_parts = [p for p in (email, phone, location, link) if p]
+    if contact_parts:
+        lines.append("  |  ".join(contact_parts))
+    lines.append(sep)
+    lines.append("")
+
+    def _section(title: str, body: str) -> None:
+        if not body.strip():
+            return
+        lines.append(title.upper())
+        lines.append("-" * len(title))
+        lines.append(body.strip())
+        lines.append("")
+
+    if layout == "functional":
+        _section("Professional Summary", summary)
+        _section("Skills", skills)
+        _section("Work Experience", experience)
+        _section("Education", education)
+        _section("Projects", projects)
+        _section("Publications", publications)
+    else:  # chronological (default)
+        _section("Professional Summary", summary)
+        _section("Work Experience", experience)
+        _section("Education", education)
+        _section("Skills", skills)
+        _section("Projects", projects)
+        _section("Publications", publications)
+
+    return "\n".join(lines)
+
+
+@fastapi_app.post("/api/cv/generate_txt")
+async def api_cv_generate_txt(
+    request: Request,
+    name: str = Form(""),
+    email: str = Form(""),
+    phone: str = Form(""),
+    location: str = Form(""),
+    link: str = Form(""),
+    summary: str = Form(""),
+    experience: str = Form(""),
+    education: str = Form(""),
+    skills: str = Form(""),
+    projects: str = Form(""),
+    publications: str = Form(""),
+    layout: str = Form("chronological"),
+):
+    """Generate a plain-text CV and return it as a downloadable .txt file."""
+    name = name.strip()
+    email = email.strip()
+    if not name or not email:
+        return JSONResponse({"error": "Name and email are required."}, status_code=400)
+
+    layout = (layout or "chronological").strip().lower()
+    if layout not in ("chronological", "functional"):
+        layout = "chronological"
+
+    cv_text = _build_cv_txt(
+        name=name,
+        email=email,
+        phone=phone.strip(),
+        location=location.strip(),
+        link=link.strip(),
+        summary=summary.strip(),
+        experience=experience,
+        education=education,
+        skills=skills,
+        projects=projects,
+        publications=publications,
+        layout=layout,
+    )
+
+    safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in name).strip() or "cv"
+    filename = f"cv_{safe_name}.txt"
+    return Response(
+        content=cv_text.encode("utf-8"),
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # =========================================================
@@ -5563,17 +5692,19 @@ _MAX_DOC_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB max for doc conversion
 
 _DOC_CONVERSIONS = {
     # source_ext → {target_format → output_ext}
-    "pdf":  {"word": "docx", "excel": "xlsx", "jpeg": "jpg", "png": "png"},
-    "docx": {"pdf": "pdf"},
-    "doc":  {"pdf": "pdf"},
+    "pdf":  {"word": "docx", "excel": "xlsx", "jpeg": "jpg", "png": "png", "text": "txt"},
+    "docx": {"pdf": "pdf", "text": "txt"},
+    "doc":  {"pdf": "pdf", "text": "txt"},
     "xlsx": {"pdf": "pdf"},
     "xls":  {"pdf": "pdf"},
     "jpg":  {"pdf": "pdf"},
     "jpeg": {"pdf": "pdf"},
     "png":  {"pdf": "pdf"},
+    "rtf":  {"pdf": "pdf", "text": "txt"},
+    "txt":  {"pdf": "pdf"},
 }
 
-_LIBREOFFICE_FORMATS = {"docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods"}
+_LIBREOFFICE_FORMATS = {"docx", "doc", "xlsx", "xls", "pptx", "ppt", "odt", "ods", "rtf", "txt"}
 
 
 def _convert_pdf_to_word(src: str, dst: str) -> None:
@@ -5740,6 +5871,29 @@ async def api_doc_convert(
             return FileResponse(out_path, filename=f"{base_name}.pdf",
                                 media_type="application/pdf")
 
+        # ── Any supported source → Plain Text ───────────────────────────────────
+        elif target == "text":
+            if src_ext == "pdf":
+                raw = await asyncio.get_event_loop().run_in_executor(
+                    None, _extract_text_from_pdf, src_path,
+                )
+            elif src_ext in ("docx", "doc", "odt"):
+                raw = await asyncio.get_event_loop().run_in_executor(
+                    None, _extract_text_from_docx_rich, src_path,
+                )
+            elif src_ext == "rtf":
+                raw = await asyncio.get_event_loop().run_in_executor(
+                    None, _extract_text_from_rtf, src_path,
+                )
+            else:  # txt
+                raw = _extract_text_from_txt(src_path)
+            text_out = _normalize_text_bullets(raw)
+            out_path = os.path.join(tmpdir, f"{base_name}.txt")
+            with open(out_path, "w", encoding="utf-8") as fh:
+                fh.write(text_out)
+            return FileResponse(out_path, filename=f"{base_name}.txt",
+                                media_type="text/plain; charset=utf-8")
+
         else:
             return JSONResponse({"error": "Conversion not implemented."}, status_code=501)
 
@@ -5758,7 +5912,7 @@ async def api_doc_convert(
 # DOCUMENT TEXT EXTRACTION MODULE
 # =========================================================
 
-_TEXT_EXTRACT_ACCEPT = {"pdf", "docx", "doc", "txt", "odt"}
+_TEXT_EXTRACT_ACCEPT = {"pdf", "docx", "doc", "txt", "rtf", "odt"}
 _TEXT_EXTRACT_MAX_BYTES = 20 * 1024 * 1024  # 20 MB
 
 # Regex that matches a leading bullet character (possibly preceded by spaces/tabs)
@@ -5817,6 +5971,40 @@ def _extract_text_from_txt(path: str) -> str:
     return ""
 
 
+def _extract_text_from_rtf(path: str) -> str:
+    """Extract plain text from an RTF file.
+
+    Tries pypandoc first (most accurate); falls back to a simple regex-based
+    RTF-tag stripper when pypandoc / pandoc is not available.
+    """
+    # Try pypandoc (requires pandoc binary)
+    try:
+        import pypandoc
+        return pypandoc.convert_file(path, "plain", format="rtf")
+    except Exception:
+        pass
+
+    # Simple regex fallback: strip RTF control words / groups
+    try:
+        import re as _re
+        with open(path, "rb") as fh:
+            raw = fh.read()
+        # Decode best-effort
+        text = raw.decode("utf-8", errors="replace")
+        # Remove RTF header and embedded binary blobs
+        text = _re.sub(r"\\bin\d+\s?[^\\{]*", "", text)
+        # Strip control words (e.g. \rtf1, \b, \par, \pard …)
+        text = _re.sub(r"\\[a-zA-Z]+[-]?\d*\s?", "", text)
+        # Strip braces
+        text = text.replace("{", "").replace("}", "")
+        # Collapse whitespace
+        text = _re.sub(r"\r\n|\r", "\n", text)
+        text = _re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
+    except Exception:
+        return ""
+
+
 @fastapi_app.post("/api/doc/to_text")
 async def api_doc_to_text(
     request: Request,
@@ -5866,6 +6054,8 @@ async def api_doc_to_text(
             raw = _extract_text_from_pdf(src_path)
         elif src_ext in ("docx", "doc", "odt"):
             raw = _extract_text_from_docx_rich(src_path)
+        elif src_ext == "rtf":
+            raw = _extract_text_from_rtf(src_path)
         else:  # txt
             raw = _extract_text_from_txt(src_path)
 
