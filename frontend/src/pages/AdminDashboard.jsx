@@ -9,6 +9,7 @@ import {
   getCookieStatus, uploadCookies, deleteCookies,
   getAdminRides,
   getAdminDriverApplications, approveDriverApplication,
+  getAdminReviews, deleteAdminReview,
 } from '../api'
 import AdminStats from '../components/admin/AdminStats'
 import AnalyticsCharts from '../components/admin/AnalyticsCharts'
@@ -24,6 +25,7 @@ const SIDEBAR_TABS = [
   { id: 'visitors',     icon: '👥', label: 'Visitors'     },
   { id: 'rides',        icon: '🚗', label: 'Rides'        },
   { id: 'drivers',      icon: '🚕', label: 'Driver Apps'  },
+  { id: 'reviews',      icon: '⭐',  label: 'Reviews'      },
   { id: 'database',     icon: '🗄',  label: 'Database'    },
   { id: 'cookies',      icon: '🍪',  label: 'Cookies'     },
 ]
@@ -102,6 +104,8 @@ export default function AdminDashboard() {
   const [ridesData, setRidesData]     = useState(null)
   const [driverApps, setDriverApps]   = useState([])
   const [loadingDriverApps, setLoadingDriverApps] = useState(false)
+  const [adminReviews, setAdminReviews] = useState([])
+  const [loadingReviews, setLoadingReviews] = useState(false)
   const [cookieStatus, setCookieStatus] = useState(null)
   const [loadingAnalytics, setLoadingAnalytics] = useState(false)
   const [loadingDl, setLoadingDl]     = useState(false)
@@ -160,6 +164,12 @@ export default function AdminDashboard() {
     finally { setLoadingDriverApps(false) }
   }, [])
 
+  const fetchAdminReviews = useCallback(async () => {
+    setLoadingReviews(true)
+    try { setAdminReviews((await getAdminReviews()).reviews || []) } catch {}
+    finally { setLoadingReviews(false) }
+  }, [])
+
   // Load data based on active tab
   useEffect(() => {
     if (tab === 'dashboard' || tab === 'analytics') {
@@ -171,6 +181,7 @@ export default function AdminDashboard() {
     if (tab === 'cookies')    fetchCookies()
     if (tab === 'rides')      fetchRides()
     if (tab === 'drivers')    fetchDriverApps()
+    if (tab === 'reviews')    fetchAdminReviews()
   }, [tab])
 
   const handleLogout = async () => {
@@ -315,6 +326,7 @@ export default function AdminDashboard() {
               if (tab === 'visitors')  fetchVisitors()
               if (tab === 'rides')     fetchRides()
               if (tab === 'drivers')   fetchDriverApps()
+              if (tab === 'reviews')   fetchAdminReviews()
             }}
           >↻ Refresh</button>
         </header>
@@ -552,6 +564,87 @@ export default function AdminDashboard() {
                                     </button>
                                   </div>
                                 )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Reviews tab */}
+          {tab === 'reviews' && (
+            <div className="space-y-4">
+              {loadingReviews ? (
+                <div className="flex justify-center py-12"><div className="spinner w-8 h-8" /></div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-blue-800/40 bg-blue-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total</p>
+                      <p className="text-2xl font-bold text-white">{adminReviews.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-yellow-700/40 bg-yellow-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Avg Rating</p>
+                      <p className="text-2xl font-bold text-yellow-300">
+                        {adminReviews.length > 0
+                          ? (adminReviews.reduce((s, r) => s + (r.rating || 0), 0) / adminReviews.length).toFixed(1)
+                          : '—'}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-green-800/40 bg-green-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">5-Star</p>
+                      <p className="text-2xl font-bold text-green-300">{adminReviews.filter(r => r.rating === 5).length}</p>
+                    </div>
+                  </div>
+
+                  <div className="card overflow-x-auto">
+                    <h3 className="font-semibold text-white mb-3">⭐ User Reviews</h3>
+                    {adminReviews.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-4 text-center">No reviews yet.</p>
+                    ) : (
+                      <table className="w-full text-xs text-left text-gray-300 border-collapse">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-700">
+                            <th className="py-2 pr-3">Rating</th>
+                            <th className="py-2 pr-3">Name</th>
+                            <th className="py-2 pr-3">Comment</th>
+                            <th className="py-2 pr-3">IP</th>
+                            <th className="py-2 pr-3">Date</th>
+                            <th className="py-2">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminReviews.map(r => (
+                            <tr key={r.id} className="border-b border-gray-800/60 hover:bg-gray-800/30">
+                              <td className="py-2 pr-3">
+                                <span className="text-yellow-400">{'★'.repeat(r.rating || 0)}</span>
+                                <span className="text-gray-600">{'★'.repeat(5 - (r.rating || 0))}</span>
+                              </td>
+                              <td className="py-2 pr-3 font-medium">{r.name || 'Anonymous'}</td>
+                              <td className="py-2 pr-3 max-w-[200px] truncate text-gray-400">{r.comment || '—'}</td>
+                              <td className="py-2 pr-3 text-gray-500 font-mono">{r.ip || '—'}</td>
+                              <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">
+                                {r.timestamp ? new Date(r.timestamp * 1000).toLocaleDateString() : '—'}
+                              </td>
+                              <td className="py-2">
+                                <button
+                                  className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-800 text-red-300 border border-red-700/50 transition-colors"
+                                  onClick={async () => {
+                                    try {
+                                      await deleteAdminReview(r.id)
+                                      setAdminReviews(prev => prev.filter(x => x.id !== r.id))
+                                      setNotice('Review removed.')
+                                      setTimeout(() => setNotice(''), 3000)
+                                    } catch (e) { setError(e.message) }
+                                  }}
+                                >
+                                  🗑 Remove
+                                </button>
                               </td>
                             </tr>
                           ))}

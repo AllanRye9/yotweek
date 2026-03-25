@@ -12,6 +12,33 @@ delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow })
 
 /**
+ * Extract a phone/contact number from a ride notes string.
+ * Looks for "Contact: <value>" pattern inserted by RideShare.
+ */
+function _extractContact(notes) {
+  if (!notes) return null
+  const m = notes.match(/Contact:\s*([^\|]+)/i)
+  return m ? m[1].trim() : null
+}
+
+/**
+ * Compute a human-readable countdown to a departure string like "2026-03-25T14:30".
+ * Returns { label, urgent } where urgent=true when < 30 min away.
+ */
+function _countdown(departure) {
+  if (!departure) return null
+  const dep = new Date(departure)
+  if (isNaN(dep.getTime())) return null
+  const diff = dep - Date.now()
+  if (diff <= 0) return { label: 'Departed', urgent: false }
+  const totalMin = Math.floor(diff / 60000)
+  const hrs = Math.floor(totalMin / 60)
+  const mins = totalMin % 60
+  const label = hrs > 0 ? `${hrs}h ${mins}m` : `${mins}m`
+  return { label, urgent: totalMin < 30 }
+}
+
+/**
  * RideShareMap — OpenStreetMap (Leaflet) map showing available rides, driver
  * locations and the current user's position.
  *
@@ -34,6 +61,12 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
   const [driverLocations, setDriverLocations] = useState(propDriverLocations)
   const [liveTracking, setLiveTracking] = useState(false)
   const watchIdRef = useRef(null)
+  // Countdown tick — re-renders the panel every minute
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 60_000)
+    return () => clearInterval(id)
+  }, [])
 
   // Keep driverLocations in sync with props
   useEffect(() => {
@@ -103,10 +136,12 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     )
 
     ridesWithCoords.forEach(ride => {
+      const cd = _countdown(ride.departure)
+      const urgent = cd?.urgent
       const icon = L.divIcon({
         className: '',
         html: `<div style="
-          background:#2563eb;color:#fff;border-radius:50%;
+          background:${urgent ? '#dc2626' : '#2563eb'};color:#fff;border-radius:50%;
           width:32px;height:32px;display:flex;align-items:center;
           justify-content:center;font-size:16px;
           box-shadow:0 2px 8px rgba(0,0,0,0.5);
@@ -116,14 +151,20 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
         iconAnchor: [16, 16],
       })
 
+      const contact = _extractContact(ride.notes)
+      const tooltipHtml = [
+        `<strong>${ride.driver_name || 'Driver'}</strong>`,
+        `${ride.origin} → ${ride.destination}`,
+        cd ? `⏱ ${cd.label}` : ride.departure,
+        `💺 ${ride.seats} seat${ride.seats !== 1 ? 's' : ''}`,
+        contact ? `📞 ${contact}` : null,
+      ].filter(Boolean).join('<br>')
+
       const marker = L.marker([ride.origin_lat, ride.origin_lng], { icon })
         .addTo(map)
         .on('click', () => setSelectedRide(ride))
 
-      marker.bindTooltip(
-        `<strong>${ride.driver_name}</strong><br>${ride.origin} → ${ride.destination}<br>${ride.departure}`,
-        { direction: 'top', offset: [0, -16] }
-      )
+      marker.bindTooltip(tooltipHtml, { direction: 'top', offset: [0, -16] })
 
       markersRef.current.push(marker)
     })
@@ -157,9 +198,13 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
         iconSize:   [28, 28],
         iconAnchor: [14, 14],
       })
+      const seatsLine = dl.seats != null ? `<br>💺 ${dl.seats} seat${dl.seats !== 1 ? 's' : ''}` : ''
       const m = L.marker([dl.lat, dl.lng], { icon })
         .addTo(map)
-        .bindTooltip(`${dl.name} — ${dl.empty ? 'Available' : 'Occupied'}`, { direction: 'top' })
+        .bindTooltip(
+          `<strong>${dl.name}</strong><br>${dl.empty ? '🟢 Available' : '🔴 Occupied'}${seatsLine}`,
+          { direction: 'top' }
+        )
       driverMarkersRef.current.push(m)
     })
   }, [driverLocations])
@@ -242,6 +287,14 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     }
   }, [liveTracking, onLocationUpdate])
 
+  // ── Selected-ride panel helpers ─────────────────────────────────────────────
+  const rideContact  = selectedRide ? _extractContact(selectedRide.notes) : null
+  const rideCountdown = selectedRide ? _countdown(selectedRide.departure) : null
+  // Strip "Contact: ..." from displayed notes
+  const rideNotes    = selectedRide?.notes
+    ? selectedRide.notes.replace(/\s*\|\s*Contact:[^|]*/i, '').replace(/Contact:[^|]*/i, '').trim()
+    : null
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="relative ride-map-container" style={{ isolation: 'isolate' }}>
@@ -269,20 +322,48 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
 
       {/* Side-panel card for selected ride */}
       {selectedRide && (
-        <div className="absolute top-2 right-2 z-[1000] w-52 bg-gray-900/95 border border-gray-600 rounded-xl shadow-2xl p-3 space-y-2">
+        <div className="absolute top-2 right-2 z-[1000] w-56 bg-gray-900/97 border border-gray-600 rounded-xl shadow-2xl p-3 space-y-2 backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-white truncate">{selectedRide.driver_name}</p>
             <button
               onClick={() => setSelectedRide(null)}
-              className="text-gray-500 hover:text-gray-300 text-sm leading-none"
+              className="text-gray-500 hover:text-gray-300 text-sm leading-none shrink-0 ml-1"
             >&#x2715;</button>
           </div>
-          <div className="text-xs text-gray-400 space-y-0.5">
-            <p>&#x1F4CD; {selectedRide.origin}</p>
-            <p>&#x1F3C1; {selectedRide.destination}</p>
-            <p>&#x1F550; {selectedRide.departure}</p>
-            <p>&#x1F4BA; {selectedRide.seats} seat{selectedRide.seats !== 1 ? 's' : ''}</p>
-            {selectedRide.notes && <p className="text-gray-500 text-xs truncate">&#x1F4DD; {selectedRide.notes}</p>}
+          <div className="text-xs text-gray-300 space-y-1">
+            <p className="flex items-center gap-1"><span>📍</span><span className="truncate">{selectedRide.origin}</span></p>
+            <p className="flex items-center gap-1"><span>🏁</span><span className="truncate">{selectedRide.destination}</span></p>
+            <div className="flex items-center gap-1">
+              <span>⏱</span>
+              {rideCountdown ? (
+                <span className={rideCountdown.urgent ? 'text-red-400 font-semibold' : 'text-gray-300'}>
+                  {rideCountdown.label === 'Departed' ? 'Departed' : `Departs in ${rideCountdown.label}`}
+                </span>
+              ) : (
+                <span>{selectedRide.departure}</span>
+              )}
+            </div>
+            <p className="flex items-center gap-1">
+              <span>💺</span>
+              <span className="font-semibold text-green-400">{selectedRide.seats}</span>
+              <span>empty seat{selectedRide.seats !== 1 ? 's' : ''}</span>
+            </p>
+            {rideContact && (
+              <p className="flex items-center gap-1">
+                <span>📞</span>
+                <a
+                  href={`tel:${rideContact}`}
+                  className="text-blue-400 hover:text-blue-300 truncate"
+                  onClick={e => e.stopPropagation()}
+                >{rideContact}</a>
+              </p>
+            )}
+            {rideNotes && (
+              <p className="flex items-start gap-1 text-gray-400">
+                <span className="shrink-0">📝</span>
+                <span className="line-clamp-2">{rideNotes}</span>
+              </p>
+            )}
           </div>
           <button
             onClick={() => { onRequestRide?.(selectedRide); setSelectedRide(null) }}
@@ -316,3 +397,4 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     </div>
   )
 }
+

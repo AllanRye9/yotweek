@@ -1479,3 +1479,128 @@ class TestNotifications:
         data = json.loads(run(api_get_notifications(user_req)).body)
         types = [n["type"] for n in data["notifications"]]
         assert "driver_approved" in types
+
+
+# ── Admin Reviews ──────────────────────────────────────────────────────────────
+
+class TestAdminReviews:
+    """Tests for GET /api/admin/reviews and DELETE /api/admin/reviews/{review_id}."""
+
+    def test_get_admin_reviews_requires_admin(self):
+        """Non-admin request should be rejected with 401."""
+        import json
+        from api.app import api_admin_reviews
+        req = _make_request({})
+        resp = run(api_admin_reviews(req))
+        assert resp.status_code == 401
+
+    def test_get_admin_reviews_returns_list(self):
+        """Admin can list reviews; returns list including IP info."""
+        import json
+        from api.app import api_admin_reviews, submit_review, reviews
+        # Add a review directly to memory
+        from api.app import reviews_lock, _save_review_to_db
+        import uuid, time
+        review = {
+            "id": str(uuid.uuid4()),
+            "name": "AdminTestUser",
+            "comment": "Great service!",
+            "rating": 5,
+            "timestamp": time.time(),
+            "ip": "1.2.3.4",
+        }
+        with reviews_lock:
+            reviews.insert(0, review)
+        _save_review_to_db(review)
+
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_reviews(admin_req))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert "reviews" in data
+        # Reviews should include IP info
+        ids = [r["id"] for r in data["reviews"]]
+        assert review["id"] in ids
+        found = next(r for r in data["reviews"] if r["id"] == review["id"])
+        assert found["ip"] == "1.2.3.4"
+
+        # Cleanup
+        with reviews_lock:
+            reviews[:] = [r for r in reviews if r["id"] != review["id"]]
+
+    def test_get_admin_reviews_admin_logged_in_session(self):
+        """Admin with admin_logged_in session key should also be allowed."""
+        import json
+        from api.app import api_admin_reviews
+        req = _make_request({"admin_logged_in": True})
+        resp = run(api_admin_reviews(req))
+        assert resp.status_code == 200
+
+    def test_delete_admin_review_requires_admin(self):
+        """Non-admin DELETE should be rejected with 401."""
+        from api.app import api_admin_delete_review
+        req = _make_request({})
+        resp = run(api_admin_delete_review(req, "some-id"))
+        assert resp.status_code == 401
+
+    def test_delete_admin_review_not_found(self):
+        """Deleting a non-existent review should return 404."""
+        import json
+        from api.app import api_admin_delete_review
+        req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_delete_review(req, "non-existent-id-xyz"))
+        assert resp.status_code == 404
+
+    def test_delete_admin_review_removes_review(self):
+        """Deleting a review should remove it from the in-memory list."""
+        import json
+        from api.app import api_admin_delete_review, api_admin_reviews, reviews, reviews_lock, _save_review_to_db
+        import uuid, time
+        review_id = str(uuid.uuid4())
+        review = {
+            "id": review_id,
+            "name": "ToDelete",
+            "comment": "Delete me",
+            "rating": 3,
+            "timestamp": time.time(),
+            "ip": "5.6.7.8",
+        }
+        with reviews_lock:
+            reviews.insert(0, review)
+        _save_review_to_db(review)
+
+        admin_req = _make_request({"admin_user": "admin"})
+        # Delete it
+        resp = run(api_admin_delete_review(admin_req, review_id))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert data.get("ok") is True
+
+        # Verify it's gone from in-memory list
+        with reviews_lock:
+            ids = [r["id"] for r in reviews]
+        assert review_id not in ids
+
+    def test_delete_admin_review_idempotent(self):
+        """Deleting the same review twice should return 404 the second time."""
+        import json
+        from api.app import api_admin_delete_review, reviews, reviews_lock, _save_review_to_db
+        import uuid, time
+        review_id = str(uuid.uuid4())
+        review = {
+            "id": review_id,
+            "name": "ToDeleteTwice",
+            "comment": "Delete twice",
+            "rating": 2,
+            "timestamp": time.time(),
+            "ip": "9.8.7.6",
+        }
+        with reviews_lock:
+            reviews.insert(0, review)
+        _save_review_to_db(review)
+
+        admin_req = _make_request({"admin_user": "admin"})
+        run(api_admin_delete_review(admin_req, review_id))
+        # Second delete
+        resp2 = run(api_admin_delete_review(admin_req, review_id))
+        assert resp2.status_code == 404

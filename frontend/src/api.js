@@ -123,6 +123,10 @@ export const canSubmitReview  = () => request('GET', '/reviews/can_submit')
 export const submitReview     = (rating, comment, name) =>
   request('POST', '/reviews', { rating, comment, name })
 
+export const getAdminReviews    = () => request('GET', '/api/admin/reviews')
+export const deleteAdminReview  = (reviewId) =>
+  request('DELETE', `/api/admin/reviews/${encodeURIComponent(reviewId)}`)
+
 // ── Admin Auth ────────────────────────────────────────────────────────────────
 
 export const getAdminAuthStatus = () => request('GET', '/admin/auth_status')
@@ -331,8 +335,8 @@ export const getAdminRides = () => request('GET', '/api/admin/rides')
 
 // ── Driver Geolocation ────────────────────────────────────────────────────────
 
-export const updateDriverLocation = (lat, lng, empty = true) =>
-  request('POST', '/api/driver/location', { lat, lng, empty })
+export const updateDriverLocation = (lat, lng, empty = true, seats = 0) =>
+  request('POST', '/api/driver/location', { lat, lng, empty, seats })
 
 export const getNearbyDrivers = (lat, lng, radius_km = 10) =>
   request('GET', `/api/driver/nearby?lat=${lat}&lng=${lng}&radius_km=${radius_km}`)

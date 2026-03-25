@@ -3369,6 +3369,55 @@ async def submit_review(request: Request):
     return JSONResponse({"success": True, "review": {k: v for k, v in review.items() if k != "ip"}})
 
 
+@fastapi_app.get("/api/admin/reviews")
+async def api_admin_reviews(request: Request):
+    """Return all reviews including IP info (admin only)."""
+    if not request.session.get("admin_user") and not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+    with reviews_lock:
+        all_reviews = list(reviews)
+    return JSONResponse({"reviews": all_reviews})
+
+
+@fastapi_app.delete("/api/admin/reviews/{review_id}")
+async def api_admin_delete_review(request: Request, review_id: str):
+    """Delete (reject) a review by its ID (admin only)."""
+    if not request.session.get("admin_user") and not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with reviews_lock:
+        before = len(reviews)
+        reviews[:] = [r for r in reviews if r.get("id") != review_id]
+        removed = before - len(reviews)
+
+    if removed == 0:
+        return JSONResponse({"error": "Review not found."}, status_code=404)
+
+    # Remove from database
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "DELETE FROM reviews WHERE (data::jsonb)->>'id' = %s",
+                        (review_id,),
+                    )
+                else:
+                    conn.execute(
+                        "DELETE FROM reviews WHERE json_extract(data, '$.id') = ?",
+                        (review_id,),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Could not delete review from DB: {e}")
+
+    return JSONResponse({"ok": True})
+
+
 @fastapi_app.get("/const")
 async def admin_page(request: Request):
     """Admin dashboard — served via React SPA (authentication checked client-side via /admin/auth_status)"""
@@ -6955,6 +7004,7 @@ class _DriverLocationUpdate(BaseModel):
     lat:   float
     lng:   float
     empty: bool = True  # True = car is empty / available
+    seats: int  = 0     # Number of empty seats available
 
 
 @fastapi_app.post("/api/driver/location")
@@ -6976,20 +7026,23 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
             "lat":     body.lat,
             "lng":     body.lng,
             "empty":   body.empty,
+            "seats":   body.seats,
             "ts":      ts,
         }
 
     # Notify nearby users who have shared their location.
     # We include the driver's coordinates in the event so the client-side can
     # do its own proximity check before surfacing the alert.
+    seats_label = f"{body.seats} empty seat{'s' if body.seats != 1 else ''}" if body.empty and body.seats > 0 else ("has empty seats" if body.empty else "is occupied")
     notification = {
         "driver_id":   user_id,
         "driver_name": user["name"],
         "lat":         body.lat,
         "lng":         body.lng,
         "empty":       body.empty,
+        "seats":       body.seats,
         "radius_km":   _APP_USER_PROXIMITY_KM,
-        "message":     f"Driver {user['name']} is nearby and {'has empty seats' if body.empty else 'is occupied'}!",
+        "message":     f"Driver {user['name']} is nearby and {seats_label}!",
     }
     # Emit to users who have previously identified themselves via socket.
     # For each identified socket, only notify if the user has a stored location

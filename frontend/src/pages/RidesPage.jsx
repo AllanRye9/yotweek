@@ -14,6 +14,7 @@ export default function RidesPage() {
   const [userLoading, setUserLoading] = useState(true)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
+  const [rides, setRides]             = useState([])
   const profileRef = useRef(null)
 
   // Load platform user session
@@ -74,20 +75,30 @@ export default function RidesPage() {
             <div className="relative" ref={profileRef}>
               {appUser ? (
                 <>
+                  {/* Compact avatar button — shows name on larger screens */}
                   <button
                     onClick={() => setProfileOpen(o => !o)}
-                    className="nav-profile-btn w-8 h-8 rounded-full bg-blue-700 hover:bg-blue-600 flex items-center justify-center text-base transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="nav-profile-btn flex items-center gap-2 rounded-full bg-blue-700 hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 pl-1 pr-3 py-1"
                     aria-label="Profile"
                     title={appUser.name}
                   >
-                    {appUser.role === 'driver' ? '🚗' : '🧍'}
+                    {appUser.avatar_url ? (
+                      <img src={appUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <span className="w-7 h-7 rounded-full bg-blue-800 flex items-center justify-center text-sm shrink-0">
+                        {appUser.role === 'driver' ? '🚗' : '🧍'}
+                      </span>
+                    )}
+                    <span className="hidden sm:block text-white text-xs font-medium max-w-[100px] truncate">{appUser.name}</span>
+                    <span className="hidden sm:block text-blue-300 text-xs">▾</span>
                   </button>
                   {profileOpen && (
-                    <div className="nav-profile-dropdown absolute right-0 top-10 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
+                    <div className="nav-profile-dropdown absolute right-0 top-11 w-72 sm:w-80 lg:w-96 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 max-h-[85vh] overflow-y-auto">
                       <UserProfile
                         user={appUser}
                         onLogout={() => { setAppUser(false); setProfileOpen(false) }}
                         onLocationUpdate={() => {}}
+                        onUserUpdate={(u) => setAppUser(u)}
                       />
                     </div>
                   )}
@@ -157,13 +168,14 @@ export default function RidesPage() {
         ) : (
           /* ── Authenticated view ── */
           <div className="space-y-4">
-            {/* Live map */}
+            {/* Live map — receives rides for rich markers */}
             <RideShareMap
+              rides={rides}
               userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
             />
 
             {/* Ride share panel */}
-            <RideShare user={appUser} />
+            <RideShare user={appUser} onRidesChange={setRides} />
           </div>
         )}
       </main>
