@@ -3,6 +3,7 @@
 - User authentication (api_user_register, api_user_login, api_user_me, api_user_logout)
 - Ride sharing (api_ride_post, api_rides_list, api_ride_cancel)
 - Driver geolocation (_haversine_km, api_driver_location, api_driver_nearby)
+- User dashboard (api_user_dashboard)
 """
 
 import asyncio
@@ -1119,3 +1120,70 @@ class TestRememberMe:
             email=email, password="password123", remember_me=False
         )))
         assert "remember_me" not in session
+
+
+# ===========================================================================
+# User Dashboard
+# ===========================================================================
+
+class TestUserDashboard:
+    """Tests for GET /api/user/dashboard."""
+
+    def test_dashboard_requires_login(self):
+        from api.app import api_user_dashboard
+        req = _make_request({})
+        resp = run(api_user_dashboard(req))
+        assert resp.status_code == 401
+
+    def test_dashboard_returns_user_and_stats(self):
+        import json
+        from api.app import api_user_dashboard
+        resp, _ = _register_user("DashUser")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        dash_resp = run(api_user_dashboard(req))
+        assert dash_resp.status_code == 200
+        data = json.loads(dash_resp.body)
+        assert "user" in data
+        assert data["user"]["user_id"] == user_id
+        assert "stats" in data
+        assert "total_rides" in data["stats"]
+        assert "open_rides" in data["stats"]
+        assert "recent_rides" in data
+
+    def test_dashboard_stats_reflect_posted_rides(self):
+        import json
+        from api.app import api_user_dashboard, api_ride_post, _RidePostRequest
+        resp, _ = _register_user("DashRideUser")
+        user_id = json.loads(resp.body)["user_id"]
+        session = {"app_user_id": user_id}
+
+        # Post two rides
+        for i in range(2):
+            run(api_ride_post(
+                _make_request(session),
+                _RidePostRequest(origin=f"A{i}", destination=f"B{i}", departure="2026-06-01T09:00", seats=1),
+            ))
+
+        req = _make_request(session)
+        data = json.loads(run(api_user_dashboard(req)).body)
+        assert data["stats"]["total_rides"] >= 2
+        assert len(data["recent_rides"]) >= 1
+
+    def test_dashboard_recent_rides_limit(self):
+        """recent_rides should contain at most 5 entries."""
+        import json
+        from api.app import api_user_dashboard, api_ride_post, _RidePostRequest
+        resp, _ = _register_user("DashLimit")
+        user_id = json.loads(resp.body)["user_id"]
+        session = {"app_user_id": user_id}
+
+        for i in range(7):
+            run(api_ride_post(
+                _make_request(session),
+                _RidePostRequest(origin=f"X{i}", destination=f"Y{i}", departure="2026-07-01T10:00", seats=1),
+            ))
+
+        data = json.loads(run(api_user_dashboard(_make_request(session))).body)
+        assert len(data["recent_rides"]) <= 5
+

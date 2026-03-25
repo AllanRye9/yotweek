@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../App'
 import DownloadForm from '../components/DownloadForm'
 import ActiveDownloads from '../components/ActiveDownloads'
@@ -382,6 +382,7 @@ function ServiceCards({ activeTab, onSelectTab }) {
 
 export default function Home() {
   const { admin } = useAuth()
+  const navigate  = useNavigate()
   const [tab, setTab] = useState('download')
   const [stats, setStats] = useState(null)
   const [connected, setConnected] = useState(false)
@@ -471,13 +472,17 @@ export default function Home() {
     return () => clearInterval(id)
   }, [])
 
-  // Load platform user session on mount
+  // Load platform user session on mount; redirect to dashboard if already logged in
   useEffect(() => {
     getUserProfile()
-      .then(u => setAppUser(u))
+      .then(u => {
+        setAppUser(u)
+        // Already logged in — send to personal dashboard
+        navigate('/dashboard', { replace: true })
+      })
       .catch(() => setAppUser(false))
       .finally(() => setUserLoading(false))
-  }, [])
+  }, [navigate])
 
   // Close profile dropdown when clicking outside
   useEffect(() => {
@@ -527,6 +532,13 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
+      {/* Global auth modal — accessible from hero CTA and navbar */}
+      {showAuthModal && !appUser && (
+        <UserAuth
+          onSuccess={(u) => { setAppUser(u); setShowAuthModal(false); navigate('/dashboard', { replace: true }) }}
+          onClose={() => setShowAuthModal(false)}
+        />
+      )}
       {/* ── Navbar ── */}
       <nav className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800">
         <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-4">
@@ -654,6 +666,24 @@ export default function Home() {
             YouTube, TikTok, Instagram, Twitter, Facebook &amp; 1,000+ sites. Also available as a Flutter app.
           </p>
 
+          {/* Sign up CTA for non-logged-in users */}
+          {!userLoading && !appUser && (
+            <div className="mt-5 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors shadow-lg shadow-blue-900/40"
+              >
+                Create Free Account
+              </button>
+              <button
+                onClick={() => setShowAuthModal(true)}
+                className="px-5 py-2.5 rounded-xl bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 hover:text-white text-sm transition-colors"
+              >
+                Sign In
+              </button>
+            </div>
+          )}
+
           {/* Animated global stats counters */}
           {stats && (
             <div className="mt-5 flex justify-center gap-10 sm:gap-16">
@@ -714,14 +744,6 @@ export default function Home() {
                   </button>
                 )}
               </div>
-
-              {/* Auth modal — rendered as portal overlay, triggered by button */}
-              {showAuthModal && !appUser && (
-                <UserAuth
-                  onSuccess={(u) => { setAppUser(u); setShowAuthModal(false) }}
-                  onClose={() => setShowAuthModal(false)}
-                />
-              )}
 
               {/* Live map */}
               <div className="mb-4">

@@ -5932,6 +5932,75 @@ async def api_user_me(request: Request):
     return JSONResponse(user)
 
 
+@fastapi_app.get("/api/user/dashboard")
+async def api_user_dashboard(request: Request):
+    """Return aggregated dashboard data for the logged-in user.
+
+    Combines profile details, ride statistics, and recent ride history so
+    the frontend UserDashboard page can render a personalised summary in a
+    single request.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        request.session.pop("app_user_id", None)
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["ride_id", "origin", "destination", "departure",
+                    "seats", "status", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT ride_id,origin,destination,departure,seats,status,created_at "
+                    "FROM rides WHERE user_id=%s ORDER BY created_at DESC LIMIT 5",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+                cur.execute(
+                    "SELECT COUNT(*) FROM rides WHERE user_id=%s", (user_id,)
+                )
+                total_rides = (cur.fetchone() or [0])[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM rides WHERE user_id=%s AND status='open'",
+                    (user_id,),
+                )
+                open_rides = (cur.fetchone() or [0])[0]
+            else:
+                cur = conn.execute(
+                    "SELECT ride_id,origin,destination,departure,seats,status,created_at "
+                    "FROM rides WHERE user_id=? ORDER BY created_at DESC LIMIT 5",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+                cur = conn.execute(
+                    "SELECT COUNT(*) FROM rides WHERE user_id=?", (user_id,)
+                )
+                total_rides = (cur.fetchone() or [0])[0]
+                cur = conn.execute(
+                    "SELECT COUNT(*) FROM rides WHERE user_id=? AND status='open'",
+                    (user_id,),
+                )
+                open_rides = (cur.fetchone() or [0])[0]
+        finally:
+            conn.close()
+
+    recent_rides = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({
+        "user": user,
+        "stats": {
+            "total_rides": total_rides,
+            "open_rides": open_rides,
+        },
+        "recent_rides": recent_rides,
+    })
+
+
 @fastapi_app.put("/api/auth/profile")
 async def api_user_update_profile(request: Request, body: _UserLocationUpdate):
     """Update the logged-in user's location."""
