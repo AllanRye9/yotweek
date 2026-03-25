@@ -310,6 +310,11 @@ export const approveDriverApplication = (appId, approved) =>
 
 export const getRideHistory = () => request('GET', '/api/rides/history')
 
+export const getRideChatMessages = (rideId) =>
+  request('GET', `/api/rides/${encodeURIComponent(rideId)}/chat`)
+
+export const getRideChatInbox = () => request('GET', '/api/rides/chat/inbox')
+
 // ── Ride Sharing ──────────────────────────────────────────────────────────────
 
 export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null) =>

@@ -1096,3 +1096,119 @@ html:not(.theme-dark) .bg-gradient-to-b {
   }
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* NOTIFICATION BADGE — green badge with beeping/pulsing animation            */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.notif-badge-green {
+  animation: notif-badge-pulse 1.5s ease-in-out infinite;
+}
+@keyframes notif-badge-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  50% {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 4px rgba(34, 197, 94, 0);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* MAP LOCATION PULSE — animated ring for live location tracking              */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.map-location-pulse-wrapper {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-location-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #7c3aed;
+  animation: map-location-ring 1.6s ease-out infinite;
+}
+
+@keyframes map-location-ring {
+  0%   { transform: scale(0.5); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* MAP CONTAINER — prevent Leaflet overlaying other elements                  */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.ride-map-container {
+  position: relative;
+  z-index: 0;
+  isolation: isolate;
+  margin-bottom: 1rem;
+}
+
+/* Prevent Leaflet z-index from leaking outside the map container */
+.ride-map-element .leaflet-pane,
+.ride-map-element .leaflet-tile,
+.ride-map-element .leaflet-marker-icon,
+.ride-map-element .leaflet-marker-shadow,
+.ride-map-element .leaflet-tile-pane,
+.ride-map-element .leaflet-overlay-pane,
+.ride-map-element .leaflet-popup-pane,
+.ride-map-element .leaflet-control {
+  z-index: auto;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* RIDE CHAT MEDIA — voice recording pulse animation                          */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.ride-chat-recording-pulse {
+  animation: recording-pulse 0.8s ease-in-out infinite;
+}
+@keyframes recording-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.5); }
+  50%       { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0); }
+}
+
+/* Chat media action buttons */
+.ride-chat-media-btn {
+  transition: transform 0.15s, background-color 0.15s;
+}
+.ride-chat-media-btn:not(:disabled):hover {
+  transform: scale(1.1);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* DESKTOP IMPROVEMENTS — wider layout, better tab spacing                    */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+@media (min-width: 1024px) {
+  .card {
+    padding: 1.5rem;
+  }
+}
+
+/* Horizontal scrollbar hide for tab pills */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Reduced-motion overrides for new animations */
+@media (prefers-reduced-motion: reduce) {
+  .notif-badge-green,
+  .map-location-pulse-ring,
+  .ride-chat-recording-pulse,
+  .ride-chat-media-btn {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+

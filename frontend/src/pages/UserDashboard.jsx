@@ -10,18 +10,28 @@ import RideShare from '../components/RideShare'
 import RideShareMap from '../components/RideShareMap'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
-import { getUserProfile, userLogout, getStats, getNotifications } from '../api'
+import {
+  getUserProfile, userLogout, getStats, getNotifications,
+  markAllNotificationsRead, markNotificationRead,
+  getRideHistory, getRideChatInbox,
+  driverApply, getDriverApplication,
+} from '../api'
 import socket from '../socket'
 
 // ─── Dashboard tabs ────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'overview',  label: '🏠 Overview',      icon: '🏠' },
-  { id: 'download',  label: '⬇ Download',        icon: '⬇' },
-  { id: 'cv',        label: '📄 CV Generator',    icon: '📄' },
-  { id: 'convert',   label: '🔄 Doc Converter',   icon: '🔄' },
-  { id: 'rides',     label: '🚗 Ride Share',       icon: '🚗' },
-  { id: 'profile',   label: '👤 My Profile',       icon: '👤' },
+  { id: 'overview',    label: '🏠 Overview',          icon: '🏠' },
+  { id: 'rides',       label: '🚗 Rides',              icon: '🚗' },
+  { id: 'inbox',       label: '💬 Inbox',              icon: '💬', badge: 'chat' },
+  { id: 'notifications', label: '🔔 Notifications',   icon: '🔔', badge: 'notif' },
+  { id: 'history',     label: '📋 History',            icon: '📋' },
+  { id: 'stats',       label: '📊 Stats',              icon: '📊' },
+  { id: 'driver_reg',  label: '🚕 Driver Reg.',         icon: '🚕' },
+  { id: 'download',    label: '⬇ Download',            icon: '⬇' },
+  { id: 'cv',          label: '📄 CV Builder',          icon: '📄' },
+  { id: 'convert',     label: '🔄 Converter',           icon: '🔄' },
+  { id: 'profile',     label: '👤 Profile',             icon: '👤' },
 ]
 
 // ─── Stat card ─────────────────────────────────────────────────────────────────
@@ -155,6 +165,14 @@ export default function UserDashboard() {
   const [menuOpen,    setMenuOpen]    = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [unreadNotifs, setUnreadNotifs] = useState(0)
+  const [unreadChat,  setUnreadChat]  = useState(0)
+  const [notifications, setNotifications] = useState([])
+  const [rideHistory, setRideHistory] = useState([])
+  const [chatInbox,   setChatInbox]   = useState([])
+  const [driverApp,   setDriverApp]   = useState(null)
+  const [driverForm,  setDriverForm]  = useState({ vehicle_make:'', vehicle_model:'', vehicle_year:'', vehicle_color:'', license_plate:'' })
+  const [driverApplying, setDriverApplying] = useState(false)
+  const [driverApplyMsg, setDriverApplyMsg] = useState('')
   const profileRef     = useRef(null)
   const activeDownloadsRef = useRef(null)
   const fileListRef    = useRef(null)
@@ -189,14 +207,18 @@ export default function UserDashboard() {
     const onConnect    = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
     const onFilesUpdated = () => setFileListVersion(v => v + 1)
-    socket.on('connect',       onConnect)
-    socket.on('disconnect',    onDisconnect)
-    socket.on('files_updated', onFilesUpdated)
+    // Real-time chat notification from ride poster
+    const onChatNotif = () => setUnreadChat(c => c + 1)
+    socket.on('connect',                onConnect)
+    socket.on('disconnect',             onDisconnect)
+    socket.on('files_updated',          onFilesUpdated)
+    socket.on('ride_chat_notification', onChatNotif)
     setConnected(socket.connected)
     return () => {
-      socket.off('connect',       onConnect)
-      socket.off('disconnect',    onDisconnect)
-      socket.off('files_updated', onFilesUpdated)
+      socket.off('connect',                onConnect)
+      socket.off('disconnect',             onDisconnect)
+      socket.off('files_updated',          onFilesUpdated)
+      socket.off('ride_chat_notification', onChatNotif)
     }
   }, [])
 
@@ -211,7 +233,10 @@ export default function UserDashboard() {
   // Poll unread notification count
   useEffect(() => {
     const fetchUnread = () =>
-      getNotifications().then(d => setUnreadNotifs(d.unread || 0)).catch(() => {})
+      getNotifications().then(d => {
+        setUnreadNotifs(d.unread || 0)
+        setNotifications(d.notifications || [])
+      }).catch(() => {})
     fetchUnread()
     const id = setInterval(fetchUnread, 30_000)
     return () => clearInterval(id)
@@ -244,6 +269,24 @@ export default function UserDashboard() {
 
   const handleSelectTab = useCallback((id) => {
     setTab(id)
+    // Load data for specific tabs when first opened
+    if (id === 'history') {
+      getRideHistory().then(d => setRideHistory(d.rides || [])).catch(() => {})
+    }
+    if (id === 'inbox') {
+      setUnreadChat(0)
+      getRideChatInbox().then(d => setChatInbox(d.conversations || [])).catch(() => {})
+    }
+    if (id === 'notifications') {
+      setUnreadNotifs(0)
+      getNotifications().then(d => {
+        setNotifications(d.notifications || [])
+        markAllNotificationsRead().catch(() => {})
+      }).catch(() => {})
+    }
+    if (id === 'driver_reg') {
+      getDriverApplication().then(d => setDriverApp(d)).catch(() => {})
+    }
     setTimeout(() => {
       tabPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 100)
@@ -304,6 +347,35 @@ export default function UserDashboard() {
 
           <ThemeSelector />
 
+          {/* Notification + Inbox quick-access buttons in navbar */}
+          <button
+            onClick={() => handleSelectTab('inbox')}
+            className="relative text-gray-400 hover:text-white transition-colors"
+            title="Chat Inbox"
+            aria-label="Chat inbox"
+          >
+            <span className="text-lg">💬</span>
+            {unreadChat > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-green-500 border border-gray-950 flex items-center justify-center text-white text-[9px] font-bold px-0.5 pointer-events-none notif-badge-green">
+                {unreadChat > 9 ? '9+' : unreadChat}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => handleSelectTab('notifications')}
+            className="relative text-gray-400 hover:text-white transition-colors"
+            title="Notifications"
+            aria-label="Notifications"
+          >
+            <span className="text-lg">🔔</span>
+            {unreadNotifs > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-green-500 border border-gray-950 flex items-center justify-center text-white text-[9px] font-bold px-0.5 pointer-events-none notif-badge-green">
+                {unreadNotifs > 9 ? '9+' : unreadNotifs}
+              </span>
+            )}
+          </button>
+
           {/* Profile button */}
           <div className="relative" ref={profileRef}>
             <button
@@ -314,11 +386,6 @@ export default function UserDashboard() {
             >
               {appUser.role === 'driver' ? '🚗' : '🧍'}
             </button>
-            {unreadNotifs > 0 && (
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 border border-gray-950 flex items-center justify-center text-white text-[9px] font-bold pointer-events-none">
-                {unreadNotifs > 9 ? '9+' : unreadNotifs}
-              </span>
-            )}
             {profileOpen && (
               <div className="nav-profile-dropdown absolute right-0 top-10 w-64 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 overflow-hidden">
                 <UserProfile
@@ -382,40 +449,56 @@ export default function UserDashboard() {
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 pt-6 pb-20 sm:pb-8 flex gap-6">
 
         {/* ── Sidebar tabs (desktop) ── */}
-        <aside className="hidden lg:flex flex-col gap-1 w-48 shrink-0 pt-1">
-          {TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => handleSelectTab(t.id)}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-left ${
-                tab === t.id
-                  ? 'bg-blue-700/40 text-blue-300 border border-blue-700/60'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`}
-            >
-              <span>{t.icon}</span>
-              <span>{t.label.split(' ').slice(1).join(' ')}</span>
-            </button>
-          ))}
+        <aside className="hidden lg:flex flex-col gap-1 w-52 shrink-0 pt-1">
+          {TABS.map(t => {
+            const badgeCount = t.badge === 'chat' ? unreadChat : t.badge === 'notif' ? unreadNotifs : 0
+            return (
+              <button
+                key={t.id}
+                onClick={() => handleSelectTab(t.id)}
+                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors text-left relative ${
+                  tab === t.id
+                    ? 'bg-blue-700/40 text-blue-300 border border-blue-700/60'
+                    : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                }`}
+              >
+                <span>{t.icon}</span>
+                <span className="flex-1">{t.label.split(' ').slice(1).join(' ')}</span>
+                {badgeCount > 0 && (
+                  <span className="min-w-[18px] h-[18px] rounded-full bg-green-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 notif-badge-green">
+                    {badgeCount > 9 ? '9+' : badgeCount}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </aside>
 
         {/* ── Main panel ── */}
         <main className="flex-1 min-w-0">
           {/* Mobile tab pills */}
-          <div className="flex gap-2 overflow-x-auto pb-3 lg:hidden">
-            {TABS.map(t => (
-              <button
-                key={t.id}
-                onClick={() => handleSelectTab(t.id)}
-                className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                  tab === t.id
-                    ? 'bg-blue-700 border-blue-600 text-white'
-                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="flex gap-2 overflow-x-auto pb-3 lg:hidden scrollbar-none">
+            {TABS.map(t => {
+              const badgeCount = t.badge === 'chat' ? unreadChat : t.badge === 'notif' ? unreadNotifs : 0
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTab(t.id)}
+                  className={`shrink-0 text-xs px-3 py-1.5 rounded-full border transition-colors flex items-center gap-1 ${
+                    tab === t.id
+                      ? 'bg-blue-700 border-blue-600 text-white'
+                      : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                  {badgeCount > 0 && (
+                    <span className="min-w-[16px] h-4 rounded-full bg-green-500 text-white text-[9px] font-bold flex items-center justify-center px-0.5 notif-badge-green">
+                      {badgeCount > 9 ? '9+' : badgeCount}
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           {/* Tab panels */}
@@ -448,7 +531,7 @@ export default function UserDashboard() {
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
                   <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
                 </div>
-                <div className="mb-4">
+                <div className="mb-4 ride-map-container">
                   <RideShareMap
                     userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
                     onLocationUpdate={(loc) => setAppUser(u => ({ ...u, lat: loc.lat, lng: loc.lng }))}
@@ -467,6 +550,283 @@ export default function UserDashboard() {
                   onLocationUpdate={(loc) => setAppUser(u => ({ ...u, ...loc }))}
                   onUserUpdate={(u) => u && setAppUser(prev => ({ ...prev, ...u }))}
                 />
+              </div>
+            )}
+
+            {/* ── History tab ── */}
+            {tab === 'history' && (
+              <div className="card space-y-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">📋 Ride History</h2>
+                {rideHistory.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">No ride history yet.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-gray-500 border-b border-gray-700">
+                        <tr>
+                          <th className="py-2 pr-3">Status</th>
+                          <th className="py-2 pr-3">From → To</th>
+                          <th className="py-2 pr-3">Departure</th>
+                          <th className="py-2 pr-3">Seats</th>
+                          <th className="py-2">Posted</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rideHistory.map(r => (
+                          <tr key={r.ride_id} className="border-b border-gray-800/60 hover:bg-gray-800/30 text-gray-300">
+                            <td className="py-2 pr-3">
+                              <span className={`ride-status-tag ${r.status === 'open' ? 'ride-tag-open' : r.status === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'}`}>
+                                {r.status}
+                              </span>
+                            </td>
+                            <td className="py-2 pr-3 max-w-[200px] truncate">{r.origin} → {r.destination}</td>
+                            <td className="py-2 pr-3 whitespace-nowrap">{new Date(r.departure).toLocaleString()}</td>
+                            <td className="py-2 pr-3">{r.seats}</td>
+                            <td className="py-2 text-gray-500">{new Date(r.created_at).toLocaleDateString()}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <button
+                  onClick={() => getRideHistory().then(d => setRideHistory(d.rides || [])).catch(() => {})}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  ↺ Refresh
+                </button>
+              </div>
+            )}
+
+            {/* ── Stats tab ── */}
+            {tab === 'stats' && (
+              <div className="card space-y-6">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">📊 Your Stats</h2>
+                {dashStats ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                      <div className="rounded-xl border border-blue-800/40 bg-blue-900/20 p-4 text-center">
+                        <p className="text-3xl font-bold text-blue-300">{dashStats.stats?.total_rides ?? 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">Total Rides</p>
+                      </div>
+                      <div className="rounded-xl border border-green-800/40 bg-green-900/20 p-4 text-center">
+                        <p className="text-3xl font-bold text-green-300">{dashStats.stats?.open_rides ?? 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">Open Rides</p>
+                      </div>
+                      <div className="rounded-xl border border-amber-800/40 bg-amber-900/20 p-4 text-center">
+                        <p className="text-3xl font-bold text-amber-300">{dashStats.stats?.taken_rides ?? 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">Taken Rides</p>
+                      </div>
+                      <div className="rounded-xl border border-purple-800/40 bg-purple-900/20 p-4 text-center">
+                        <p className="text-3xl font-bold text-purple-300">{dashStats.site_stats?.total_downloads ?? 0}</p>
+                        <p className="text-xs text-gray-400 mt-1">Site Downloads</p>
+                      </div>
+                    </div>
+                    {dashStats.site_stats && (
+                      <div className="grid grid-cols-2 gap-4 pt-2">
+                        <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-4 text-center">
+                          <p className="text-2xl font-bold text-white">{dashStats.site_stats.total_visitors ?? 0}</p>
+                          <p className="text-xs text-gray-400 mt-1">Total Visitors</p>
+                        </div>
+                        <div className="rounded-xl border border-gray-700 bg-gray-800/40 p-4 text-center">
+                          <p className="text-2xl font-bold text-white">{dashStats.site_stats.total_files ?? 0}</p>
+                          <p className="text-xs text-gray-400 mt-1">Files Available</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex justify-center py-8"><div className="spinner w-8 h-8" /></div>
+                )}
+              </div>
+            )}
+
+            {/* ── Inbox tab ── */}
+            {tab === 'inbox' && (
+              <div className="card space-y-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">💬 Chat Inbox</h2>
+                <p className="text-xs text-gray-400">Messages from your ride chats.</p>
+                {chatInbox.length === 0 ? (
+                  <div className="text-center text-sm text-gray-500 py-8">
+                    <p className="text-3xl mb-2">💬</p>
+                    <p>No conversations yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {chatInbox.map((conv, i) => (
+                      <div key={conv.msg_id || i} className="flex items-start gap-3 bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-3 hover:bg-gray-800/80 transition-colors">
+                        <div className="w-8 h-8 rounded-full bg-blue-800 flex items-center justify-center text-sm shrink-0">
+                          {conv.sender_role === 'driver' ? '🚗' : '🧍'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <p className="text-sm font-semibold text-white truncate">{conv.sender_name}</p>
+                            {conv.ride_info?.origin && (
+                              <p className="text-xs text-gray-500 truncate hidden sm:block">
+                                {conv.ride_info.origin} → {conv.ride_info.destination}
+                              </p>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-400 truncate">
+                            {conv.media_type === 'image' ? '🖼 Image' : conv.media_type === 'audio' ? '🎙 Voice message' : conv.media_type === 'location' ? '📍 Location' : conv.text || '…'}
+                          </p>
+                        </div>
+                        <span className="text-xs text-gray-600 shrink-0">
+                          {conv.ts ? new Date(conv.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={() => getRideChatInbox().then(d => setChatInbox(d.conversations || [])).catch(() => {})}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                >
+                  ↺ Refresh
+                </button>
+              </div>
+            )}
+
+            {/* ── Notifications tab ── */}
+            {tab === 'notifications' && (
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🔔 Notifications</h2>
+                  {notifications.length > 0 && (
+                    <button
+                      onClick={() => markAllNotificationsRead().then(() => {
+                        setNotifications(prev => prev.map(n => ({ ...n, read: 1 })))
+                        setUnreadNotifs(0)
+                      }).catch(() => {})}
+                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                {notifications.length === 0 ? (
+                  <div className="text-center text-sm text-gray-500 py-8">
+                    <p className="text-3xl mb-2">🔔</p>
+                    <p>No notifications yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {notifications.map((n, i) => (
+                      <div key={n.notif_id || i}
+                        className={`flex items-start gap-3 rounded-xl px-4 py-3 border transition-colors cursor-pointer ${
+                          n.read ? 'bg-gray-800/30 border-gray-700/50' : 'bg-blue-900/20 border-blue-700/50'
+                        }`}
+                        onClick={() => {
+                          if (!n.read) {
+                            markNotificationRead(n.notif_id).catch(() => {})
+                            setNotifications(prev => prev.map(x => x.notif_id === n.notif_id ? { ...x, read: 1 } : x))
+                            setUnreadNotifs(c => Math.max(0, c - 1))
+                          }
+                        }}
+                      >
+                        <div className="mt-0.5 shrink-0">
+                          {n.type === 'chat_message' ? '💬' : n.type === 'ride_taken' ? '✅' : '🔔'}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-medium ${n.read ? 'text-gray-300' : 'text-white'}`}>{n.title}</p>
+                          <p className="text-xs text-gray-400 truncate">{n.body}</p>
+                          <p className="text-xs text-gray-600 mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+                        </div>
+                        {!n.read && <span className="w-2 h-2 bg-blue-400 rounded-full shrink-0 mt-1.5" />}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Driver Registration tab ── */}
+            {tab === 'driver_reg' && (
+              <div className="card space-y-4">
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">🚕 Driver Registration</h2>
+                {appUser?.role === 'driver' ? (
+                  <div className="bg-green-900/30 border border-green-700/60 rounded-xl p-4 flex items-center gap-3">
+                    <span className="text-2xl">✅</span>
+                    <div>
+                      <p className="text-green-300 font-semibold">You are a verified driver!</p>
+                      <p className="text-xs text-green-400/70 mt-0.5">Your driver application has been approved.</p>
+                    </div>
+                  </div>
+                ) : driverApp?.status === 'pending' ? (
+                  <div className="bg-amber-900/20 border border-amber-700/40 rounded-xl p-4 flex items-center gap-3">
+                    <span className="text-2xl">⏳</span>
+                    <div>
+                      <p className="text-amber-300 font-semibold">Application Pending</p>
+                      <p className="text-xs text-amber-400/70 mt-0.5">Your driver application is under review.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-400">Apply to become a verified driver and start offering rides.</p>
+                    <form
+                      onSubmit={async (e) => {
+                        e.preventDefault()
+                        setDriverApplyMsg('')
+                        setDriverApplying(true)
+                        try {
+                          await driverApply(
+                            driverForm.vehicle_make, driverForm.vehicle_model,
+                            parseInt(driverForm.vehicle_year), driverForm.vehicle_color,
+                            driverForm.license_plate,
+                          )
+                          setDriverApplyMsg('✅ Application submitted! Awaiting admin approval.')
+                          setDriverApp({ status: 'pending' })
+                        } catch (err) {
+                          setDriverApplyMsg(err.message || 'Application failed.')
+                        } finally {
+                          setDriverApplying(false)
+                        }
+                      }}
+                      className="space-y-3"
+                    >
+                      <div className="grid grid-cols-2 gap-3">
+                        {[
+                          { key: 'vehicle_make',  label: 'Vehicle Make',  placeholder: 'e.g. Toyota' },
+                          { key: 'vehicle_model', label: 'Vehicle Model', placeholder: 'e.g. Corolla' },
+                          { key: 'vehicle_year',  label: 'Year',          placeholder: 'e.g. 2020', type: 'number' },
+                          { key: 'vehicle_color', label: 'Color',         placeholder: 'e.g. White' },
+                        ].map(f => (
+                          <div key={f.key}>
+                            <label className="text-xs text-gray-400 mb-1 block">{f.label}</label>
+                            <input
+                              type={f.type || 'text'}
+                              placeholder={f.placeholder}
+                              value={driverForm[f.key]}
+                              onChange={e => setDriverForm(d => ({ ...d, [f.key]: e.target.value }))}
+                              required
+                              className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 mb-1 block">License Plate</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. ABC 123"
+                          value={driverForm.license_plate}
+                          onChange={e => setDriverForm(d => ({ ...d, license_plate: e.target.value }))}
+                          required
+                          className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      {driverApplyMsg && (
+                        <p className={`text-sm ${driverApplyMsg.startsWith('✅') ? 'text-green-400' : 'text-red-400'}`}>
+                          {driverApplyMsg}
+                        </p>
+                      )}
+                      <button type="submit" disabled={driverApplying}
+                        className="w-full py-2.5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all">
+                        {driverApplying ? 'Submitting…' : '🚕 Submit Application'}
+                      </button>
+                    </form>
+                  </>
+                )}
               </div>
             )}
           </div>

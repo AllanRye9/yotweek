@@ -42,6 +42,8 @@ from api.app import (
     _create_notification,
     _UserProfileDetailsUpdate,
     _DriverApproveRequest,
+    api_get_ride_chat,
+    api_ride_chat_inbox,
 )
 
 
@@ -876,6 +878,127 @@ class TestRideChatSocket:
 
         _asyncio.run(_run())
         assert left_rooms == []
+
+    def test_ride_chat_message_media_image_accepted(self):
+        """on_ride_chat_message should broadcast image media type."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append((evt, data, room)))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_ride_chat_message("sender-sid", {
+                    "ride_id":    ride_id,
+                    "name":       "Eve",
+                    "text":       "",
+                    "media_type": "image",
+                    "media_data": "data:image/png;base64,abc123",
+                })
+
+        _asyncio.run(_run())
+        msgs = [e for e in emitted if e[0] == "ride_chat_message"]
+        assert len(msgs) == 1
+        assert msgs[0][1]["media_type"] == "image"
+
+    def test_ride_chat_message_invalid_media_type_stripped(self):
+        """on_ride_chat_message should strip unknown media_type values."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append((evt, data, room)))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_ride_chat_message("sender-sid", {
+                    "ride_id":    ride_id,
+                    "name":       "Frank",
+                    "text":       "hi",
+                    "media_type": "video",   # not allowed
+                    "media_data": "blob123",
+                })
+
+        _asyncio.run(_run())
+        msgs = [e for e in emitted if e[0] == "ride_chat_message"]
+        assert len(msgs) == 1
+        assert msgs[0][1]["media_type"] is None
+
+    def test_ride_chat_message_location_accepted(self):
+        """on_ride_chat_message should broadcast location media type with coordinates."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        ride_id = str(uuid.uuid4())
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append((evt, data, room)))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_ride_chat_message("sender-sid", {
+                    "ride_id":    ride_id,
+                    "name":       "Grace",
+                    "text":       "",
+                    "media_type": "location",
+                    "lat":        -1.2921,
+                    "lng":        36.8219,
+                })
+
+        _asyncio.run(_run())
+        msgs = [e for e in emitted if e[0] == "ride_chat_message"]
+        assert len(msgs) == 1
+        assert msgs[0][1]["media_type"] == "location"
+        assert msgs[0][1]["lat"] == pytest.approx(-1.2921)
+        assert msgs[0][1]["lng"] == pytest.approx(36.8219)
+
+
+# ===========================================================================
+# Ride Chat Messages API
+# ===========================================================================
+
+class TestRideChatMessages:
+    """Tests for /api/rides/{ride_id}/chat and /api/rides/chat/inbox."""
+
+    def test_get_chat_messages_requires_login(self):
+        from api.app import api_get_ride_chat
+        ride_id = str(uuid.uuid4())
+        req = _make_request({})
+        resp = run(api_get_ride_chat(req, ride_id))
+        assert resp.status_code == 401
+
+    def test_get_chat_messages_empty_for_new_ride(self):
+        import json
+        from api.app import api_get_ride_chat
+        # Register + login
+        resp_reg, email = _register_user(name="ChatHistUser")
+        session = _login_session(email)
+        ride_id = str(uuid.uuid4())
+        req = _make_request(session)
+        resp = run(api_get_ride_chat(req, ride_id))
+        assert resp.status_code == 200
+        assert json.loads(resp.body)["messages"] == []
+
+    def test_get_chat_inbox_requires_login(self):
+        from api.app import api_ride_chat_inbox
+        req = _make_request({})
+        resp = run(api_ride_chat_inbox(req))
+        assert resp.status_code == 401
+
+    def test_get_chat_inbox_empty_for_new_user(self):
+        import json
+        from api.app import api_ride_chat_inbox
+        resp_reg, email = _register_user(name="InboxUser")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_chat_inbox(req))
+        assert resp.status_code == 200
+        assert json.loads(resp.body)["conversations"] == []
 
 
 # ===========================================================================

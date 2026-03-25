@@ -514,6 +514,22 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ride_chat_messages (
+                        id SERIAL PRIMARY KEY,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        sender_name TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'passenger',
+                        text TEXT,
+                        media_type TEXT,
+                        media_data TEXT,
+                        lat REAL,
+                        lng REAL,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 # Migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
                     try:
@@ -588,6 +604,20 @@ def init_db():
                         title TEXT NOT NULL,
                         body TEXT NOT NULL,
                         read INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS ride_chat_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        sender_name TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'passenger',
+                        text TEXT,
+                        media_type TEXT,
+                        media_data TEXT,
+                        lat REAL,
+                        lng REAL,
+                        ts REAL NOT NULL,
                         created_at TEXT NOT NULL
                     );
                 """)
@@ -6263,6 +6293,118 @@ async def api_mark_all_notifications_read(request: Request):
     return JSONResponse({"ok": True})
 
 
+# ── Ride chat messages (persistent) ────────────────────────────────────────────
+
+@fastapi_app.get("/api/rides/{ride_id}/chat")
+async def api_get_ride_chat(request: Request, ride_id: str):
+    """Return persisted chat messages for a ride (most recent last, max 200)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["msg_id", "ride_id", "sender_name", "sender_role", "text",
+                    "media_type", "media_data", "lat", "lng", "ts", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at"
+                    " FROM ride_chat_messages WHERE ride_id=%s ORDER BY ts ASC LIMIT 200",
+                    (ride_id,),
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at"
+                    " FROM ride_chat_messages WHERE ride_id=? ORDER BY ts ASC LIMIT 200",
+                    (ride_id,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    messages = [dict(zip(cols, row)) for row in rows]
+    return JSONResponse({"messages": messages})
+
+
+@fastapi_app.get("/api/rides/chat/inbox")
+async def api_ride_chat_inbox(request: Request):
+    """Return latest chat message per ride that involves the current user's rides.
+
+    Returns conversations grouped by ride_id, ordered by most-recent message.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if not user:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    sender_name = user["name"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                # Rides posted by the user
+                cur.execute(
+                    "SELECT ride_id, origin, destination FROM rides WHERE user_id=%s",
+                    (user_id,),
+                )
+                poster_rides = {r[0]: {"origin": r[1], "destination": r[2]} for r in cur.fetchall()}
+                # Latest message per ride that the user is involved in
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (ride_id) msg_id, ride_id, sender_name, sender_role,
+                           text, media_type, ts
+                    FROM ride_chat_messages
+                    WHERE ride_id = ANY(
+                        SELECT ride_id FROM rides WHERE user_id = %s
+                    ) OR sender_name = %s
+                    ORDER BY ride_id, ts DESC
+                    """,
+                    (user_id, sender_name),
+                )
+                rows = cur.fetchall()
+            else:
+                # Rides posted by the user
+                cur = conn.execute(
+                    "SELECT ride_id, origin, destination FROM rides WHERE user_id=?",
+                    (user_id,),
+                )
+                poster_rides = {r[0]: {"origin": r[1], "destination": r[2]} for r in cur.fetchall()}
+                cur = conn.execute(
+                    """
+                    SELECT msg_id, ride_id, sender_name, sender_role, text, media_type, ts
+                    FROM ride_chat_messages
+                    WHERE ride_id IN (SELECT ride_id FROM rides WHERE user_id=?)
+                       OR sender_name=?
+                    GROUP BY ride_id
+                    HAVING ts = MAX(ts)
+                    ORDER BY ts DESC
+                    LIMIT 50
+                    """,
+                    (user_id, sender_name),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    cols = ["msg_id", "ride_id", "sender_name", "sender_role", "text", "media_type", "ts"]
+    conversations = []
+    for row in rows:
+        d = dict(zip(cols, row))
+        d["ride_info"] = poster_rides.get(d["ride_id"], {})
+        d["is_mine"] = (d["sender_name"] == sender_name)
+        conversations.append(d)
+
+    return JSONResponse({"conversations": conversations})
+
+
 # ── Magic link (passwordless) ──────────────────────────────────────────────────
 
 # In-memory store: token → {email, expires_at}
@@ -6962,15 +7104,52 @@ async def on_identify(sid, data):
 
 @sio.on("join_ride_chat")
 async def on_join_ride_chat(sid, data):
-    """Subscribe the caller to a ride's chat room."""
+    """Subscribe the caller to a ride's chat room and send recent message history."""
     ride_id = data.get("ride_id") if isinstance(data, dict) else None
     if not ride_id:
         return
     room = f"ride_chat_{ride_id}"
     sio.enter_room(sid, room)
     sender_name = data.get("name", "Someone")
-    await sio.emit("ride_chat_joined", {"ride_id": ride_id, "name": sender_name}, room=sid)
-    logger.info(f"Socket {sid} joined ride chat room {room}")
+
+    # Load recent persisted messages
+    history = []
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cols = ["msg_id", "ride_id", "sender_name", "sender_role",
+                        "text", "media_type", "media_data", "lat", "lng", "ts"]
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts"
+                        " FROM ride_chat_messages WHERE ride_id=%s ORDER BY ts ASC LIMIT 50",
+                        (ride_id,),
+                    )
+                    rows = cur.fetchall()
+                else:
+                    cur = conn.execute(
+                        "SELECT msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts"
+                        " FROM ride_chat_messages WHERE ride_id=? ORDER BY ts ASC LIMIT 50",
+                        (ride_id,),
+                    )
+                    rows = cur.fetchall()
+                for row in rows:
+                    d = dict(zip(cols, row))
+                    d["name"] = d.pop("sender_name")
+                    d["role"] = d.pop("sender_role")
+                    d["id"]   = d.pop("msg_id")
+                    history.append(d)
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to load ride chat history: {e}")
+
+    await sio.emit("ride_chat_joined", {
+        "ride_id": ride_id, "name": sender_name, "history": history,
+    }, room=sid)
+    logger.info(f"Socket {sid} joined ride chat room {room} ({len(history)} history messages)")
 
 
 @sio.on("leave_ride_chat")
@@ -6986,28 +7165,132 @@ async def on_leave_ride_chat(sid, data):
 
 @sio.on("ride_chat_message")
 async def on_ride_chat_message(sid, data):
-    """Broadcast a chat message to all members of a ride's chat room."""
+    """Broadcast a chat message to all members of a ride's chat room.
+
+    Supports text, image (media_type='image'), audio (media_type='audio'),
+    and location (media_type='location') payloads.
+    Persists the message and notifies the ride poster when the sender is
+    a different user.
+    """
     if not isinstance(data, dict):
         return
-    ride_id = data.get("ride_id")
-    text    = str(data.get("text", "")).strip()
-    name    = str(data.get("name", "Anonymous")).strip()
-    role    = str(data.get("role", "passenger")).strip()
-    msg_id  = data.get("id") or f"{time.time()}-{sid}"
-    if not ride_id or not text:
+    ride_id    = data.get("ride_id")
+    text       = str(data.get("text", "")).strip()
+    name       = str(data.get("name", "Anonymous")).strip()
+    role       = str(data.get("role", "passenger")).strip()
+    msg_id     = data.get("id") or f"{time.time()}-{sid}"
+    media_type = data.get("media_type")  # 'image' | 'audio' | 'location' | None
+    media_data = data.get("media_data")  # base64 string for image/audio
+    msg_lat    = data.get("lat")         # float, for location messages
+    msg_lng    = data.get("lng")         # float, for location messages
+
+    # Require either text or media
+    if not ride_id or (not text and not media_type):
         return
+
+    # Validate media_type
+    _ALLOWED_MEDIA = {"image", "audio", "location"}
+    if media_type and media_type not in _ALLOWED_MEDIA:
+        media_type = None
+
+    # Cap text length; limit base64 payload to ~1 MB
+    text = text[:500]
+    if media_data and len(media_data) > 1_400_000:
+        media_data = None
+
+    ts = time.time()
     msg = {
         "ride_id":    ride_id,
         "name":       name,
-        "text":       text[:500],          # cap at 500 chars
-        "ts":         time.time(),
+        "text":       text,
+        "ts":         ts,
         "role":       role,
         "id":         msg_id,
-        "sender_sid": sid,
+        "media_type": media_type,
+        "media_data": media_data,
+        "lat":        msg_lat,
+        "lng":        msg_lng,
     }
+
+    # Persist the message to the database
+    created = datetime.now(timezone.utc).isoformat()
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO ride_chat_messages"
+                        " (msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at)"
+                        " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+                        " ON CONFLICT (msg_id) DO NOTHING",
+                        (msg_id, ride_id, name, role, text or None, media_type, media_data,
+                         msg_lat, msg_lng, ts, created),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO ride_chat_messages"
+                        " (msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at)"
+                        " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                        (msg_id, ride_id, name, role, text or None, media_type, media_data,
+                         msg_lat, msg_lng, ts, created),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to persist ride chat message: {e}")
+
+    # Notify the ride poster if the sender is a different user
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute("SELECT user_id FROM rides WHERE ride_id=%s", (ride_id,))
+                    row = cur.fetchone()
+                else:
+                    cur = conn.execute("SELECT user_id FROM rides WHERE ride_id=?", (ride_id,))
+                    row = cur.fetchone()
+                poster_user_id = row[0] if row else None
+            finally:
+                conn.close()
+
+        if poster_user_id:
+            # Check if sender is the poster
+            poster = _get_app_user(poster_user_id)
+            if poster and poster.get("name") != name:
+                # Notify poster about new message
+                preview = text if text else f"[{media_type}]" if media_type else ""
+                notif_id = _create_notification(
+                    poster_user_id,
+                    "chat_message",
+                    f"New message from {name}",
+                    f"Ride: {ride_id[:8]}… — {preview[:80]}",
+                )
+                # Push real-time notification to the poster's socket if online
+                with _socket_user_lock:
+                    poster_sid = _user_to_sid.get(poster_user_id)
+                if poster_sid:
+                    await sio.emit(
+                        "ride_chat_notification",
+                        {
+                            "notif_id": notif_id,
+                            "ride_id":  ride_id,
+                            "from":     name,
+                            "preview":  preview[:80],
+                        },
+                        room=poster_sid,
+                    )
+    except Exception as e:
+        logger.warning(f"Failed to notify ride poster of chat message: {e}")
+
     room = f"ride_chat_{ride_id}"
     await sio.emit("ride_chat_message", msg, room=room)
-    logger.info(f"Ride chat [{ride_id}] from {name}: {text[:80]}")
+    log_preview = text[:80] if text else f"[{media_type}]"
+    logger.info(f"Ride chat [{ride_id}] from {name}: {log_preview}")
 
 
 @sio.on("ride_chat_typing")

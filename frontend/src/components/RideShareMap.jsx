@@ -176,21 +176,33 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
 
     if (userLocation?.lat == null) return
 
+    // Use animated pulse marker when live tracking is active
     const icon = L.divIcon({
       className: '',
-      html: `<div style="
-        background:#7c3aed;color:#fff;border-radius:50%;
-        width:26px;height:26px;display:flex;align-items:center;
-        justify-content:center;font-size:13px;
-        box-shadow:0 2px 8px rgba(0,0,0,0.5);
-        border:2px solid #fff;
-      ">&#x1F464;</div>`,
-      iconSize:   [26, 26],
-      iconAnchor: [13, 13],
+      html: liveTracking
+        ? `<div class="map-location-pulse-wrapper">
+             <div class="map-location-pulse-ring"></div>
+             <div style="
+               background:#7c3aed;color:#fff;border-radius:50%;
+               width:26px;height:26px;display:flex;align-items:center;
+               justify-content:center;font-size:13px;
+               box-shadow:0 2px 8px rgba(0,0,0,0.5);
+               border:2px solid #fff;position:relative;z-index:1;
+             ">&#x1F464;</div>
+           </div>`
+        : `<div style="
+            background:#7c3aed;color:#fff;border-radius:50%;
+            width:26px;height:26px;display:flex;align-items:center;
+            justify-content:center;font-size:13px;
+            box-shadow:0 2px 8px rgba(0,0,0,0.5);
+            border:2px solid #fff;
+          ">&#x1F464;</div>`,
+      iconSize:   [liveTracking ? 46 : 26, liveTracking ? 46 : 26],
+      iconAnchor: [liveTracking ? 23 : 13, liveTracking ? 23 : 13],
     })
     userMarkerRef.current = L.marker([userLocation.lat, userLocation.lng], { icon })
       .addTo(map)
-      .bindTooltip('Your location', { permanent: false })
+      .bindTooltip(liveTracking ? '📍 You (live)' : 'Your location', { permanent: false })
 
     if (userLocation.accuracy) {
       accuracyCircleRef.current = L.circle([userLocation.lat, userLocation.lng], {
@@ -203,7 +215,7 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     }
 
     map.setView([userLocation.lat, userLocation.lng], 13)
-  }, [userLocation])
+  }, [userLocation, liveTracking])
 
   // ── Live location tracking via watchPosition ────────────────────────────────
   useEffect(() => {
@@ -232,10 +244,11 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="relative">
+    <div className="relative ride-map-container" style={{ isolation: 'isolate' }}>
       <div
         ref={mapRef}
-        style={{ height: 300, borderRadius: 12, overflow: 'hidden', background: '#1a2233' }}
+        className="ride-map-element"
+        style={{ height: 300, borderRadius: 12, overflow: 'hidden', background: '#1a2233', position: 'relative', zIndex: 0 }}
       />
 
       {/* Live tracking toggle */}

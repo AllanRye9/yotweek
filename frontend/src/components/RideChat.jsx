@@ -9,28 +9,38 @@ import socket from '../socket'
  *  - Typing indicators: "Driver is typing…" / "Rider is typing…"
  *  - Read receipts: ✓ Sent → ✓✓ Delivered → ✓✓ Read (blue)
  *  - Messages capped at 500 characters
+ *  - Image, audio (voice), and location sharing
+ *  - Chat history loaded on join
+ *  - Bi-directional: ride poster can reply to any user
  *
  * Props:
- *  ride    - The ride object ({ ride_id, driver_name, origin, destination })
+ *  ride    - The ride object ({ ride_id, driver_name, origin, destination, user_id })
  *  user    - The logged-in app user (or null for anonymous)
  *  onClose - Callback to close the chat panel
  */
 
 const MAX_LEN = 500
+const MAX_IMAGE_SIZE = 1_000_000  // ~1 MB base64
 
 export default function RideChat({ ride, user, onClose }) {
   const [messages,   setMessages]   = useState([])
   const [text,       setText]       = useState('')
   const [joined,     setJoined]     = useState(false)
-  const [typers,     setTypers]     = useState([])  // names currently typing
-  const [readBy,     setReadBy]     = useState({})  // msgId → Set<name>
+  const [typers,     setTypers]     = useState([])
+  const [readBy,     setReadBy]     = useState({})
   const bottomRef                   = useRef(null)
   const inputRef                    = useRef(null)
   const typingTimer                 = useRef(null)
   const isTyping                    = useRef(false)
+  const fileInputRef                = useRef(null)
+  const mediaRecorderRef            = useRef(null)
+  const audioChunksRef              = useRef([])
+  const [recording,  setRecording]  = useState(false)
+  const [mediaError, setMediaError] = useState('')
 
   const senderName  = user?.name   || 'Passenger'
   const isDriver    = user?.role   === 'driver'
+  const isPoster    = ride?.user_id && user?.user_id === ride.user_id
 
   // ── Socket setup ───────────────────────────────────────────────────────────
 
@@ -38,11 +48,21 @@ export default function RideChat({ ride, user, onClose }) {
     if (!ride?.ride_id) return
     socket.emit('join_ride_chat', { ride_id: ride.ride_id, name: senderName })
 
-    const onJoined  = () => setJoined(true)
+    const onJoined  = (payload) => {
+      setJoined(true)
+      // Load chat history sent by server on join
+      if (payload?.history?.length) {
+        setMessages(payload.history.map(m => ({ ...m, status: 'delivered' })))
+      }
+    }
 
     const onMessage = (msg) => {
       if (msg.ride_id !== ride.ride_id) return
-      setMessages(prev => [...prev, { ...msg, status: 'delivered' }])
+      setMessages(prev => {
+        // Deduplicate by id
+        if (prev.some(m => m.id === msg.id)) return prev
+        return [...prev, { ...msg, status: 'delivered' }]
+      })
       // Emit read receipt for messages from others
       if (msg.name !== senderName) {
         socket.emit('ride_chat_read', { ride_id: ride.ride_id, msg_id: msg.id, reader: senderName })
@@ -66,7 +86,6 @@ export default function RideChat({ ride, user, onClose }) {
         set.add(reader)
         return { ...prev, [msg_id]: set }
       })
-      // Upgrade status to 'read' for our own messages
       setMessages(prev => prev.map(m => m.id === msg_id && m.name === senderName
         ? { ...m, status: 'read' }
         : m
@@ -110,40 +129,115 @@ export default function RideChat({ ride, user, onClose }) {
     }, 1500)
   }
 
-  // ── Send ───────────────────────────────────────────────────────────────────
+  // ── Send text ──────────────────────────────────────────────────────────────
 
-  const handleSend = (e) => {
-    e.preventDefault()
+  const emitMessage = useCallback((extra = {}) => {
+    const msgId = `${Date.now()}-${Math.random()}`
     const trimmed = text.trim()
-    if (!trimmed || !ride?.ride_id) return
+    if (!trimmed && !extra.media_type) return
 
-    // Stop-typing housekeeping
     isTyping.current = false
     clearTimeout(typingTimer.current)
     socket.emit('ride_chat_stop_typing', { ride_id: ride.ride_id, name: senderName })
 
-    const msgId = `${Date.now()}-${Math.random()}`
-    // Optimistic local message
     const localMsg = {
-      id:      msgId,
-      ride_id: ride.ride_id,
-      name:    senderName,
-      text:    trimmed,
-      ts:      Date.now() / 1000,
-      role:    user?.role || 'passenger',
-      status:  'sent',
+      id:         msgId,
+      ride_id:    ride.ride_id,
+      name:       senderName,
+      text:       trimmed,
+      ts:         Date.now() / 1000,
+      role:       user?.role || 'passenger',
+      status:     'sent',
+      media_type: extra.media_type || null,
+      media_data: extra.media_data || null,
+      lat:        extra.lat || null,
+      lng:        extra.lng || null,
     }
     setMessages(prev => [...prev, localMsg])
 
     socket.emit('ride_chat_message', {
-      ride_id: ride.ride_id,
-      name:    senderName,
-      text:    trimmed,
-      role:    user?.role || 'passenger',
-      id:      msgId,
+      ride_id:    ride.ride_id,
+      name:       senderName,
+      text:       trimmed,
+      role:       user?.role || 'passenger',
+      id:         msgId,
+      media_type: extra.media_type || null,
+      media_data: extra.media_data || null,
+      lat:        extra.lat || null,
+      lng:        extra.lng || null,
     })
     setText('')
     inputRef.current?.focus()
+  }, [text, ride, senderName, user])
+
+  const handleSend = (e) => {
+    e.preventDefault()
+    if (!text.trim() || !ride?.ride_id) return
+    emitMessage()
+  }
+
+  // ── Image attachment ───────────────────────────────────────────────────────
+
+  const handleImagePick = () => fileInputRef.current?.click()
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setMediaError('Only image files are supported.'); return }
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const b64 = ev.target.result
+      if (b64.length > MAX_IMAGE_SIZE) { setMediaError('Image too large (max ~750 KB).'); return }
+      setMediaError('')
+      emitMessage({ media_type: 'image', media_data: b64 })
+    }
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  // ── Voice recording ────────────────────────────────────────────────────────
+
+  const startRecording = async () => {
+    setMediaError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const recorder = new MediaRecorder(stream)
+      audioChunksRef.current = []
+      recorder.ondataavailable = (e) => audioChunksRef.current.push(e.data)
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop())
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+          const b64 = ev.target.result
+          if (b64.length > MAX_IMAGE_SIZE) { setMediaError('Audio too large.'); return }
+          emitMessage({ media_type: 'audio', media_data: b64 })
+        }
+        reader.readAsDataURL(blob)
+      }
+      recorder.start()
+      mediaRecorderRef.current = recorder
+      setRecording(true)
+    } catch {
+      setMediaError('Microphone access denied.')
+    }
+  }
+
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop()
+    setRecording(false)
+  }
+
+  // ── Location sharing ───────────────────────────────────────────────────────
+
+  const handleShareLocation = () => {
+    setMediaError('')
+    if (!navigator.geolocation) { setMediaError('Geolocation not supported.'); return }
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => emitMessage({ media_type: 'location', lat: coords.latitude, lng: coords.longitude }),
+      () => setMediaError('Location permission denied.'),
+      { enableHighAccuracy: true, timeout: 8000 },
+    )
   }
 
   const formatTime = (ts) => {
@@ -160,6 +254,36 @@ export default function RideChat({ ride, user, onClose }) {
     return <span className="text-gray-500 text-xs ml-1" title="Sent">✓</span>
   }
 
+  // ── Media bubble contents ──────────────────────────────────────────────────
+
+  const MediaContent = ({ msg }) => {
+    if (msg.media_type === 'image' && msg.media_data) {
+      return (
+        <img
+          src={msg.media_data}
+          alt="shared image"
+          className="max-w-full rounded-lg mt-1 max-h-48 object-cover"
+          loading="lazy"
+        />
+      )
+    }
+    if (msg.media_type === 'audio' && msg.media_data) {
+      return (
+        <audio controls src={msg.media_data} className="mt-1 h-8 w-full" />
+      )
+    }
+    if (msg.media_type === 'location' && msg.lat != null) {
+      const mapUrl = `https://www.openstreetmap.org/?mlat=${msg.lat}&mlon=${msg.lng}#map=15/${msg.lat}/${msg.lng}`
+      return (
+        <a href={mapUrl} target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1.5 mt-1 text-blue-300 text-xs hover:text-blue-200 underline">
+          📍 View location ({msg.lat.toFixed(4)}, {msg.lng.toFixed(4)})
+        </a>
+      )
+    }
+    return null
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -170,6 +294,11 @@ export default function RideChat({ ride, user, onClose }) {
           <p className="text-sm font-semibold text-white flex items-center gap-1.5">
             <span>💬</span>
             <span>Live Chat</span>
+            {isPoster && (
+              <span className="text-xs px-1.5 py-0.5 bg-blue-900/60 border border-blue-700 text-blue-300 rounded-full">
+                Your Ride
+              </span>
+            )}
           </p>
           <p className="text-xs text-gray-400 truncate max-w-[220px]">
             {ride.origin} → {ride.destination} · {ride.driver_name}
@@ -200,24 +329,22 @@ export default function RideChat({ ride, user, onClose }) {
         {messages.map((msg, i) => {
           const isMine   = msg.name === senderName
           const msgRole  = msg.role || (msg.name === ride?.driver_name ? 'driver' : 'passenger')
-          const isDriver = msgRole === 'driver'
+          const msgIsDriver = msgRole === 'driver'
 
-          // Bubble style: driver = charcoal right; passenger = light gray left
           const bubbleClass = isMine
             ? (isDriver
-                ? 'bg-gray-700 text-gray-100 rounded-tr-sm'   // driver sends: right charcoal
-                : 'bg-blue-600 text-white rounded-tr-sm')      // passenger sends: right blue
-            : (isDriver
-                ? 'bg-gray-700 text-gray-100 rounded-tl-sm'   // driver receives on left: charcoal
-                : 'bg-gray-600/80 text-gray-100 rounded-tl-sm') // passenger on left: lighter gray
+                ? 'bg-gray-700 text-gray-100 rounded-tr-sm'
+                : 'bg-blue-600 text-white rounded-tr-sm')
+            : (msgIsDriver
+                ? 'bg-gray-700 text-gray-100 rounded-tl-sm'
+                : 'bg-gray-600/80 text-gray-100 rounded-tl-sm')
 
           return (
             <div
-              key={i}
+              key={msg.id || i}
               className={`flex ${isMine ? 'justify-end' : 'justify-start'} ride-chat-msg-anim`}
             >
-              {/* Role icon for non-mine driver messages */}
-              {!isMine && isDriver && (
+              {!isMine && msgIsDriver && (
                 <span className="text-xs mr-1 mt-2 text-gray-500" title="Driver">🚗</span>
               )}
 
@@ -225,10 +352,14 @@ export default function RideChat({ ride, user, onClose }) {
                 {!isMine && (
                   <p className="text-xs font-semibold text-blue-300 mb-0.5 flex items-center gap-1">
                     {msg.name}
-                    {isDriver && <span className="text-yellow-400 text-xs">Driver</span>}
+                    {msgIsDriver && <span className="text-yellow-400 text-xs">Driver</span>}
+                    {ride?.user_id && msg.user_id === ride.user_id && (
+                      <span className="text-green-400 text-xs">Poster</span>
+                    )}
                   </p>
                 )}
-                <p className="leading-snug break-words">{msg.text}</p>
+                {msg.text && <p className="leading-snug break-words">{msg.text}</p>}
+                <MediaContent msg={msg} />
                 <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${isMine ? 'text-blue-200/70' : 'text-gray-400'}`}>
                   <span className="text-xs">{formatTime(msg.ts)}</span>
                   {isMine && <ReceiptIcon status={msg.status} />}
@@ -259,8 +390,51 @@ export default function RideChat({ ride, user, onClose }) {
         <div ref={bottomRef} />
       </div>
 
+      {/* Media error */}
+      {mediaError && (
+        <div className="px-3 py-1 text-xs text-red-400 bg-red-900/20 border-t border-red-800/40">
+          {mediaError}
+        </div>
+      )}
+
       {/* Input */}
-      <form onSubmit={handleSend} className="ride-chat-input-bar flex gap-2 px-3 py-2.5 border-t border-gray-700">
+      <form onSubmit={handleSend} className="ride-chat-input-bar flex gap-1.5 px-2 py-2 border-t border-gray-700">
+        {/* Image pick */}
+        <input ref={fileInputRef} type="file" accept="image/*" className="sr-only" onChange={handleFileChange} />
+        <button
+          type="button"
+          onClick={handleImagePick}
+          disabled={!joined}
+          title="Send image"
+          className="ride-chat-media-btn rounded-full w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-300 text-sm transition-colors shrink-0"
+        >
+          🖼
+        </button>
+
+        {/* Voice record */}
+        <button
+          type="button"
+          onClick={recording ? stopRecording : startRecording}
+          disabled={!joined}
+          title={recording ? 'Stop recording' : 'Send voice message'}
+          className={`ride-chat-media-btn rounded-full w-8 h-8 flex items-center justify-center disabled:opacity-40 text-sm transition-colors shrink-0 ${
+            recording ? 'bg-red-600 hover:bg-red-500 text-white ride-chat-recording-pulse' : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+          }`}
+        >
+          🎙
+        </button>
+
+        {/* Location share */}
+        <button
+          type="button"
+          onClick={handleShareLocation}
+          disabled={!joined}
+          title="Share location"
+          className="ride-chat-media-btn rounded-full w-8 h-8 flex items-center justify-center bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-gray-300 text-sm transition-colors shrink-0"
+        >
+          📍
+        </button>
+
         <input
           ref={inputRef}
           type="text"
@@ -269,7 +443,7 @@ export default function RideChat({ ride, user, onClose }) {
           placeholder={joined ? 'Type a message…' : 'Connecting…'}
           disabled={!joined}
           maxLength={MAX_LEN}
-          className="flex-1 rounded-full bg-gray-800 border border-gray-600 text-gray-100 text-sm px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 ride-chat-text-input"
+          className="flex-1 rounded-full bg-gray-800 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 ride-chat-text-input min-w-0"
         />
         <button
           type="submit"
