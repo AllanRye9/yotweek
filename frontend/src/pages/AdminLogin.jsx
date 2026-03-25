@@ -134,6 +134,12 @@ export default function AdminLogin({ register = false }) {
               </button>
             </p>
           )}
+
+          {hasAdmin === false && mode === 'login' && (
+            <p className="mt-3 text-center text-xs text-gray-600 bg-gray-900 rounded-lg px-3 py-2 border border-gray-800">
+              💡 You can also sign in directly using the <code className="text-gray-400">ADMIN_PASSWORD</code> environment variable as the password (any username).
+            </p>
+          )}
         </div>
 
         <p className="mt-6 text-center">

@@ -1604,3 +1604,255 @@ class TestAdminReviews:
         # Second delete
         resp2 = run(api_admin_delete_review(admin_req, review_id))
         assert resp2.status_code == 404
+
+
+# ===========================================================================
+# Real estate agent tests
+# ===========================================================================
+
+class TestRealEstateAgents:
+    """Tests for /api/agents endpoints and agent chat socket events."""
+
+    def test_list_agents_returns_agents(self):
+        """GET /api/agents should return at least the seeded demo agents."""
+        import json
+        from api.app import api_list_agents
+        resp = run(api_list_agents())
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert "agents" in data
+        assert isinstance(data["agents"], list)
+        assert len(data["agents"]) > 0
+
+    def test_list_agents_available_first(self):
+        """Agents without a status filter should return available agents first."""
+        import json
+        from api.app import api_list_agents
+        resp = run(api_list_agents())
+        data = json.loads(resp.body)
+        agents = data["agents"]
+        statuses = [a["availability_status"] for a in agents]
+        # All 'available' entries should appear before any 'busy' or 'offline'
+        seen_non_available = False
+        for s in statuses:
+            if s != "available":
+                seen_non_available = True
+            if seen_non_available and s == "available":
+                assert False, "available agent appeared after non-available agent"
+
+    def test_list_agents_filter_by_status(self):
+        """GET /api/agents?status=available should only return available agents."""
+        import json
+        from api.app import api_list_agents
+        resp = run(api_list_agents(status="available"))
+        data = json.loads(resp.body)
+        for a in data["agents"]:
+            assert a["availability_status"] == "available"
+
+    def test_get_agent_returns_detail(self):
+        """GET /api/agents/{agent_id} should return full agent profile."""
+        import json
+        from api.app import api_list_agents, api_get_agent
+        # Get the first agent
+        agents_resp = run(api_list_agents())
+        agents = json.loads(agents_resp.body)["agents"]
+        agent_id = agents[0]["agent_id"]
+
+        resp = run(api_get_agent(agent_id))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert "agent" in data
+        assert data["agent"]["agent_id"] == agent_id
+        assert "reviews" in data["agent"]
+        assert "review_count" in data["agent"]
+        assert "avg_rating" in data["agent"]
+
+    def test_get_agent_not_found(self):
+        """GET /api/agents/nonexistent should return 404."""
+        from api.app import api_get_agent
+        resp = run(api_get_agent("nonexistent-agent-xyz"))
+        assert resp.status_code == 404
+
+    def test_update_agent_status_requires_login(self):
+        """PUT /api/agents/{id}/status without login should return 401."""
+        from api.app import api_update_agent_status, _AgentStatusUpdate, api_list_agents
+        import json
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        req = _make_request({})
+        resp = run(api_update_agent_status(req, agent_id, _AgentStatusUpdate(status="busy")))
+        assert resp.status_code == 401
+
+    def test_update_agent_status_invalid_status(self):
+        """PUT with invalid status should return 400."""
+        from api.app import api_update_agent_status, _AgentStatusUpdate, api_list_agents
+        import json
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        req = _make_request({"admin_logged_in": True})
+        resp = run(api_update_agent_status(req, agent_id, _AgentStatusUpdate(status="invisible")))
+        assert resp.status_code == 400
+
+    def test_update_agent_status_admin_ok(self):
+        """Admin should be able to update any agent's status."""
+        import json
+        from api.app import api_update_agent_status, _AgentStatusUpdate, api_list_agents, api_get_agent
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        req = _make_request({"admin_logged_in": True})
+        resp = run(api_update_agent_status(req, agent_id, _AgentStatusUpdate(status="busy")))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert data["ok"] is True
+        assert data["status"] == "busy"
+        # Verify persisted
+        detail = json.loads(run(api_get_agent(agent_id)).body)
+        assert detail["agent"]["availability_status"] == "busy"
+
+    def test_submit_agent_review_requires_login(self):
+        """POST /api/agents/{id}/review without login should return 401."""
+        import json
+        from api.app import api_submit_agent_review, _AgentReviewRequest, api_list_agents
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        req = _make_request({})
+        resp = run(api_submit_agent_review(req, agent_id, _AgentReviewRequest(rating=5, text="Great!")))
+        assert resp.status_code == 401
+
+    def test_submit_agent_review_invalid_rating(self):
+        """Rating outside 1-5 should return 400."""
+        import json
+        from api.app import api_submit_agent_review, _AgentReviewRequest, api_list_agents
+        from api.app import api_user_register, _UserRegisterRequest
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        # Register a user
+        email = f"reviewer_{uuid.uuid4().hex[:8]}@test.com"
+        user_id = str(uuid.uuid4())
+        run(api_user_register(_UserRegisterRequest(name="Reviewer", email=email, password="pass1234")))
+        # Find user_id by email
+        from api.app import _get_db, _db_lock, USE_POSTGRES
+        with _db_lock:
+            conn = _get_db()
+            try:
+                from api.app import _execute
+                cur = _execute(conn, "SELECT user_id FROM app_users WHERE email=?" if not USE_POSTGRES else "SELECT user_id FROM app_users WHERE email=%s", (email,))
+                row = cur.fetchone()
+                user_id = row[0] if row else None
+            finally:
+                conn.close()
+        req = _make_request({"app_user_id": user_id})
+        resp = run(api_submit_agent_review(req, agent_id, _AgentReviewRequest(rating=6, text="Too high")))
+        assert resp.status_code == 400
+
+    def test_submit_agent_review_ok(self):
+        """Logged-in user should be able to submit a review."""
+        import json
+        from api.app import api_submit_agent_review, _AgentReviewRequest, api_list_agents
+        from api.app import api_user_register, _UserRegisterRequest, api_get_agent
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        email = f"reviewer_{uuid.uuid4().hex[:8]}@test.com"
+        run(api_user_register(_UserRegisterRequest(name="Good Reviewer", email=email, password="pass1234")))
+        from api.app import _get_db, _db_lock, USE_POSTGRES, _execute
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(conn, "SELECT user_id FROM app_users WHERE email=?" if not USE_POSTGRES else "SELECT user_id FROM app_users WHERE email=%s", (email,))
+                row = cur.fetchone()
+                user_id = row[0] if row else None
+            finally:
+                conn.close()
+        req = _make_request({"app_user_id": user_id})
+        resp = run(api_submit_agent_review(req, agent_id, _AgentReviewRequest(rating=4, text="Very helpful!")))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert data["ok"] is True
+        assert "review_id" in data
+        # Verify review appears in agent detail
+        detail = json.loads(run(api_get_agent(agent_id)).body)
+        review_ids = [r["review_id"] for r in detail["agent"]["reviews"]]
+        assert data["review_id"] in review_ids
+
+    def test_like_agent_requires_login(self):
+        """POST /api/agents/{id}/like without login should return 401."""
+        import json
+        from api.app import api_like_agent, api_list_agents
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        req = _make_request({})
+        resp = run(api_like_agent(req, agent_id))
+        assert resp.status_code == 401
+
+    def test_like_agent_toggle(self):
+        """Liking should toggle: first like increments count, second like decrements."""
+        import json
+        from api.app import api_like_agent, api_list_agents
+        from api.app import api_user_register, _UserRegisterRequest, _get_db, _db_lock, USE_POSTGRES, _execute
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[1]["agent_id"]
+        email = f"liker_{uuid.uuid4().hex[:8]}@test.com"
+        run(api_user_register(_UserRegisterRequest(name="Liker", email=email, password="pass1234")))
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(conn, "SELECT user_id FROM app_users WHERE email=?" if not USE_POSTGRES else "SELECT user_id FROM app_users WHERE email=%s", (email,))
+                row = cur.fetchone()
+                user_id = row[0] if row else None
+            finally:
+                conn.close()
+        req = _make_request({"app_user_id": user_id})
+        resp1 = run(api_like_agent(req, agent_id))
+        data1 = json.loads(resp1.body)
+        assert resp1.status_code == 200
+        assert data1["liked"] is True
+        count_after_like = data1["like_count"]
+        # Like again → unlike
+        resp2 = run(api_like_agent(req, agent_id))
+        data2 = json.loads(resp2.body)
+        assert data2["liked"] is False
+        assert data2["like_count"] == count_after_like - 1
+
+    def test_get_agent_chat_requires_login(self):
+        """GET /api/agents/{id}/chat without login should return 401."""
+        import json
+        from api.app import api_get_agent_chat, api_list_agents
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        req = _make_request({})
+        resp = run(api_get_agent_chat(req, agent_id))
+        assert resp.status_code == 401
+
+    def test_get_agent_chat_empty_for_new_user(self):
+        """New user should see an empty chat history."""
+        import json
+        from api.app import api_get_agent_chat, api_list_agents
+        from api.app import api_user_register, _UserRegisterRequest, _get_db, _db_lock, USE_POSTGRES, _execute
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        agent_id = agents[0]["agent_id"]
+        email = f"chatter_{uuid.uuid4().hex[:8]}@test.com"
+        run(api_user_register(_UserRegisterRequest(name="Chatter", email=email, password="pass1234")))
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(conn, "SELECT user_id FROM app_users WHERE email=?" if not USE_POSTGRES else "SELECT user_id FROM app_users WHERE email=%s", (email,))
+                row = cur.fetchone()
+                user_id = row[0] if row else None
+            finally:
+                conn.close()
+        req = _make_request({"app_user_id": user_id})
+        resp = run(api_get_agent_chat(req, agent_id))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert "messages" in data
+        assert data["messages"] == []
+
+    def test_agents_have_review_and_like_counts(self):
+        """Agent list entries should include review_count, avg_rating, like_count fields."""
+        import json
+        from api.app import api_list_agents
+        agents = json.loads(run(api_list_agents()).body)["agents"]
+        for a in agents:
+            assert "review_count" in a
+            assert "avg_rating" in a
+            assert "like_count" in a

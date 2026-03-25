@@ -549,6 +549,55 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS real_estate_agents (
+                        id SERIAL PRIMARY KEY,
+                        agent_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT,
+                        name TEXT NOT NULL,
+                        avatar TEXT,
+                        bio TEXT,
+                        email TEXT,
+                        phone TEXT,
+                        availability_status TEXT NOT NULL DEFAULT 'available',
+                        lat REAL,
+                        lng REAL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_reviews (
+                        id SERIAL PRIMARY KEY,
+                        review_id TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        reviewer_user_id TEXT NOT NULL,
+                        reviewer_name TEXT NOT NULL,
+                        rating INTEGER NOT NULL,
+                        text TEXT,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_likes (
+                        id SERIAL PRIMARY KEY,
+                        agent_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(agent_id, user_id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_chat_messages (
+                        id SERIAL PRIMARY KEY,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'user',
+                        text TEXT NOT NULL,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 # Migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
                     try:
@@ -636,6 +685,47 @@ def init_db():
                         media_data TEXT,
                         lat REAL,
                         lng REAL,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS real_estate_agents (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT,
+                        name TEXT NOT NULL,
+                        avatar TEXT,
+                        bio TEXT,
+                        email TEXT,
+                        phone TEXT,
+                        availability_status TEXT NOT NULL DEFAULT 'available',
+                        lat REAL,
+                        lng REAL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS agent_reviews (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        review_id TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        reviewer_user_id TEXT NOT NULL,
+                        reviewer_name TEXT NOT NULL,
+                        rating INTEGER NOT NULL,
+                        text TEXT,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS agent_likes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        agent_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(agent_id, user_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS agent_chat_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'user',
+                        text TEXT NOT NULL,
                         ts REAL NOT NULL,
                         created_at TEXT NOT NULL
                     );
@@ -7294,6 +7384,330 @@ async def api_driver_locations():
 
 
 # =========================================================
+# REAL ESTATE AGENT ENDPOINTS
+# =========================================================
+
+# In-memory agent store seeded with demo data (supplements DB when empty).
+_DEMO_AGENTS_SEED = [
+    {"agent_id": "agent-1", "user_id": None, "name": "Alice Johnson", "avatar": "👩", "bio": "10 years experience in London residential.", "email": "alice@example.com", "phone": "+44 20 0001", "availability_status": "available", "lat": 51.515, "lng": -0.082},
+    {"agent_id": "agent-2", "user_id": None, "name": "Bob Williams",  "avatar": "👨", "bio": "Commercial and residential specialist.", "email": "bob@example.com", "phone": "+44 20 0002", "availability_status": "busy",      "lat": 51.499, "lng": -0.121},
+    {"agent_id": "agent-3", "user_id": None, "name": "Carol Davis",   "avatar": "👩", "bio": "Award-winning lettings agent.", "email": "carol@example.com", "phone": "+44 20 0003", "availability_status": "available", "lat": 51.527, "lng": -0.108},
+    {"agent_id": "agent-4", "user_id": None, "name": "Dan Brown",     "avatar": "👨", "bio": "New-build and off-plan expert.", "email": "dan@example.com", "phone": "+44 20 0004", "availability_status": "offline",   "lat": 51.487, "lng": -0.059},
+    {"agent_id": "agent-5", "user_id": None, "name": "Eva Martinez",  "avatar": "👩", "bio": "South London property specialist.", "email": "eva@example.com", "phone": "+44 20 0005", "availability_status": "available", "lat": 51.503, "lng": -0.095},
+    {"agent_id": "agent-6", "user_id": None, "name": "Frank Lee",     "avatar": "👨", "bio": "Investment and buy-to-let advisor.", "email": "frank@example.com", "phone": "+44 20 0006", "availability_status": "busy",      "lat": 51.532, "lng": -0.072},
+    {"agent_id": "agent-7", "user_id": None, "name": "Grace Kim",     "avatar": "👩", "bio": "First-time buyer support specialist.", "email": "grace@example.com", "phone": "+44 20 0007", "availability_status": "available", "lat": 51.497, "lng": -0.143},
+    {"agent_id": "agent-8", "user_id": None, "name": "Henry Chen",    "avatar": "👨", "bio": "Luxury and high-end properties.", "email": "henry@example.com", "phone": "+44 20 0008", "availability_status": "available", "lat": 51.519, "lng": -0.128},
+]
+_VALID_AGENT_STATUSES = {"available", "busy", "offline"}
+
+def _seed_agents_if_empty():
+    """Seed the real_estate_agents table with demo data if it is empty."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(conn, "SELECT COUNT(*) FROM real_estate_agents")
+            count = (cur.fetchone() or [0])[0]
+            if count == 0:
+                now = datetime.utcnow().isoformat()
+                for a in _DEMO_AGENTS_SEED:
+                    try:
+                        if USE_POSTGRES:
+                            conn.cursor().execute(
+                                "INSERT INTO real_estate_agents (agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                                (a["agent_id"], a["user_id"], a["name"], a["avatar"], a["bio"], a["email"], a["phone"], a["availability_status"], a["lat"], a["lng"], now),
+                            )
+                        else:
+                            conn.execute(
+                                "INSERT OR IGNORE INTO real_estate_agents (agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                (a["agent_id"], a["user_id"], a["name"], a["avatar"], a["bio"], a["email"], a["phone"], a["availability_status"], a["lat"], a["lng"], now),
+                            )
+                    except Exception:
+                        pass
+                conn.commit()
+        finally:
+            conn.close()
+
+
+def _get_agent_row(agent_id: str) -> dict | None:
+    """Fetch one agent by agent_id, including computed review stats."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at FROM real_estate_agents WHERE agent_id=?"
+                if not USE_POSTGRES else
+                "SELECT agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at FROM real_estate_agents WHERE agent_id=%s",
+                (agent_id,),
+            )
+            cols = ["agent_id","user_id","name","avatar","bio","email","phone","availability_status","lat","lng","created_at"]
+            row = cur.fetchone()
+            if not row:
+                return None
+            agent = dict(zip(cols, row))
+            # Compute review stats
+            cur2 = _execute(
+                conn,
+                "SELECT COUNT(*), COALESCE(AVG(rating),0) FROM agent_reviews WHERE agent_id=?"
+                if not USE_POSTGRES else
+                "SELECT COUNT(*), COALESCE(AVG(rating),0) FROM agent_reviews WHERE agent_id=%s",
+                (agent_id,),
+            )
+            r = cur2.fetchone()
+            agent["review_count"] = int(r[0]) if r else 0
+            agent["avg_rating"]   = round(float(r[1]), 1) if r else 0.0
+            # Like count
+            cur3 = _execute(
+                conn,
+                "SELECT COUNT(*) FROM agent_likes WHERE agent_id=?"
+                if not USE_POSTGRES else
+                "SELECT COUNT(*) FROM agent_likes WHERE agent_id=%s",
+                (agent_id,),
+            )
+            r3 = cur3.fetchone()
+            agent["like_count"] = int(r3[0]) if r3 else 0
+            return agent
+        finally:
+            conn.close()
+
+
+@fastapi_app.get("/api/agents")
+async def api_list_agents(status: str | None = None):
+    """List real estate agents, optionally filtered by availability_status."""
+    _seed_agents_if_empty()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if status and status in _VALID_AGENT_STATUSES:
+                cur = _execute(
+                    conn,
+                    "SELECT agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at FROM real_estate_agents WHERE availability_status=? ORDER BY name"
+                    if not USE_POSTGRES else
+                    "SELECT agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at FROM real_estate_agents WHERE availability_status=%s ORDER BY name",
+                    (status,),
+                )
+            else:
+                cur = _execute(
+                    conn,
+                    "SELECT agent_id,user_id,name,avatar,bio,email,phone,availability_status,lat,lng,created_at FROM real_estate_agents ORDER BY CASE availability_status WHEN 'available' THEN 0 WHEN 'busy' THEN 1 ELSE 2 END, name",
+                )
+            cols = ["agent_id","user_id","name","avatar","bio","email","phone","availability_status","lat","lng","created_at"]
+            agents = [dict(zip(cols, r)) for r in cur.fetchall()]
+        finally:
+            conn.close()
+    # Attach review/like stats
+    for a in agents:
+        row = _get_agent_row(a["agent_id"])
+        if row:
+            a["review_count"] = row["review_count"]
+            a["avg_rating"]   = row["avg_rating"]
+            a["like_count"]   = row["like_count"]
+    return JSONResponse({"agents": agents})
+
+
+@fastapi_app.get("/api/agents/{agent_id}")
+async def api_get_agent(agent_id: str):
+    """Get agent profile detail including reviews."""
+    _seed_agents_if_empty()
+    agent = _get_agent_row(agent_id)
+    if not agent:
+        return JSONResponse({"error": "Agent not found."}, status_code=404)
+    # Fetch reviews
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT review_id,reviewer_name,rating,text,created_at FROM agent_reviews WHERE agent_id=? ORDER BY created_at DESC LIMIT 50"
+                if not USE_POSTGRES else
+                "SELECT review_id,reviewer_name,rating,text,created_at FROM agent_reviews WHERE agent_id=%s ORDER BY created_at DESC LIMIT 50",
+                (agent_id,),
+            )
+            rcols = ["review_id","reviewer_name","rating","text","created_at"]
+            agent["reviews"] = [dict(zip(rcols, r)) for r in cur.fetchall()]
+        finally:
+            conn.close()
+    return JSONResponse({"agent": agent})
+
+
+class _AgentStatusUpdate(BaseModel):
+    status: str
+
+@fastapi_app.put("/api/agents/{agent_id}/status")
+async def api_update_agent_status(request: Request, agent_id: str, body: _AgentStatusUpdate):
+    """Update an agent's availability status. Requires login (agent updates own status, or admin)."""
+    user_id = request.session.get("app_user_id")
+    is_admin = request.session.get("admin_logged_in") or request.session.get("admin_user")
+    if not user_id and not is_admin:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    status = body.status.strip().lower()
+    if status not in _VALID_AGENT_STATUSES:
+        return JSONResponse({"error": f"Invalid status. Must be one of: {', '.join(_VALID_AGENT_STATUSES)}"}, status_code=400)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT agent_id, user_id FROM real_estate_agents WHERE agent_id=?"
+                if not USE_POSTGRES else
+                "SELECT agent_id, user_id FROM real_estate_agents WHERE agent_id=%s",
+                (agent_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.close()
+                return JSONResponse({"error": "Agent not found."}, status_code=404)
+            # Only allow if admin OR the agent's linked user_id matches
+            if not is_admin and row[1] != user_id:
+                conn.close()
+                return JSONResponse({"error": "Forbidden."}, status_code=403)
+            _execute(
+                conn,
+                "UPDATE real_estate_agents SET availability_status=? WHERE agent_id=?"
+                if not USE_POSTGRES else
+                "UPDATE real_estate_agents SET availability_status=%s WHERE agent_id=%s",
+                (status, agent_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    # Broadcast status change via socket
+    asyncio.ensure_future(sio.emit("agent_status_changed", {"agent_id": agent_id, "status": status}))
+    return JSONResponse({"ok": True, "status": status})
+
+
+class _AgentReviewRequest(BaseModel):
+    rating: int
+    text: str = ""
+
+@fastapi_app.post("/api/agents/{agent_id}/review")
+async def api_submit_agent_review(request: Request, agent_id: str, body: _AgentReviewRequest):
+    """Submit a review for an agent. Requires login."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    if not (1 <= body.rating <= 5):
+        return JSONResponse({"error": "Rating must be between 1 and 5."}, status_code=400)
+    user = _get_app_user(user_id)
+    if not user:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    agent = _get_agent_row(agent_id)
+    if not agent:
+        return JSONResponse({"error": "Agent not found."}, status_code=404)
+    review_id  = str(uuid.uuid4())
+    now        = datetime.utcnow().isoformat()
+    text       = str(body.text or "").strip()[:500]
+    reviewer_name = user["name"]
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                conn.cursor().execute(
+                    "INSERT INTO agent_reviews (review_id,agent_id,reviewer_user_id,reviewer_name,rating,text,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (review_id, agent_id, user_id, reviewer_name, body.rating, text, now),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO agent_reviews (review_id,agent_id,reviewer_user_id,reviewer_name,rating,text,created_at) VALUES (?,?,?,?,?,?,?)",
+                    (review_id, agent_id, user_id, reviewer_name, body.rating, text, now),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    # Create notification for agent's linked user if any
+    if agent.get("user_id"):
+        _create_notification(
+            agent["user_id"],
+            "agent_review",
+            f"New review from {reviewer_name}",
+            f"{reviewer_name} gave you {body.rating}★" + (f": {text[:80]}" if text else ""),
+        )
+    return JSONResponse({"ok": True, "review_id": review_id})
+
+
+@fastapi_app.post("/api/agents/{agent_id}/like")
+async def api_like_agent(request: Request, agent_id: str):
+    """Toggle a like for an agent. Requires login."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    agent = _get_agent_row(agent_id)
+    if not agent:
+        return JSONResponse({"error": "Agent not found."}, status_code=404)
+    now = datetime.utcnow().isoformat()
+    liked = False
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT id FROM agent_likes WHERE agent_id=? AND user_id=?"
+                if not USE_POSTGRES else
+                "SELECT id FROM agent_likes WHERE agent_id=%s AND user_id=%s",
+                (agent_id, user_id),
+            )
+            existing = cur.fetchone()
+            if existing:
+                _execute(
+                    conn,
+                    "DELETE FROM agent_likes WHERE agent_id=? AND user_id=?"
+                    if not USE_POSTGRES else
+                    "DELETE FROM agent_likes WHERE agent_id=%s AND user_id=%s",
+                    (agent_id, user_id),
+                )
+                liked = False
+            else:
+                if USE_POSTGRES:
+                    conn.cursor().execute(
+                        "INSERT INTO agent_likes (agent_id,user_id,created_at) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",
+                        (agent_id, user_id, now),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO agent_likes (agent_id,user_id,created_at) VALUES (?,?,?)",
+                        (agent_id, user_id, now),
+                    )
+                liked = True
+            conn.commit()
+        finally:
+            conn.close()
+    # Notify agent's linked user if liked
+    user = _get_app_user(user_id)
+    if liked and agent.get("user_id") and user:
+        _create_notification(
+            agent["user_id"],
+            "agent_like",
+            "Someone liked your profile",
+            f"{user['name']} liked your agent profile.",
+        )
+    updated = _get_agent_row(agent_id)
+    return JSONResponse({"ok": True, "liked": liked, "like_count": updated["like_count"] if updated else 0})
+
+
+@fastapi_app.get("/api/agents/{agent_id}/chat")
+async def api_get_agent_chat(request: Request, agent_id: str):
+    """Get chat message history between the current user and an agent."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT msg_id,agent_id,user_id,sender_role,text,ts,created_at FROM agent_chat_messages WHERE agent_id=? AND user_id=? ORDER BY ts ASC LIMIT 200"
+                if not USE_POSTGRES else
+                "SELECT msg_id,agent_id,user_id,sender_role,text,ts,created_at FROM agent_chat_messages WHERE agent_id=%s AND user_id=%s ORDER BY ts ASC LIMIT 200",
+                (agent_id, user_id),
+            )
+            cols = ["msg_id","agent_id","user_id","sender_role","text","ts","created_at"]
+            messages = [dict(zip(cols, r)) for r in cur.fetchall()]
+        finally:
+            conn.close()
+    return JSONResponse({"messages": messages})
+
+
+# =========================================================
 # SOCKET.IO EVENTS
 # =========================================================
 
@@ -7563,6 +7977,123 @@ async def on_ride_chat_read(sid, data):
         return
     room = f"ride_chat_{ride_id}"
     await sio.emit("ride_chat_read", {"ride_id": ride_id, "msg_id": msg_id, "reader": reader}, room=room)
+
+
+# ── Agent live-chat ─────────────────────────────────────────────────────────
+
+@sio.on("agent_chat_join")
+async def on_agent_chat_join(sid, data):
+    """Subscribe caller to an agent's chat room."""
+    if not isinstance(data, dict):
+        return
+    agent_id = data.get("agent_id")
+    user_id  = data.get("user_id")
+    if not agent_id:
+        return
+    room = f"agent_chat_{agent_id}_{user_id}" if user_id else f"agent_chat_{agent_id}"
+    sio.enter_room(sid, room)
+    await sio.emit("agent_chat_joined", {"agent_id": agent_id, "room": room}, room=sid)
+
+
+@sio.on("agent_chat_leave")
+async def on_agent_chat_leave(sid, data):
+    """Unsubscribe caller from an agent's chat room."""
+    if not isinstance(data, dict):
+        return
+    agent_id = data.get("agent_id")
+    user_id  = data.get("user_id")
+    if not agent_id:
+        return
+    room = f"agent_chat_{agent_id}_{user_id}" if user_id else f"agent_chat_{agent_id}"
+    sio.leave_room(sid, room)
+
+
+@sio.on("agent_chat_message")
+async def on_agent_chat_message(sid, data):
+    """Persist and broadcast a chat message between a user and an agent."""
+    if not isinstance(data, dict):
+        return
+    agent_id    = data.get("agent_id")
+    user_id     = data.get("user_id")
+    sender_role = str(data.get("sender_role", "user"))
+    text        = str(data.get("text", "")).strip()[:500]
+    if not agent_id or not user_id or not text:
+        return
+    if sender_role not in ("user", "agent"):
+        sender_role = "user"
+
+    msg_id = str(uuid.uuid4())
+    ts     = time.time()
+    now    = datetime.utcnow().isoformat()
+
+    # Persist message
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    conn.cursor().execute(
+                        "INSERT INTO agent_chat_messages (msg_id,agent_id,user_id,sender_role,text,ts,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (msg_id, agent_id, user_id, sender_role, text, ts, now),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT OR IGNORE INTO agent_chat_messages (msg_id,agent_id,user_id,sender_role,text,ts,created_at) VALUES (?,?,?,?,?,?,?)",
+                        (msg_id, agent_id, user_id, sender_role, text, ts, now),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to persist agent chat message: {e}")
+
+    msg = {"msg_id": msg_id, "agent_id": agent_id, "user_id": user_id,
+           "sender_role": sender_role, "text": text, "ts": ts}
+    room = f"agent_chat_{agent_id}_{user_id}"
+    await sio.emit("agent_chat_message", msg, room=room)
+
+    # Also notify the agent's linked socket if message is from user
+    if sender_role == "user":
+        agent = _get_agent_row(agent_id)
+        if agent and agent.get("user_id"):
+            agent_user_id = agent["user_id"]
+            with _socket_user_lock:
+                agent_sid = _user_to_sid.get(agent_user_id)
+            if agent_sid:
+                try:
+                    await sio.emit("agent_chat_message", msg, room=agent_sid)
+                except Exception as e:
+                    logger.warning(f"Failed to notify agent of chat message: {e}")
+
+    logger.info(f"Agent chat [{agent_id}] user {user_id}: {text[:80]}")
+
+
+@sio.on("agent_chat_typing")
+async def on_agent_chat_typing(sid, data):
+    """Broadcast typing indicator in an agent chat room."""
+    if not isinstance(data, dict):
+        return
+    agent_id = data.get("agent_id")
+    user_id  = data.get("user_id")
+    name     = str(data.get("name", "")).strip()
+    if not agent_id or not user_id:
+        return
+    room = f"agent_chat_{agent_id}_{user_id}"
+    await sio.emit("agent_chat_typing", {"agent_id": agent_id, "user_id": user_id, "name": name}, room=room, skip_sid=sid)
+
+
+@sio.on("agent_chat_stop_typing")
+async def on_agent_chat_stop_typing(sid, data):
+    """Broadcast stop-typing in an agent chat room."""
+    if not isinstance(data, dict):
+        return
+    agent_id = data.get("agent_id")
+    user_id  = data.get("user_id")
+    name     = str(data.get("name", "")).strip()
+    if not agent_id or not user_id:
+        return
+    room = f"agent_chat_{agent_id}_{user_id}"
+    await sio.emit("agent_chat_stop_typing", {"agent_id": agent_id, "user_id": user_id, "name": name}, room=room, skip_sid=sid)
 
 
 # =========================================================
