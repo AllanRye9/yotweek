@@ -618,6 +618,30 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS dm_conversations (
+                        id SERIAL PRIMARY KEY,
+                        conv_id TEXT UNIQUE NOT NULL,
+                        user1_id TEXT NOT NULL,
+                        user2_id TEXT NOT NULL,
+                        unread_u1 INTEGER NOT NULL DEFAULT 0,
+                        unread_u2 INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS dm_messages (
+                        id SERIAL PRIMARY KEY,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        conv_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'sent',
+                        reply_to_id TEXT,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
@@ -749,6 +773,26 @@ def init_db():
                         user_id TEXT NOT NULL,
                         sender_role TEXT NOT NULL DEFAULT 'user',
                         text TEXT NOT NULL,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS dm_conversations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        conv_id TEXT UNIQUE NOT NULL,
+                        user1_id TEXT NOT NULL,
+                        user2_id TEXT NOT NULL,
+                        unread_u1 INTEGER NOT NULL DEFAULT 0,
+                        unread_u2 INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS dm_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        conv_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'sent',
+                        reply_to_id TEXT,
                         ts REAL NOT NULL,
                         created_at TEXT NOT NULL
                     );
@@ -8187,6 +8231,321 @@ async def api_get_agent_chat(request: Request, agent_id: str):
 
 
 # =========================================================
+# DIRECT MESSAGING (DM) ENDPOINTS
+# =========================================================
+
+class _DMSendRequest(BaseModel):
+    conv_id: str
+    content: str
+    reply_to_id: str | None = None
+
+class _DMStartRequest(BaseModel):
+    other_user_id: str
+
+
+def _get_dm_conversation(conv_id: str) -> dict | None:
+    """Return the conversation row as a dict or None."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at FROM dm_conversations WHERE conv_id=?"
+                if not USE_POSTGRES else
+                "SELECT conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at FROM dm_conversations WHERE conv_id=%s",
+                (conv_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            return dict(zip(["conv_id","user1_id","user2_id","unread_u1","unread_u2","created_at"], row))
+        finally:
+            conn.close()
+
+
+def _find_or_create_conversation(user_a: str, user_b: str) -> dict:
+    """Find an existing conversation between two users, or create one."""
+    # Canonical order: smaller user_id is user1 so we get a unique pair
+    u1, u2 = (user_a, user_b) if user_a < user_b else (user_b, user_a)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at FROM dm_conversations WHERE user1_id=? AND user2_id=?"
+                if not USE_POSTGRES else
+                "SELECT conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at FROM dm_conversations WHERE user1_id=%s AND user2_id=%s",
+                (u1, u2),
+            )
+            row = cur.fetchone()
+            if row:
+                return dict(zip(["conv_id","user1_id","user2_id","unread_u1","unread_u2","created_at"], row))
+            # Create new
+            conv_id = str(uuid.uuid4())
+            now = datetime.now(timezone.utc).isoformat()
+            _execute(
+                conn,
+                "INSERT INTO dm_conversations (conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at) VALUES (?,?,?,0,0,?)"
+                if not USE_POSTGRES else
+                "INSERT INTO dm_conversations (conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at) VALUES (%s,%s,%s,0,0,%s)",
+                (conv_id, u1, u2, now),
+            )
+            conn.commit()
+            return {"conv_id": conv_id, "user1_id": u1, "user2_id": u2, "unread_u1": 0, "unread_u2": 0, "created_at": now}
+        finally:
+            conn.close()
+
+
+@fastapi_app.get("/api/dm/conversations")
+async def api_dm_list_conversations(request: Request):
+    """List all DM conversations for the current user, with last-message preview."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at FROM dm_conversations WHERE user1_id=? OR user2_id=?"
+                if not USE_POSTGRES else
+                "SELECT conv_id,user1_id,user2_id,unread_u1,unread_u2,created_at FROM dm_conversations WHERE user1_id=%s OR user2_id=%s",
+                (user_id, user_id),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    conversations = []
+    for row in rows:
+        conv = dict(zip(["conv_id","user1_id","user2_id","unread_u1","unread_u2","created_at"], row))
+        other_id = conv["user2_id"] if conv["user1_id"] == user_id else conv["user1_id"]
+        other = _get_app_user(other_id)
+        unread = conv["unread_u1"] if conv["user1_id"] == user_id else conv["unread_u2"]
+
+        # Get last message
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(
+                    conn,
+                    "SELECT msg_id,sender_id,content,status,reply_to_id,ts FROM dm_messages WHERE conv_id=? ORDER BY ts DESC LIMIT 1"
+                    if not USE_POSTGRES else
+                    "SELECT msg_id,sender_id,content,status,reply_to_id,ts FROM dm_messages WHERE conv_id=%s ORDER BY ts DESC LIMIT 1",
+                    (conv["conv_id"],),
+                )
+                lm = cur.fetchone()
+            finally:
+                conn.close()
+
+        last_msg = None
+        if lm:
+            last_msg = dict(zip(["msg_id","sender_id","content","status","reply_to_id","ts"], lm))
+
+        conversations.append({
+            "conv_id":      conv["conv_id"],
+            "other_user":   {"user_id": other_id, "name": other["name"] if other else other_id, "online_status": "offline"},
+            "unread_count": unread,
+            "last_message": last_msg,
+            "created_at":   conv["created_at"],
+        })
+
+    # Sort by last message timestamp (most recent first)
+    conversations.sort(key=lambda c: (c["last_message"]["ts"] if c["last_message"] else 0), reverse=True)
+    return JSONResponse({"conversations": conversations})
+
+
+@fastapi_app.post("/api/dm/conversations")
+async def api_dm_start_conversation(request: Request, body: _DMStartRequest):
+    """Find or create a DM conversation with another user."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    other_id = body.other_user_id.strip()
+    if not other_id or other_id == user_id:
+        return JSONResponse({"error": "Invalid user."}, status_code=400)
+    other = _get_app_user(other_id)
+    if not other:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    conv = _find_or_create_conversation(user_id, other_id)
+    return JSONResponse({"conv": conv})
+
+
+@fastapi_app.get("/api/dm/conversations/{conv_id}/messages")
+async def api_dm_get_messages(request: Request, conv_id: str):
+    """Get messages in a DM conversation (requires auth and participation)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    conv = _get_dm_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found."}, status_code=404)
+    if user_id not in (conv["user1_id"], conv["user2_id"]):
+        return JSONResponse({"error": "Access denied."}, status_code=403)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at FROM dm_messages WHERE conv_id=? ORDER BY ts ASC LIMIT 200"
+                if not USE_POSTGRES else
+                "SELECT msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at FROM dm_messages WHERE conv_id=%s ORDER BY ts ASC LIMIT 200",
+                (conv_id,),
+            )
+            cols = ["msg_id","conv_id","sender_id","content","status","reply_to_id","ts","created_at"]
+            messages = [dict(zip(cols, r)) for r in cur.fetchall()]
+        finally:
+            conn.close()
+
+    return JSONResponse({"messages": messages, "conv": conv})
+
+
+@fastapi_app.post("/api/dm/send")
+async def api_dm_send(request: Request, body: _DMSendRequest):
+    """Send a DM message in a conversation."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    content = body.content.strip()[:1000]
+    if not content:
+        return JSONResponse({"error": "Message cannot be empty."}, status_code=400)
+    conv = _get_dm_conversation(body.conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found."}, status_code=404)
+    if user_id not in (conv["user1_id"], conv["user2_id"]):
+        return JSONResponse({"error": "Access denied."}, status_code=403)
+
+    msg_id   = str(uuid.uuid4())
+    ts       = time.time()
+    now      = datetime.now(timezone.utc).isoformat()
+    reply_to = body.reply_to_id or None
+    other_id = conv["user2_id"] if conv["user1_id"] == user_id else conv["user1_id"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            _execute(
+                conn,
+                "INSERT OR IGNORE INTO dm_messages (msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at) VALUES (?,?,?,?,'sent',?,?,?)"
+                if not USE_POSTGRES else
+                "INSERT INTO dm_messages (msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at) VALUES (%s,%s,%s,%s,'sent',%s,%s,%s) ON CONFLICT (msg_id) DO NOTHING",
+                (msg_id, body.conv_id, user_id, content, reply_to, ts, now),
+            )
+            # Increment unread for the other participant
+            if USE_POSTGRES:
+                if other_id == conv["user1_id"]:
+                    conn.cursor().execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=%s", (body.conv_id,))
+                else:
+                    conn.cursor().execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=%s", (body.conv_id,))
+            else:
+                if other_id == conv["user1_id"]:
+                    conn.execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=?", (body.conv_id,))
+                else:
+                    conn.execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=?", (body.conv_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    msg = {
+        "msg_id":      msg_id,
+        "conv_id":     body.conv_id,
+        "sender_id":   user_id,
+        "content":     content,
+        "status":      "sent",
+        "reply_to_id": reply_to,
+        "ts":          ts,
+    }
+
+    # Push real-time delivery to the conversation room
+    room = f"dm_{body.conv_id}"
+    await sio.emit("dm_message", msg, room=room)
+
+    # Notify the other user if they are online (not in the room)
+    with _socket_user_lock:
+        other_sid = _user_to_sid.get(other_id)
+    if other_sid:
+        me = _get_app_user(user_id)
+        sender_name = me["name"] if me else "Someone"
+        await sio.emit(
+            "dm_notification",
+            {"conv_id": body.conv_id, "from": sender_name, "preview": content[:80]},
+            room=other_sid,
+        )
+
+    return JSONResponse({"ok": True, "message": msg})
+
+
+@fastapi_app.post("/api/dm/read/{conv_id}")
+async def api_dm_mark_read(request: Request, conv_id: str):
+    """Mark all messages in a conversation as read for the current user."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    conv = _get_dm_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found."}, status_code=404)
+    if user_id not in (conv["user1_id"], conv["user2_id"]):
+        return JSONResponse({"error": "Access denied."}, status_code=403)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            # Update message status for messages sent by the other participant
+            other_id = conv["user2_id"] if conv["user1_id"] == user_id else conv["user1_id"]
+            _execute(
+                conn,
+                "UPDATE dm_messages SET status='read' WHERE conv_id=? AND sender_id=? AND status!='read'"
+                if not USE_POSTGRES else
+                "UPDATE dm_messages SET status='read' WHERE conv_id=%s AND sender_id=%s AND status!='read'",
+                (conv_id, other_id),
+            )
+            # Reset unread counter for the current user
+            if USE_POSTGRES:
+                if user_id == conv["user1_id"]:
+                    conn.cursor().execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=%s", (conv_id,))
+                else:
+                    conn.cursor().execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=%s", (conv_id,))
+            else:
+                if user_id == conv["user1_id"]:
+                    conn.execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=?", (conv_id,))
+                else:
+                    conn.execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=?", (conv_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    # Notify the other side that messages are read
+    room = f"dm_{conv_id}"
+    await sio.emit("dm_read", {"conv_id": conv_id, "reader_id": user_id}, room=room)
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/users/list")
+async def api_list_users(request: Request):
+    """Return a list of all registered users (name + user_id) for starting new conversations."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT user_id, name FROM app_users WHERE user_id!=? ORDER BY name ASC"
+                if not USE_POSTGRES else
+                "SELECT user_id, name FROM app_users WHERE user_id!=%s ORDER BY name ASC",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    users = [{"user_id": r[0], "name": r[1]} for r in rows]
+    return JSONResponse({"users": users})
+
+
+# =========================================================
 # SOCKET.IO EVENTS
 # =========================================================
 
@@ -8604,6 +8963,204 @@ async def on_agent_profile_visit(sid, data):
     logger.info(f"Agent profile visited: agent {agent_id} by visitor {visitor_id}")
 
 
+# ── Direct Messaging live-chat ───────────────────────────────────────────────
+
+@sio.on("dm_join")
+async def on_dm_join(sid, data):
+    """Subscribe caller to a DM conversation room and send recent history."""
+    if not isinstance(data, dict):
+        return
+    conv_id = data.get("conv_id")
+    if not conv_id:
+        return
+    room = f"dm_{conv_id}"
+    sio.enter_room(sid, room)
+
+    # Load recent persisted messages
+    history = []
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(
+                    conn,
+                    "SELECT msg_id,conv_id,sender_id,content,status,reply_to_id,ts FROM dm_messages WHERE conv_id=? ORDER BY ts ASC LIMIT 100"
+                    if not USE_POSTGRES else
+                    "SELECT msg_id,conv_id,sender_id,content,status,reply_to_id,ts FROM dm_messages WHERE conv_id=%s ORDER BY ts ASC LIMIT 100",
+                    (conv_id,),
+                )
+                cols = ["msg_id","conv_id","sender_id","content","status","reply_to_id","ts"]
+                history = [dict(zip(cols, r)) for r in cur.fetchall()]
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to load DM history: {e}")
+
+    await sio.emit("dm_joined", {"conv_id": conv_id, "history": history}, room=sid)
+    logger.info(f"Socket {sid} joined DM room {room} ({len(history)} history messages)")
+
+
+@sio.on("dm_leave")
+async def on_dm_leave(sid, data):
+    """Unsubscribe caller from a DM conversation room."""
+    if not isinstance(data, dict):
+        return
+    conv_id = data.get("conv_id")
+    if not conv_id:
+        return
+    sio.leave_room(sid, f"dm_{conv_id}")
+
+
+@sio.on("dm_message")
+async def on_dm_message(sid, data):
+    """Persist and broadcast a direct message."""
+    if not isinstance(data, dict):
+        return
+    conv_id    = data.get("conv_id")
+    sender_id  = data.get("sender_id")
+    content    = str(data.get("content", "")).strip()[:1000]
+    reply_to   = data.get("reply_to_id")
+    client_id  = data.get("id")  # client-generated optimistic id
+
+    if not conv_id or not sender_id or not content:
+        return
+
+    # Verify conversation exists
+    conv = _get_dm_conversation(conv_id)
+    if not conv or sender_id not in (conv["user1_id"], conv["user2_id"]):
+        return
+
+    msg_id = client_id or str(uuid.uuid4())
+    ts     = time.time()
+    now    = datetime.now(timezone.utc).isoformat()
+    other_id = conv["user2_id"] if conv["user1_id"] == sender_id else conv["user1_id"]
+
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                _execute(
+                    conn,
+                    "INSERT OR IGNORE INTO dm_messages (msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at) VALUES (?,?,?,?,'sent',?,?,?)"
+                    if not USE_POSTGRES else
+                    "INSERT INTO dm_messages (msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at) VALUES (%s,%s,%s,%s,'sent',%s,%s,%s) ON CONFLICT (msg_id) DO NOTHING",
+                    (msg_id, conv_id, sender_id, content, reply_to, ts, now),
+                )
+                if USE_POSTGRES:
+                    if other_id == conv["user1_id"]:
+                        conn.cursor().execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=%s", (conv_id,))
+                    else:
+                        conn.cursor().execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=%s", (conv_id,))
+                else:
+                    if other_id == conv["user1_id"]:
+                        conn.execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=?", (conv_id,))
+                    else:
+                        conn.execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=?", (conv_id,))
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to persist DM message: {e}")
+
+    msg = {
+        "msg_id":      msg_id,
+        "conv_id":     conv_id,
+        "sender_id":   sender_id,
+        "content":     content,
+        "status":      "sent",
+        "reply_to_id": reply_to,
+        "ts":          ts,
+    }
+
+    room = f"dm_{conv_id}"
+    await sio.emit("dm_message", msg, room=room)
+
+    # Notify other user if online
+    with _socket_user_lock:
+        other_sid = _user_to_sid.get(other_id)
+    if other_sid:
+        me = _get_app_user(sender_id)
+        sender_name = me["name"] if me else "Someone"
+        await sio.emit(
+            "dm_notification",
+            {"conv_id": conv_id, "from": sender_name, "preview": content[:80]},
+            room=other_sid,
+        )
+
+    logger.info(f"DM [{conv_id}] from {sender_id}: {content[:80]}")
+
+
+@sio.on("dm_typing")
+async def on_dm_typing(sid, data):
+    """Broadcast typing indicator in a DM conversation room (exclude sender)."""
+    if not isinstance(data, dict):
+        return
+    conv_id   = data.get("conv_id")
+    sender_id = data.get("sender_id")
+    if not conv_id or not sender_id:
+        return
+    room = f"dm_{conv_id}"
+    await sio.emit("dm_typing", {"conv_id": conv_id, "sender_id": sender_id}, room=room, skip_sid=sid)
+
+
+@sio.on("dm_stop_typing")
+async def on_dm_stop_typing(sid, data):
+    """Broadcast stop-typing indicator in a DM conversation room."""
+    if not isinstance(data, dict):
+        return
+    conv_id   = data.get("conv_id")
+    sender_id = data.get("sender_id")
+    if not conv_id or not sender_id:
+        return
+    room = f"dm_{conv_id}"
+    await sio.emit("dm_stop_typing", {"conv_id": conv_id, "sender_id": sender_id}, room=room, skip_sid=sid)
+
+
+@sio.on("dm_read")
+async def on_dm_read(sid, data):
+    """Mark messages in a DM conversation as read and broadcast the event."""
+    if not isinstance(data, dict):
+        return
+    conv_id   = data.get("conv_id")
+    reader_id = data.get("reader_id")
+    if not conv_id or not reader_id:
+        return
+
+    conv = _get_dm_conversation(conv_id)
+    if not conv or reader_id not in (conv["user1_id"], conv["user2_id"]):
+        return
+
+    other_id = conv["user2_id"] if conv["user1_id"] == reader_id else conv["user1_id"]
+
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                _execute(
+                    conn,
+                    "UPDATE dm_messages SET status='read' WHERE conv_id=? AND sender_id=? AND status!='read'"
+                    if not USE_POSTGRES else
+                    "UPDATE dm_messages SET status='read' WHERE conv_id=%s AND sender_id=%s AND status!='read'",
+                    (conv_id, other_id),
+                )
+                if USE_POSTGRES:
+                    if reader_id == conv["user1_id"]:
+                        conn.cursor().execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=%s", (conv_id,))
+                    else:
+                        conn.cursor().execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=%s", (conv_id,))
+                else:
+                    if reader_id == conv["user1_id"]:
+                        conn.execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=?", (conv_id,))
+                    else:
+                        conn.execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=?", (conv_id,))
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"Failed to mark DM messages read: {e}")
+
+    room = f"dm_{conv_id}"
+    await sio.emit("dm_read", {"conv_id": conv_id, "reader_id": reader_id}, room=room)
 
 
 def cleanup_old_files():

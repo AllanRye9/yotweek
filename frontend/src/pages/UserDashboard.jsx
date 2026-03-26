@@ -11,6 +11,7 @@ import RideShareMap from '../components/RideShareMap'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import PropertyManager from '../components/PropertyManager'
+import DMInbox from '../components/DMInbox'
 import {
   getUserProfile, userLogout, getStats, getNotifications,
   markAllNotificationsRead, markNotificationRead,
@@ -212,16 +213,20 @@ export default function UserDashboard() {
     const onFilesUpdated = () => setFileListVersion(v => v + 1)
     // Real-time chat notification from ride poster
     const onChatNotif = () => setUnreadChat(c => c + 1)
+    // Real-time DM notification
+    const onDmNotif = () => setUnreadChat(c => c + 1)
     socket.on('connect',                onConnect)
     socket.on('disconnect',             onDisconnect)
     socket.on('files_updated',          onFilesUpdated)
     socket.on('ride_chat_notification', onChatNotif)
+    socket.on('dm_notification',        onDmNotif)
     setConnected(socket.connected)
     return () => {
       socket.off('connect',                onConnect)
       socket.off('disconnect',             onDisconnect)
       socket.off('files_updated',          onFilesUpdated)
       socket.off('ride_chat_notification', onChatNotif)
+      socket.off('dm_notification',        onDmNotif)
     }
   }, [])
 
@@ -654,47 +659,8 @@ export default function UserDashboard() {
 
             {/* ── Inbox tab ── */}
             {tab === 'inbox' && (
-              <div className="card space-y-4">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">💬 Chat Inbox</h2>
-                <p className="text-xs text-gray-400">Messages from your ride chats.</p>
-                {chatInbox.length === 0 ? (
-                  <div className="text-center text-sm text-gray-500 py-8">
-                    <p className="text-3xl mb-2">💬</p>
-                    <p>No conversations yet.</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {chatInbox.map((conv, i) => (
-                      <div key={conv.msg_id || i} className="flex items-start gap-3 bg-gray-800/50 border border-gray-700 rounded-xl px-4 py-3 hover:bg-gray-800/80 transition-colors">
-                        <div className="w-8 h-8 rounded-full bg-blue-800 flex items-center justify-center text-sm shrink-0">
-                          {conv.sender_role === 'driver' ? '🚗' : '🧍'}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <p className="text-sm font-semibold text-white truncate">{conv.sender_name}</p>
-                            {conv.ride_info?.origin && (
-                              <p className="text-xs text-gray-500 truncate hidden sm:block">
-                                {conv.ride_info.origin} → {conv.ride_info.destination}
-                              </p>
-                            )}
-                          </div>
-                          <p className="text-xs text-gray-400 truncate">
-                            {conv.media_type === 'image' ? '🖼 Image' : conv.media_type === 'audio' ? '🎙 Voice message' : conv.media_type === 'location' ? '📍 Location' : conv.text || '…'}
-                          </p>
-                        </div>
-                        <span className="text-xs text-gray-600 shrink-0">
-                          {conv.ts ? new Date(conv.ts * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <button
-                  onClick={() => getRideChatInbox().then(d => setChatInbox(d.conversations || [])).catch(() => {})}
-                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                >
-                  ↺ Refresh
-                </button>
+              <div className="card">
+                <DMInbox currentUser={appUser} />
               </div>
             )}
 

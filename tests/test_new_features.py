@@ -4,6 +4,7 @@
 - Ride sharing (api_ride_post, api_rides_list, api_ride_cancel)
 - Driver geolocation (_haversine_km, api_driver_location, api_driver_nearby)
 - User dashboard (api_user_dashboard)
+- Direct messaging (api_dm_list_conversations, api_dm_start_conversation, api_dm_send, etc.)
 """
 
 import asyncio
@@ -1952,3 +1953,208 @@ class TestAgentProfileVisit:
 
         _asyncio.run(_run())
         assert "agent_profile_visit_notify" not in emitted
+
+
+# ---------------------------------------------------------------------------
+# Direct Messaging (DM)
+# ---------------------------------------------------------------------------
+
+class TestDirectMessaging:
+    """Tests for the user-to-user DM endpoints and helpers."""
+
+    def _register_and_get_id(self, name="DMUser", role="passenger"):
+        resp, email = _register_user(name=name, role=role)
+        import json
+        from api.app import _get_db, _db_lock, USE_POSTGRES, _execute
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(
+                    conn,
+                    "SELECT user_id FROM app_users WHERE email=?" if not USE_POSTGRES else "SELECT user_id FROM app_users WHERE email=%s",
+                    (email,),
+                )
+                row = cur.fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+
+    def test_list_conversations_requires_login(self):
+        """GET /api/dm/conversations without login → 401."""
+        import json
+        from api.app import api_dm_list_conversations
+        req = _make_request({})
+        resp = run(api_dm_list_conversations(req))
+        assert resp.status_code == 401
+
+    def test_list_conversations_empty_for_new_user(self):
+        """New user has no DM conversations."""
+        import json
+        from api.app import api_dm_list_conversations
+        uid = self._register_and_get_id("DMNewUser")
+        req = _make_request({"app_user_id": uid})
+        resp = run(api_dm_list_conversations(req))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert data["conversations"] == []
+
+    def test_start_conversation_requires_login(self):
+        """POST /api/dm/conversations without login → 401."""
+        import json
+        from api.app import api_dm_start_conversation, _DMStartRequest
+        req = _make_request({})
+        resp = run(api_dm_start_conversation(req, _DMStartRequest(other_user_id="someone")))
+        assert resp.status_code == 401
+
+    def test_start_conversation_with_nonexistent_user(self):
+        """POST /api/dm/conversations with unknown user → 404."""
+        import json
+        from api.app import api_dm_start_conversation, _DMStartRequest
+        uid = self._register_and_get_id("DMStarter")
+        req = _make_request({"app_user_id": uid})
+        resp = run(api_dm_start_conversation(req, _DMStartRequest(other_user_id="does-not-exist")))
+        assert resp.status_code == 404
+
+    def test_start_conversation_creates_and_returns_conv(self):
+        """Two users can start a conversation; repeated calls return same conv_id."""
+        import json
+        from api.app import api_dm_start_conversation, _DMStartRequest
+        uid_a = self._register_and_get_id("DM_Alice")
+        uid_b = self._register_and_get_id("DM_Bob")
+        req = _make_request({"app_user_id": uid_a})
+        # First call creates conversation
+        resp1 = run(api_dm_start_conversation(req, _DMStartRequest(other_user_id=uid_b)))
+        assert resp1.status_code == 200
+        data1 = json.loads(resp1.body)
+        assert "conv" in data1
+        conv_id = data1["conv"]["conv_id"]
+        assert conv_id
+        # Second call returns the same conversation
+        resp2 = run(api_dm_start_conversation(req, _DMStartRequest(other_user_id=uid_b)))
+        data2 = json.loads(resp2.body)
+        assert data2["conv"]["conv_id"] == conv_id
+
+    def test_get_messages_requires_login(self):
+        """GET /api/dm/conversations/{conv_id}/messages without login → 401."""
+        import json
+        from api.app import api_dm_get_messages
+        req = _make_request({})
+        resp = run(api_dm_get_messages(req, "fake-conv-id"))
+        assert resp.status_code == 401
+
+    def test_get_messages_forbidden_for_non_participant(self):
+        """Non-participant cannot read messages in a DM conversation."""
+        import json
+        from api.app import api_dm_start_conversation, api_dm_get_messages, _DMStartRequest
+        uid_a = self._register_and_get_id("DM_C")
+        uid_b = self._register_and_get_id("DM_D")
+        uid_c = self._register_and_get_id("DM_E")
+        req_a = _make_request({"app_user_id": uid_a})
+        conv_resp = run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b)))
+        conv_id = json.loads(conv_resp.body)["conv"]["conv_id"]
+        # User C tries to read
+        req_c = _make_request({"app_user_id": uid_c})
+        resp = run(api_dm_get_messages(req_c, conv_id))
+        assert resp.status_code == 403
+
+    def test_send_and_receive_message(self):
+        """Sending a DM persists it and is returned when fetching messages."""
+        import json
+        from api.app import (
+            api_dm_start_conversation, api_dm_send, api_dm_get_messages,
+            _DMStartRequest, _DMSendRequest,
+        )
+        uid_a = self._register_and_get_id("DM_Sender")
+        uid_b = self._register_and_get_id("DM_Receiver")
+        req_a = _make_request({"app_user_id": uid_a})
+        # Start conversation
+        conv_id = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)["conv"]["conv_id"]
+        # Send message
+        send_resp = run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="Hello DM world!")))
+        assert send_resp.status_code == 200
+        send_data = json.loads(send_resp.body)
+        assert send_data["ok"] is True
+        assert send_data["message"]["content"] == "Hello DM world!"
+        # Fetch messages
+        msg_resp = run(api_dm_get_messages(req_a, conv_id))
+        assert msg_resp.status_code == 200
+        msgs = json.loads(msg_resp.body)["messages"]
+        assert any(m["content"] == "Hello DM world!" for m in msgs)
+
+    def test_send_empty_message_rejected(self):
+        """Empty content is rejected with 400."""
+        import json
+        from api.app import (
+            api_dm_start_conversation, api_dm_send,
+            _DMStartRequest, _DMSendRequest,
+        )
+        uid_a = self._register_and_get_id("DM_EmptySender")
+        uid_b = self._register_and_get_id("DM_EmptyReceiver")
+        req_a = _make_request({"app_user_id": uid_a})
+        conv_id = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)["conv"]["conv_id"]
+        resp = run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="   ")))
+        assert resp.status_code == 400
+
+    def test_mark_read_clears_unread_count(self):
+        """After marking read, unread_count for the reader drops to 0."""
+        import json
+        from api.app import (
+            api_dm_start_conversation, api_dm_send, api_dm_mark_read,
+            api_dm_list_conversations,
+            _DMStartRequest, _DMSendRequest,
+        )
+        uid_a = self._register_and_get_id("DM_ReadA")
+        uid_b = self._register_and_get_id("DM_ReadB")
+        req_a = _make_request({"app_user_id": uid_a})
+        req_b = _make_request({"app_user_id": uid_b})
+        conv_id = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)["conv"]["conv_id"]
+        # A sends a message → B has unread=1
+        run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="Hey!")))
+        convs_b = json.loads(run(api_dm_list_conversations(req_b)).body)["conversations"]
+        unread_before = next(c["unread_count"] for c in convs_b if c["conv_id"] == conv_id)
+        assert unread_before == 1
+        # B marks read
+        read_resp = run(api_dm_mark_read(req_b, conv_id))
+        assert read_resp.status_code == 200
+        convs_b2 = json.loads(run(api_dm_list_conversations(req_b)).body)["conversations"]
+        unread_after = next(c["unread_count"] for c in convs_b2 if c["conv_id"] == conv_id)
+        assert unread_after == 0
+
+    def test_reply_to_message(self):
+        """reply_to_id is persisted and returned with the message."""
+        import json
+        from api.app import (
+            api_dm_start_conversation, api_dm_send, api_dm_get_messages,
+            _DMStartRequest, _DMSendRequest,
+        )
+        uid_a = self._register_and_get_id("DM_ReplyA")
+        uid_b = self._register_and_get_id("DM_ReplyB")
+        req_a = _make_request({"app_user_id": uid_a})
+        conv_id = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)["conv"]["conv_id"]
+        # First message
+        first = json.loads(run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="First message"))).body)["message"]
+        first_id = first["msg_id"]
+        # Reply
+        run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="Reply!", reply_to_id=first_id)))
+        msgs = json.loads(run(api_dm_get_messages(req_a, conv_id)).body)["messages"]
+        reply = next((m for m in msgs if m.get("reply_to_id") == first_id), None)
+        assert reply is not None
+        assert reply["content"] == "Reply!"
+
+    def test_list_users_requires_login(self):
+        """GET /api/users/list without login → 401."""
+        from api.app import api_list_users
+        req = _make_request({})
+        resp = run(api_list_users(req))
+        assert resp.status_code == 401
+
+    def test_list_users_excludes_self(self):
+        """GET /api/users/list should not include the requesting user."""
+        import json
+        from api.app import api_list_users
+        uid = self._register_and_get_id("DM_SelfExclude")
+        req = _make_request({"app_user_id": uid})
+        resp = run(api_list_users(req))
+        assert resp.status_code == 200
+        users = json.loads(resp.body)["users"]
+        assert all(u["user_id"] != uid for u in users)
