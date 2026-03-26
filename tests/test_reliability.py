@@ -536,3 +536,158 @@ class TestMaxConcurrentDownloadsDefault:
         else:
             assert 3 <= Config.MAX_CONCURRENT_DOWNLOADS <= 10
 
+
+# ---------------------------------------------------------------------------
+# _ensure_download_folder — missing-directory resilience
+# ---------------------------------------------------------------------------
+
+class TestEnsureDownloadFolder:
+    """_ensure_download_folder() must create (or silently handle) a missing dir."""
+
+    def test_returns_true_when_folder_already_exists(self):
+        from api.app import _ensure_download_folder
+        # DOWNLOAD_FOLDER was created at import time, so it must already exist.
+        assert _ensure_download_folder() is True
+
+    def test_recreates_removed_folder(self):
+        import shutil
+        import tempfile
+        import api.app as app_module
+        original_folder = app_module.DOWNLOAD_FOLDER
+        tmp_parent = tempfile.mkdtemp()
+        new_folder = os.path.join(tmp_parent, "dl_test")
+        # Temporarily redirect DOWNLOAD_FOLDER to a path that does not exist yet
+        app_module.DOWNLOAD_FOLDER = new_folder
+        try:
+            assert not os.path.isdir(new_folder)
+            result = app_module._ensure_download_folder()
+            assert result is True
+            assert os.path.isdir(new_folder)
+        finally:
+            app_module.DOWNLOAD_FOLDER = original_folder
+            shutil.rmtree(tmp_parent, ignore_errors=True)
+
+    def test_returns_false_on_unwritable_path(self):
+        import api.app as app_module
+        original_folder = app_module.DOWNLOAD_FOLDER
+        # Point at a path that cannot be created (non-existent root component)
+        app_module.DOWNLOAD_FOLDER = "/nonexistent_root_xyz/dl"
+        try:
+            result = app_module._ensure_download_folder()
+            assert result is False
+        finally:
+            app_module.DOWNLOAD_FOLDER = original_folder
+
+
+# ---------------------------------------------------------------------------
+# /stats endpoint — graceful behaviour when download folder is absent
+# ---------------------------------------------------------------------------
+
+class TestStatsMissingFolder:
+    """GET /stats must return zero counts instead of a 500 error when the
+    downloads directory does not exist (new deployment / ephemeral FS)."""
+
+    def test_stats_returns_zeros_when_folder_missing(self):
+        import asyncio
+        import json
+        from unittest.mock import patch
+        from api.app import get_stats, _get_persistent_stats
+
+        with patch("api.app.os.listdir", side_effect=FileNotFoundError("no dir")), \
+             patch("api.app._ensure_download_folder", return_value=False):
+            response = asyncio.run(get_stats())
+
+        assert response.status_code == 200
+        data = json.loads(response.body)
+        assert data["file_count"] == 0
+        assert data["total_size"] == 0
+        assert "active_downloads" in data
+
+    def test_stats_does_not_return_500_on_missing_folder(self):
+        import asyncio
+        import json
+        from unittest.mock import patch
+        from api.app import get_stats
+
+        with patch("api.app.os.listdir", side_effect=FileNotFoundError("gone")), \
+             patch("api.app._ensure_download_folder", return_value=False):
+            response = asyncio.run(get_stats())
+
+        assert response.status_code != 500
+
+
+# ---------------------------------------------------------------------------
+# /files endpoint — graceful behaviour when download folder is absent
+# ---------------------------------------------------------------------------
+
+class TestListFilesMissingFolder:
+    """GET /files must return an empty list instead of a 500 error when the
+    downloads directory does not exist (new deployment / ephemeral FS)."""
+
+    def test_list_files_returns_empty_list_when_folder_missing(self):
+        import asyncio
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from api.app import list_files
+
+        request = SimpleNamespace(
+            session={"admin_logged_in": True},
+            url_for=lambda *a, **kw: "http://testserver/downloads/file",
+        )
+
+        with patch("api.app.os.listdir", side_effect=FileNotFoundError("no dir")), \
+             patch("api.app._ensure_download_folder", return_value=False):
+            response = asyncio.run(list_files(request=request, session_id=None))
+
+        assert response.status_code == 200
+        data = json.loads(response.body)
+        assert data == []
+
+    def test_list_files_does_not_return_500_on_missing_folder(self):
+        import asyncio
+        import json
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from api.app import list_files
+
+        request = SimpleNamespace(
+            session={"admin_logged_in": True},
+            url_for=lambda *a, **kw: "http://testserver/downloads/file",
+        )
+
+        with patch("api.app.os.listdir", side_effect=FileNotFoundError("gone")), \
+             patch("api.app._ensure_download_folder", return_value=False):
+            response = asyncio.run(list_files(request=request, session_id=None))
+
+        assert response.status_code != 500
+
+
+# ---------------------------------------------------------------------------
+# cleanup_old_files — graceful behaviour when download folder is absent
+# ---------------------------------------------------------------------------
+
+class TestCleanupMissingFolder:
+    """cleanup_old_files() must not raise when the downloads directory is absent."""
+
+    def test_cleanup_does_not_raise_when_folder_missing(self):
+        from unittest.mock import patch
+        from api.app import cleanup_old_files
+
+        with patch("api.app.os.listdir", side_effect=FileNotFoundError("gone")), \
+             patch("api.app._ensure_download_folder", return_value=False):
+            # Must not raise
+            cleanup_old_files()
+
+    def test_cleanup_recreates_folder_via_ensure(self):
+        """cleanup_old_files calls _ensure_download_folder, which recreates the dir."""
+        from unittest.mock import patch, call
+        from api.app import cleanup_old_files
+
+        with patch("api.app._ensure_download_folder") as mock_ensure, \
+             patch("api.app.os.listdir", return_value=[]):
+            cleanup_old_files()
+
+        mock_ensure.assert_called_once()
+
+
