@@ -98,6 +98,24 @@ except OSError:
     DOWNLOAD_FOLDER = os.path.join("/tmp", "downloads")
     os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
 
+
+def _ensure_download_folder() -> bool:
+    """Re-create DOWNLOAD_FOLDER if it was removed after startup.
+
+    Returns True when the directory exists (or was just created), False when
+    creation failed (e.g. read-only filesystem after the initial fallback).
+    This prevents FileNotFoundError in os.listdir / file writes on fresh
+    deployments or after container restarts that wipe the ephemeral fs.
+    """
+    if os.path.isdir(DOWNLOAD_FOLDER):
+        return True
+    try:
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        return True
+    except OSError as exc:
+        logger.warning("Could not re-create download folder %r: %s", DOWNLOAD_FOLDER, exc)
+        return False
+
 DATA_DIR = os.path.join(ROOT_DIR, "data")
 COOKIES_FILE = os.environ.get("COOKIES_FILE", os.path.join(DATA_DIR, "cookies.txt"))
 # React frontend build output
@@ -2612,6 +2630,10 @@ threading.Thread(target=_queue_dispatcher, daemon=True, name="download-queue-dis
 def download_worker(download_id, url, output_template, format_spec, output_ext=None):
     """Background thread for downloading using the yt-dlp Python API"""
 
+    # Ensure the download directory exists before writing any files.
+    # On new deployments or after container restarts the folder may be absent.
+    _ensure_download_folder()
+
     # ── Phase 1: notify the frontend that the worker has started ──────────────
     emit_from_thread("started", {"id": download_id}, room=download_id)
 
@@ -2739,7 +2761,15 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
 
             # Find downloaded file
             base_name = os.path.splitext(os.path.basename(output_template))[0]
-            for file in os.listdir(DOWNLOAD_FOLDER):
+            try:
+                folder_listing = os.listdir(DOWNLOAD_FOLDER)
+            except FileNotFoundError:
+                logger.warning(
+                    "Downloads folder %r not found while finalising download %s; filename will be unset.",
+                    DOWNLOAD_FOLDER, download_id,
+                )
+                folder_listing = []
+            for file in folder_listing:
                 if file.startswith(base_name):
                     file_path = os.path.join(DOWNLOAD_FOLDER, file)
                     downloads[download_id].update({
@@ -3405,6 +3435,7 @@ async def list_files(request: Request, session_id: str = None):
 
     files = []
     try:
+        _ensure_download_folder()
         for name in os.listdir(DOWNLOAD_FOLDER):
             path = os.path.join(DOWNLOAD_FOLDER, name)
             if not os.path.isfile(path):
@@ -3428,6 +3459,10 @@ async def list_files(request: Request, session_id: str = None):
                 "owner_session": owner_sess,
             })
         files.sort(key=lambda f: f["modified"], reverse=True)
+    except FileNotFoundError:
+        # Downloads directory was removed after startup (e.g. container restart).
+        # Return an empty list rather than a 500 so the UI stays functional.
+        logger.warning("Downloads folder %r not found while listing files; returning empty list.", DOWNLOAD_FOLDER)
     except Exception as e:
         logger.error(f"Error listing files: {e}")
         return JSONResponse({"error": "Failed to list files"}, status_code=500)
@@ -3549,7 +3584,13 @@ async def get_stats():
     try:
         files = []
         total_size = 0
-        for name in os.listdir(DOWNLOAD_FOLDER):
+        try:
+            _ensure_download_folder()
+            listing = os.listdir(DOWNLOAD_FOLDER)
+        except FileNotFoundError:
+            listing = []
+            logger.warning("Downloads folder %r not found while computing stats; using zero counts.", DOWNLOAD_FOLDER)
+        for name in listing:
             path = os.path.join(DOWNLOAD_FOLDER, name)
             if os.path.isfile(path):
                 size = os.path.getsize(path)
@@ -8540,12 +8581,20 @@ async def on_agent_chat_stop_typing(sid, data):
 
 def cleanup_old_files():
     """Delete files that have been on disk for longer than FILE_RETENTION_MINUTES."""
+    _ensure_download_folder()
     try:
         current_time = time.time()
         cutoff = current_time - (Config.FILE_RETENTION_MINUTES * 60)
         files_deleted = False
 
-        for filename in os.listdir(DOWNLOAD_FOLDER):
+        try:
+            listing = os.listdir(DOWNLOAD_FOLDER)
+        except FileNotFoundError:
+            # Directory was removed between the ensure call and the listdir;
+            # nothing to clean up this cycle.
+            return
+
+        for filename in listing:
             filepath = os.path.join(DOWNLOAD_FOLDER, filename)
             if os.path.isfile(filepath):
                 if os.path.getmtime(filepath) < cutoff:
