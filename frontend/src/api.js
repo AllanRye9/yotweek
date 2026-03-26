@@ -375,3 +375,21 @@ export const getNearbyDrivers = (lat, lng, radius_km = 10) =>
   request('GET', `/api/driver/nearby?lat=${lat}&lng=${lng}&radius_km=${radius_km}`)
 
 export const getAllDriverLocations = () => request('GET', '/api/driver/locations')
+
+// ── Direct Messaging ──────────────────────────────────────────────────────────
+
+export const dmListConversations = () => request('GET', '/api/dm/conversations')
+
+export const dmStartConversation = (other_user_id) =>
+  request('POST', '/api/dm/conversations', { other_user_id })
+
+export const dmGetMessages = (convId) =>
+  request('GET', `/api/dm/conversations/${encodeURIComponent(convId)}/messages`)
+
+export const dmSendMessage = (conv_id, content, reply_to_id = null) =>
+  request('POST', '/api/dm/send', { conv_id, content, reply_to_id })
+
+export const dmMarkRead = (convId) =>
+  request('POST', `/api/dm/read/${encodeURIComponent(convId)}`, {})
+
+export const listUsers = () => request('GET', '/api/users/list')
