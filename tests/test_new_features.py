@@ -1856,3 +1856,99 @@ class TestRealEstateAgents:
             assert "review_count" in a
             assert "avg_rating" in a
             assert "like_count" in a
+
+
+class TestAgentProfileVisit:
+    """Tests for the agent_profile_visit socket event."""
+
+    def test_profile_visit_ignores_missing_agent_id(self):
+        """on_agent_profile_visit with no agent_id should do nothing."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append(evt))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_agent_profile_visit("sid-x", {})
+
+        _asyncio.run(_run())
+        assert emitted == []
+
+    def test_profile_visit_ignores_non_dict(self):
+        """on_agent_profile_visit with a non-dict payload should do nothing."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        emitted = []
+
+        async def _run():
+            mock_emit = AsyncMock(side_effect=lambda evt, data=None, room=None: emitted.append(evt))
+            with patch.object(app_module.sio, "emit", mock_emit):
+                await app_module.on_agent_profile_visit("sid-y", "bad_payload")
+
+        _asyncio.run(_run())
+        assert emitted == []
+
+    def test_profile_visit_notifies_linked_agent(self):
+        """on_agent_profile_visit should emit agent_profile_visit_notify to the linked agent's socket."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        emitted = []
+
+        async def _run():
+            # Fake a known agent_id → user_id → sid mapping
+            fake_agent_id = "test-agent-999"
+            fake_user_id  = "linked-user-999"
+            fake_agent_sid = "agent-socket-sid-999"
+
+            fake_agent = {"agent_id": fake_agent_id, "user_id": fake_user_id, "name": "Test Agent"}
+
+            async def mock_emit(evt, data=None, room=None, skip_sid=None):
+                emitted.append((evt, data, room))
+
+            with patch.object(app_module.sio, "emit", mock_emit), \
+                 patch("api.app._get_agent_row", return_value=fake_agent), \
+                 patch.dict(app_module._user_to_sid, {fake_user_id: fake_agent_sid}):
+                await app_module.on_agent_profile_visit("visitor-sid", {
+                    "agent_id": fake_agent_id,
+                    "user_id":  "visitor-user-001",
+                })
+
+        _asyncio.run(_run())
+        notifs = [e for e in emitted if e[0] == "agent_profile_visit_notify"]
+        assert len(notifs) == 1
+        payload = notifs[0][1]
+        assert payload["agent_id"] == "test-agent-999"
+        assert payload["visitor_id"] == "visitor-user-001"
+        assert "ts" in payload
+
+    def test_profile_visit_no_notify_when_agent_offline(self):
+        """on_agent_profile_visit should not emit if the agent has no connected socket."""
+        import asyncio as _asyncio
+        from unittest.mock import AsyncMock, patch
+        import api.app as app_module
+
+        emitted = []
+
+        async def _run():
+            fake_agent = {"agent_id": "offline-agent", "user_id": "offline-user", "name": "Offline"}
+
+            async def mock_emit(evt, data=None, room=None, skip_sid=None):
+                emitted.append(evt)
+
+            with patch.object(app_module.sio, "emit", mock_emit), \
+                 patch("api.app._get_agent_row", return_value=fake_agent), \
+                 patch.dict(app_module._user_to_sid, {}, clear=True):
+                await app_module.on_agent_profile_visit("visitor-sid2", {
+                    "agent_id": "offline-agent",
+                    "user_id":  "visitor-002",
+                })
+
+        _asyncio.run(_run())
+        assert "agent_profile_visit_notify" not in emitted

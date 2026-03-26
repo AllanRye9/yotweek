@@ -14,7 +14,7 @@ function _distKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-export default function RideShare({ user, onRidesChange }) {
+export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled }) {
   const isDriver = user?.role === 'driver'
   const [rides, setRides] = useState([])
   const [loading, setLoading] = useState(false)
@@ -39,6 +39,7 @@ export default function RideShare({ user, onRidesChange }) {
   const [broadcastMsg, setBroadcastMsg] = useState('')
   const [nearbyDrivers, setNearbyDrivers] = useState([])
   const [chatRide, setChatRide] = useState(null)
+  const [chatDefaultMsg, setChatDefaultMsg] = useState('')
   // Location search filter
   const [locationFilter, setLocationFilter] = useState('')
   const [userLat, setUserLat] = useState(user?.lat ?? null)
@@ -64,6 +65,15 @@ export default function RideShare({ user, onRidesChange }) {
     setUserLat(user?.lat ?? null)
     setUserLng(user?.lng ?? null)
   }, [user?.lat, user?.lng])
+
+  // Open chat from map "Request Ride" with a pre-filled default message
+  useEffect(() => {
+    if (requestedRide) {
+      setChatRide(requestedRide.ride)
+      setChatDefaultMsg(requestedRide.defaultMsg || '')
+      onRequestedRideHandled?.()
+    }
+  }, [requestedRide]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtered + sorted ride list
   const filteredRides = useMemo(() => {
@@ -224,10 +234,10 @@ export default function RideShare({ user, onRidesChange }) {
       {chatRide && (
         <div
           className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 ride-chat-overlay"
-          onClick={(e) => { if (e.target === e.currentTarget) setChatRide(null) }}
+          onClick={(e) => { if (e.target === e.currentTarget) { setChatRide(null); setChatDefaultMsg('') } }}
         >
           <div className="ride-chat-modal w-full sm:w-[420px] sm:max-w-full h-[80vh] sm:h-[520px] bg-gray-900 border border-gray-700 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden">
-            <RideChat ride={chatRide} user={user} onClose={() => setChatRide(null)} />
+            <RideChat ride={chatRide} user={user} defaultMessage={chatDefaultMsg} onClose={() => { setChatRide(null); setChatDefaultMsg('') }} />
           </div>
         </div>
       )}

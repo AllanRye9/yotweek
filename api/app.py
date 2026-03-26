@@ -8575,9 +8575,36 @@ async def on_agent_chat_stop_typing(sid, data):
     await sio.emit("agent_chat_stop_typing", {"agent_id": agent_id, "user_id": user_id, "name": name}, room=room, skip_sid=sid)
 
 
-# =========================================================
-# CLEANUP THREAD
-# =========================================================
+@sio.on("agent_profile_visit")
+async def on_agent_profile_visit(sid, data):
+    """Notify an agent when a client visits their profile page."""
+    if not isinstance(data, dict):
+        return
+    agent_id  = str(data.get("agent_id", "")).strip()
+    visitor_id = str(data.get("user_id", "anonymous")).strip()
+    if not agent_id:
+        return
+
+    # Notify the agent's linked socket if they are online
+    agent = _get_agent_row(agent_id)
+    if agent and agent.get("user_id"):
+        agent_user_id = agent["user_id"]
+        with _socket_user_lock:
+            agent_sid = _user_to_sid.get(agent_user_id)
+        if agent_sid:
+            try:
+                await sio.emit(
+                    "agent_profile_visit_notify",
+                    {"agent_id": agent_id, "visitor_id": visitor_id, "ts": time.time()},
+                    room=agent_sid,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to notify agent of profile visit: {e}")
+
+    logger.info(f"Agent profile visited: agent {agent_id} by visitor {visitor_id}")
+
+
+
 
 def cleanup_old_files():
     """Delete files that have been on disk for longer than FILE_RETENTION_MINUTES."""
