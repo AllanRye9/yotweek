@@ -8263,6 +8263,34 @@ def _get_dm_conversation(conv_id: str) -> dict | None:
             conn.close()
 
 
+def _dm_increment_unread(conn, conv: dict, recipient_id: str) -> None:
+    """Increment the unread counter for `recipient_id` in a DM conversation (within an open connection)."""
+    if recipient_id == conv["user1_id"]:
+        if USE_POSTGRES:
+            conn.cursor().execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=%s", (conv["conv_id"],))
+        else:
+            conn.execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=?", (conv["conv_id"],))
+    else:
+        if USE_POSTGRES:
+            conn.cursor().execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=%s", (conv["conv_id"],))
+        else:
+            conn.execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=?", (conv["conv_id"],))
+
+
+def _dm_reset_unread(conn, conv: dict, reader_id: str) -> None:
+    """Reset the unread counter for `reader_id` in a DM conversation (within an open connection)."""
+    if reader_id == conv["user1_id"]:
+        if USE_POSTGRES:
+            conn.cursor().execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=%s", (conv["conv_id"],))
+        else:
+            conn.execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=?", (conv["conv_id"],))
+    else:
+        if USE_POSTGRES:
+            conn.cursor().execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=%s", (conv["conv_id"],))
+        else:
+            conn.execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=?", (conv["conv_id"],))
+
+
 def _find_or_create_conversation(user_a: str, user_b: str) -> dict:
     """Find an existing conversation between two users, or create one."""
     # Canonical order: smaller user_id is user1 so we get a unique pair
@@ -8434,16 +8462,7 @@ async def api_dm_send(request: Request, body: _DMSendRequest):
                 (msg_id, body.conv_id, user_id, content, reply_to, ts, now),
             )
             # Increment unread for the other participant
-            if USE_POSTGRES:
-                if other_id == conv["user1_id"]:
-                    conn.cursor().execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=%s", (body.conv_id,))
-                else:
-                    conn.cursor().execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=%s", (body.conv_id,))
-            else:
-                if other_id == conv["user1_id"]:
-                    conn.execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=?", (body.conv_id,))
-                else:
-                    conn.execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=?", (body.conv_id,))
+            _dm_increment_unread(conn, conv, other_id)
             conn.commit()
         finally:
             conn.close()
@@ -8502,16 +8521,7 @@ async def api_dm_mark_read(request: Request, conv_id: str):
                 (conv_id, other_id),
             )
             # Reset unread counter for the current user
-            if USE_POSTGRES:
-                if user_id == conv["user1_id"]:
-                    conn.cursor().execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=%s", (conv_id,))
-                else:
-                    conn.cursor().execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=%s", (conv_id,))
-            else:
-                if user_id == conv["user1_id"]:
-                    conn.execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=?", (conv_id,))
-                else:
-                    conn.execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=?", (conv_id,))
+            _dm_reset_unread(conn, conv, user_id)
             conn.commit()
         finally:
             conn.close()
@@ -9046,16 +9056,7 @@ async def on_dm_message(sid, data):
                     "INSERT INTO dm_messages (msg_id,conv_id,sender_id,content,status,reply_to_id,ts,created_at) VALUES (%s,%s,%s,%s,'sent',%s,%s,%s) ON CONFLICT (msg_id) DO NOTHING",
                     (msg_id, conv_id, sender_id, content, reply_to, ts, now),
                 )
-                if USE_POSTGRES:
-                    if other_id == conv["user1_id"]:
-                        conn.cursor().execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=%s", (conv_id,))
-                    else:
-                        conn.cursor().execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=%s", (conv_id,))
-                else:
-                    if other_id == conv["user1_id"]:
-                        conn.execute("UPDATE dm_conversations SET unread_u1=unread_u1+1 WHERE conv_id=?", (conv_id,))
-                    else:
-                        conn.execute("UPDATE dm_conversations SET unread_u2=unread_u2+1 WHERE conv_id=?", (conv_id,))
+                _dm_increment_unread(conn, conv, other_id)
                 conn.commit()
             finally:
                 conn.close()
@@ -9143,16 +9144,7 @@ async def on_dm_read(sid, data):
                     "UPDATE dm_messages SET status='read' WHERE conv_id=%s AND sender_id=%s AND status!='read'",
                     (conv_id, other_id),
                 )
-                if USE_POSTGRES:
-                    if reader_id == conv["user1_id"]:
-                        conn.cursor().execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=%s", (conv_id,))
-                    else:
-                        conn.cursor().execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=%s", (conv_id,))
-                else:
-                    if reader_id == conv["user1_id"]:
-                        conn.execute("UPDATE dm_conversations SET unread_u1=0 WHERE conv_id=?", (conv_id,))
-                    else:
-                        conn.execute("UPDATE dm_conversations SET unread_u2=0 WHERE conv_id=?", (conv_id,))
+                _dm_reset_unread(conn, conv, reader_id)
                 conn.commit()
             finally:
                 conn.close()

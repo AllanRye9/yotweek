@@ -240,7 +240,7 @@ export default function DMInbox({ currentUser }) {
             const isQR = quickReply?.conv_id === conv.conv_id
             const lastMsg = conv.last_message
             const preview = lastMsg
-              ? (lastMsg.sender_id === myId ? 'You: ' : '') + (lastMsg.content || lastMsg.text || '…')
+              ? (lastMsg.sender_id === myId ? 'You: ' : '') + (lastMsg.content || '…')
               : 'No messages yet'
             const lastTs = lastMsg?.ts
 

@@ -226,7 +226,7 @@ export default function DMChat({ conv, currentUser, onClose }) {
 
           // Reply preview
           const origMsg = findMessage(msg.reply_to_id) || msg._reply_preview
-          const origContent = origMsg?.content || origMsg?.text || ''
+          const origContent = origMsg?.content || ''
 
           return (
             <div
@@ -267,7 +267,7 @@ export default function DMChat({ conv, currentUser, onClose }) {
                       : 'bg-gray-700 text-gray-100 rounded-tl-sm'
                   }`}
                 >
-                  {msg.content || msg.text}
+                  {msg.content}
                   <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${isMine ? 'text-blue-200/70' : 'text-gray-400'}`}>
                     <span className="text-xs">{formatTime(msg.ts)}</span>
                     {isMine && <StatusIcon status={msg.status} />}
@@ -318,7 +318,7 @@ export default function DMChat({ conv, currentUser, onClose }) {
             <span className="text-blue-300 font-semibold">
               Replying to {replyTo.sender_id === myId ? 'yourself' : (otherUser?.name || 'User')}:
             </span>{' '}
-            <span className="text-gray-400">{(replyTo.content || replyTo.text || '').slice(0, 80)}</span>
+            <span className="text-gray-400">{(replyTo.content || '').slice(0, 80)}</span>
           </div>
           <button
             onClick={() => setReplyTo(null)}
