@@ -1884,6 +1884,167 @@ _GENTLE_FAILURE_MESSAGE = (
     "Please try again later or try a different video."
 )
 
+# ── ssyoutube / savefrom.net fallback ────────────────────────────────────────
+
+# savefrom.net API (powers ssyoutube.com) used as a last-resort fallback when
+# all yt-dlp strategies and alternative CLI tools have failed for YouTube URLs.
+_SSYOUTUBE_API_URL = "https://worker.sf-tools.com/savefrom.php"
+
+# Ordered list of video quality labels to try (highest quality first)
+_SSYOUTUBE_QUALITY_PREFERENCE = ("1080", "720", "480", "360", "240", "144")
+
+# Regex patterns for extracting a YouTube video ID from common URL forms
+_YOUTUBE_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:youtube\.com|youtu\.be|m\.youtube\.com)"
+    r"/(?:watch\?v=|embed/|shorts/|v/)?([A-Za-z0-9_-]{11})"
+)
+
+
+def _is_youtube_url(url: str) -> bool:
+    """Return ``True`` when *url* is a YouTube URL."""
+    return bool(_YOUTUBE_URL_RE.search(url))
+
+
+def _extract_youtube_video_id(url: str) -> str | None:
+    """Return the 11-character YouTube video ID embedded in *url*, or ``None``."""
+    match = _YOUTUBE_URL_RE.search(url)
+    return match.group(1) if match else None
+
+
+def _try_ssyoutube_download(
+    url: str,
+    output_dir: str,
+    download_id: str | None = None,
+) -> str | None:
+    """Download a YouTube video via the ssyoutube / savefrom.net API.
+
+    This function replicates the logic used by ``ssyoutube.com`` to bypass
+    YouTube download restrictions: it sends the video URL to the savefrom.net
+    worker API, parses the returned JSON for the best available MP4 download
+    link, and streams the file to *output_dir*.
+
+    Returns the absolute path of the downloaded file on success, or ``None``
+    if the URL is not a YouTube URL, the API returns no usable links, or any
+    network / IO error occurs.  All failures are logged at INFO level so they
+    are visible in the server log without being alarming to operators.
+
+    The optional *download_id* is checked for cancellation between the API
+    request and each streaming chunk so that a queued cancel is honoured
+    promptly.
+    """
+    if not _is_youtube_url(url):
+        return None
+
+    video_id = _extract_youtube_video_id(url)
+    if not video_id:
+        return None
+
+    logger.info("Trying ssyoutube fallback for video ID %s", video_id)
+
+    # ── Step 1: call the savefrom.net API to obtain download links ──────────
+    try:
+        post_data = urllib.parse.urlencode({"sf_url": url}).encode()
+        req = urllib.request.Request(
+            _SSYOUTUBE_API_URL,
+            data=post_data,
+            headers={
+                "User-Agent": _CHROME_UA,
+                "Referer": "https://ssyoutube.com/",
+                "Origin": "https://ssyoutube.com",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        ctx = __import__("ssl").create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+            raw = resp.read().decode(errors="replace")
+        data: dict = json.loads(raw)
+    except Exception as exc:
+        logger.info("ssyoutube API request failed for %s: %s", video_id, exc)
+        return None
+
+    # ── Step 2: pick the best quality download URL ──────────────────────────
+    # The API returns a dict keyed by quality label, each value a list of
+    # format dicts: {"url": "...", "ext": "mp4"|"webm", "no_audio": bool, ...}
+    url_map: dict = data.get("url", {})
+    if not isinstance(url_map, dict) or not url_map:
+        logger.info("ssyoutube API returned no download URLs for %s", video_id)
+        return None
+
+    download_url: str | None = None
+    chosen_ext = "mp4"
+    for quality in _SSYOUTUBE_QUALITY_PREFERENCE:
+        formats = url_map.get(quality, [])
+        if not isinstance(formats, list):
+            continue
+        for fmt in formats:
+            if not isinstance(fmt, dict):
+                continue
+            fmt_url = fmt.get("url", "")
+            fmt_ext = fmt.get("ext", "mp4")
+            # Prefer MP4 with audio; skip audio-only or video-only streams
+            if fmt_url and not fmt.get("no_audio") and fmt_ext in ("mp4", "webm"):
+                download_url = fmt_url
+                chosen_ext = fmt_ext
+                break
+        if download_url:
+            break
+
+    if not download_url:
+        logger.info("ssyoutube API returned no playable format for %s", video_id)
+        return None
+
+    # ── Step 3: check for cancellation before downloading ───────────────────
+    if download_id is not None:
+        with downloads_lock:
+            if downloads.get(download_id, {}).get("status") == "cancelled":
+                return None
+
+    # ── Step 4: stream the file to disk ──────────────────────────────────────
+    output_path = os.path.join(output_dir, f"{video_id}.{chosen_ext}")
+    try:
+        dl_req = urllib.request.Request(
+            download_url,
+            headers={"User-Agent": _CHROME_UA},
+        )
+        ctx = __import__("ssl").create_default_context(cafile=certifi.where())
+        with urllib.request.urlopen(dl_req, timeout=120, context=ctx) as resp, \
+                open(output_path, "wb") as out_file:
+            while True:
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                # Honour cancellation between chunks
+                if download_id is not None:
+                    with downloads_lock:
+                        if downloads.get(download_id, {}).get("status") == "cancelled":
+                            out_file.close()
+                            try:
+                                os.remove(output_path)
+                            except OSError:
+                                pass
+                            return None
+                out_file.write(chunk)
+    except Exception as exc:
+        logger.info("ssyoutube file download failed for %s: %s", video_id, exc)
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        return None
+
+    if os.path.getsize(output_path) == 0:
+        logger.info("ssyoutube produced empty file for %s — discarding", video_id)
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+        return None
+
+    logger.info("ssyoutube fallback succeeded for %s → %s", video_id, output_path)
+    return output_path
+
+
 # ── URL Validation & Input Sanitization ──────────────────────────────────────
 
 # Schemes that are never valid for media downloads
@@ -2609,6 +2770,61 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         emit_from_thread("files_updated")
         threading.Thread(target=save_downloads_to_disk, daemon=True).start()
 
+    def _ssyoutube_fallback() -> bool:
+        """Try the ssyoutube / savefrom.net API and finalize on success.
+
+        Emits a status update, calls :func:`_try_ssyoutube_download`, and on
+        success updates the download record and emits completion events.
+
+        Returns ``True`` when the download was handled (success or cancellation),
+        ``False`` when the ssyoutube attempt produced no file and the caller
+        should proceed to report an error.
+        """
+        if not _is_youtube_url(url):
+            return False
+        emit_from_thread(
+            "status_update",
+            {
+                "id": download_id,
+                "status": "downloading",
+                "message": "Trying ssyoutube fallback…",
+            },
+            room=download_id,
+        )
+        ssyt_path = _try_ssyoutube_download(url, DOWNLOAD_FOLDER, download_id)
+        if ssyt_path:
+            with downloads_lock:
+                ssyt_filename = os.path.basename(ssyt_path)
+                downloads[download_id].update({
+                    "status": "completed",
+                    "end_time": time.time(),
+                    "percent": 100,
+                    "filename": ssyt_filename,
+                    "file_size": os.path.getsize(ssyt_path),
+                    "file_size_hr": format_size(os.path.getsize(ssyt_path)),
+                })
+                _cache_completed_download(url, download_id, ssyt_filename)
+            emit_from_thread(
+                "progress",
+                {"id": download_id, "line": "", "percent": 100,
+                 "speed": "", "eta": "", "size": downloads[download_id].get("size", "")},
+                room=download_id,
+            )
+            emit_from_thread("completed", {
+                "id": download_id,
+                "filename": ssyt_filename,
+                "title": downloads[download_id].get("title"),
+            }, room=download_id)
+            emit_from_thread("files_updated")
+            threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+            return True
+        with downloads_lock:
+            if downloads.get(download_id, {}).get("status") == "cancelled":
+                emit_from_thread("cancelled", {"id": download_id}, room=download_id)
+                threading.Thread(target=save_downloads_to_disk, daemon=True).start()
+                return True
+        return False
+
     with downloads_lock:
         downloads[download_id]["status"] = "downloading"
         downloads[download_id]["start_time"] = time.time()
@@ -2657,6 +2873,9 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
             emit_from_thread("files_updated")
             threading.Thread(target=save_downloads_to_disk, daemon=True).start()
         else:
+            # Alternative tools all failed; try ssyoutube for YouTube URLs.
+            if _ssyoutube_fallback():
+                return
             with downloads_lock:
                 downloads[download_id].update({
                     "status": "failed",
@@ -2791,6 +3010,10 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                     emit_from_thread("cancelled", {"id": download_id}, room=download_id)
                     threading.Thread(target=save_downloads_to_disk, daemon=True).start()
                     return
+
+            # Last resort: try the ssyoutube / savefrom.net API for YouTube URLs.
+            if _ssyoutube_fallback():
+                return
 
         error_msg = _friendly_cookie_error(err_str)
         with downloads_lock:

@@ -1,4 +1,5 @@
-"""Tests for DRM detection, alternative tool fallback, and player client configuration.
+"""Tests for DRM detection, alternative tool fallback, player client configuration,
+and ssyoutube fallback.
 
 These tests verify that:
   - _is_drm_error() correctly identifies all known DRM error patterns.
@@ -13,8 +14,16 @@ These tests verify that:
   - _try_alternative_tools_download() respects a cancellation flag.
   - _get_yt_extractor_args() includes the mweb player client.
   - _get_cookieless_extractor_args() includes the mweb player client.
+  - _is_youtube_url() correctly detects YouTube URLs.
+  - _extract_youtube_video_id() extracts the 11-character video ID.
+  - _try_ssyoutube_download() succeeds when the API returns a valid download URL.
+  - _try_ssyoutube_download() returns None for non-YouTube URLs.
+  - _try_ssyoutube_download() returns None when the API call fails.
+  - _try_ssyoutube_download() respects a cancellation flag.
 """
 
+import io
+import json
 import os
 import tempfile
 from unittest.mock import patch, MagicMock
@@ -34,6 +43,9 @@ from api.app import (
     _find_media_file,
     _get_yt_extractor_args,
     _get_cookieless_extractor_args,
+    _is_youtube_url,
+    _extract_youtube_video_id,
+    _try_ssyoutube_download,
     downloads,
     downloads_lock,
 )
@@ -377,3 +389,203 @@ class TestTryAlternativeToolsDownload:
             finally:
                 with downloads_lock:
                     downloads.pop(download_id, None)
+
+
+# ---------------------------------------------------------------------------
+# _is_youtube_url: YouTube URL detection
+# ---------------------------------------------------------------------------
+
+class TestIsYoutubeUrl:
+    """_is_youtube_url must return True only for YouTube URLs."""
+
+    @pytest.mark.parametrize("url", [
+        "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://youtu.be/dQw4w9WgXcQ",
+        "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+        "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+        "https://www.youtube.com/embed/dQw4w9WgXcQ",
+    ])
+    def test_youtube_urls_detected(self, url):
+        assert _is_youtube_url(url), f"Expected True for {url!r}"
+
+    @pytest.mark.parametrize("url", [
+        "https://vimeo.com/123456789",
+        "https://example.com/video",
+        "https://dailymotion.com/video/x1234",
+        "https://twitter.com/user/status/123",
+        "",
+    ])
+    def test_non_youtube_urls_not_detected(self, url):
+        assert not _is_youtube_url(url), f"Expected False for {url!r}"
+
+
+# ---------------------------------------------------------------------------
+# _extract_youtube_video_id: video ID extraction
+# ---------------------------------------------------------------------------
+
+class TestExtractYoutubeVideoId:
+    """_extract_youtube_video_id must return the 11-char video ID."""
+
+    def test_standard_watch_url(self):
+        vid = _extract_youtube_video_id("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        assert vid == "dQw4w9WgXcQ"
+
+    def test_short_url(self):
+        vid = _extract_youtube_video_id("https://youtu.be/dQw4w9WgXcQ")
+        assert vid == "dQw4w9WgXcQ"
+
+    def test_mobile_url(self):
+        vid = _extract_youtube_video_id("https://m.youtube.com/watch?v=dQw4w9WgXcQ")
+        assert vid == "dQw4w9WgXcQ"
+
+    def test_shorts_url(self):
+        vid = _extract_youtube_video_id("https://www.youtube.com/shorts/dQw4w9WgXcQ")
+        assert vid == "dQw4w9WgXcQ"
+
+    def test_embed_url(self):
+        vid = _extract_youtube_video_id("https://www.youtube.com/embed/dQw4w9WgXcQ")
+        assert vid == "dQw4w9WgXcQ"
+
+    def test_non_youtube_url_returns_none(self):
+        assert _extract_youtube_video_id("https://vimeo.com/12345") is None
+
+    def test_empty_string_returns_none(self):
+        assert _extract_youtube_video_id("") is None
+
+
+# ---------------------------------------------------------------------------
+# _try_ssyoutube_download: behaviour with mocked network calls
+# ---------------------------------------------------------------------------
+
+class TestTrySsyoutubeDownload:
+    """Tests for the ssyoutube / savefrom.net fallback function."""
+
+    _YOUTUBE_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    _VIDEO_ID = "dQw4w9WgXcQ"
+
+    def _make_api_response(self, qualities=None, no_audio=False):
+        """Build a minimal savefrom.net API JSON response."""
+        if qualities is None:
+            qualities = {"720": [{"url": "https://cdn.example.com/720.mp4",
+                                   "ext": "mp4", "no_audio": no_audio}]}
+        return json.dumps({"id": self._VIDEO_ID, "title": "Test", "url": qualities})
+
+    def _make_urlopen_side_effect(self, api_json: str, file_content: bytes = b"fake-video-data"):
+        """Return a side_effect list for two consecutive urlopen calls (API + file)."""
+        api_resp = MagicMock()
+        api_resp.__enter__ = lambda s: s
+        api_resp.__exit__ = MagicMock(return_value=False)
+        api_resp.read.return_value = api_json.encode()
+
+        file_resp = MagicMock()
+        file_resp.__enter__ = lambda s: s
+        file_resp.__exit__ = MagicMock(return_value=False)
+        # Simulate streaming: first call returns content, second returns b"" (EOF)
+        file_resp.read.side_effect = [file_content, b""]
+
+        return [api_resp, file_resp]
+
+    def test_returns_none_for_non_youtube_url(self):
+        result = _try_ssyoutube_download("https://vimeo.com/12345", "/tmp")
+        assert result is None
+
+    def test_returns_none_for_empty_url(self):
+        result = _try_ssyoutube_download("", "/tmp")
+        assert result is None
+
+    def test_succeeds_when_api_returns_valid_link(self):
+        api_json = self._make_api_response()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            side_effects = self._make_urlopen_side_effect(api_json)
+            with patch("urllib.request.urlopen", side_effect=side_effects):
+                result = _try_ssyoutube_download(self._YOUTUBE_URL, tmpdir)
+            assert result is not None
+            assert result.endswith(".mp4")
+            assert os.path.isfile(result)
+            assert os.path.getsize(result) > 0
+
+    def test_returns_none_when_api_call_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("urllib.request.urlopen", side_effect=OSError("network error")):
+                result = _try_ssyoutube_download(self._YOUTUBE_URL, tmpdir)
+            assert result is None
+
+    def test_returns_none_when_api_returns_empty_url_map(self):
+        api_json = json.dumps({"id": self._VIDEO_ID, "title": "Test", "url": {}})
+        with tempfile.TemporaryDirectory() as tmpdir:
+            api_resp = MagicMock()
+            api_resp.__enter__ = lambda s: s
+            api_resp.__exit__ = MagicMock(return_value=False)
+            api_resp.read.return_value = api_json.encode()
+            with patch("urllib.request.urlopen", return_value=api_resp):
+                result = _try_ssyoutube_download(self._YOUTUBE_URL, tmpdir)
+            assert result is None
+
+    def test_returns_none_when_all_formats_are_audio_only(self):
+        api_json = self._make_api_response(
+            qualities={"720": [{"url": "https://cdn.example.com/720.mp4",
+                                 "ext": "mp4", "no_audio": True}]}
+        )
+        with tempfile.TemporaryDirectory() as tmpdir:
+            api_resp = MagicMock()
+            api_resp.__enter__ = lambda s: s
+            api_resp.__exit__ = MagicMock(return_value=False)
+            api_resp.read.return_value = api_json.encode()
+            with patch("urllib.request.urlopen", return_value=api_resp):
+                result = _try_ssyoutube_download(self._YOUTUBE_URL, tmpdir)
+            assert result is None
+
+    def test_respects_cancellation_before_download(self):
+        """Returns None when the download is cancelled before the file fetch begins."""
+        download_id = "ssyt-cancel-test-001"
+        api_json = self._make_api_response()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with downloads_lock:
+                downloads[download_id] = {"status": "cancelled"}
+            try:
+                api_resp = MagicMock()
+                api_resp.__enter__ = lambda s: s
+                api_resp.__exit__ = MagicMock(return_value=False)
+                api_resp.read.return_value = api_json.encode()
+                with patch("urllib.request.urlopen", return_value=api_resp):
+                    result = _try_ssyoutube_download(
+                        self._YOUTUBE_URL, tmpdir, download_id=download_id
+                    )
+                assert result is None
+            finally:
+                with downloads_lock:
+                    downloads.pop(download_id, None)
+
+    def test_prefers_highest_quality_format(self):
+        """Selects the highest quality (720 before 480) download URL."""
+        chosen_urls = []
+
+        api_json = self._make_api_response(
+            qualities={
+                "480": [{"url": "https://cdn.example.com/480.mp4", "ext": "mp4", "no_audio": False}],
+                "720": [{"url": "https://cdn.example.com/720.mp4", "ext": "mp4", "no_audio": False}],
+            }
+        )
+
+        def fake_urlopen(req, *args, **kwargs):
+            import urllib.parse as _urlparse
+            raw_url = req.full_url if hasattr(req, "full_url") else str(req)
+            chosen_urls.append(raw_url)
+            resp = MagicMock()
+            resp.__enter__ = lambda s: s
+            resp.__exit__ = MagicMock(return_value=False)
+            parsed = _urlparse.urlparse(raw_url)
+            if parsed.netloc == "worker.sf-tools.com":
+                resp.read.return_value = api_json.encode()
+            else:
+                resp.read.side_effect = [b"fake-video-data", b""]
+            return resp
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+                result = _try_ssyoutube_download(self._YOUTUBE_URL, tmpdir)
+
+        assert result is not None
+        # The second urlopen call (file download) must use the 720p URL
+        assert any("720.mp4" in u for u in chosen_urls)
