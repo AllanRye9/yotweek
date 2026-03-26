@@ -600,11 +600,14 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                conn.commit()
                 # Migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
+                        conn.commit()
                     except Exception:
+                        conn.rollback()
                         pass  # column already exists
             else:
                 conn.executescript("""
