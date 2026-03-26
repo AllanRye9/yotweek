@@ -54,27 +54,57 @@ function _buildMarkerIcon(property, isSelected) {
   })
 }
 
+// ─── Tile layer helper ────────────────────────────────────────────────────────
+
+function _makeTileLayer(lang) {
+  if (lang === 'en') {
+    return L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+        maxZoom: 19,
+        subdomains: 'abcd',
+      }
+    )
+  }
+  return L.tileLayer(
+    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {
+      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+    }
+  )
+}
+
 // ─── PropertyMap ─────────────────────────────────────────────────────────────
 
 function PropertyMap({ properties, selectedId, onSelectProperty, userLocation }) {
-  const mapRef      = useRef(null)
-  const instanceRef = useRef(null)
-  const markersRef  = useRef({})
+  const mapRef        = useRef(null)
+  const instanceRef   = useRef(null)
+  const tileLayerRef  = useRef(null)
+  const markersRef    = useRef({})
   const userMarkerRef = useRef(null)
+  // Map language: 'en' = English (CartoDB Voyager, default), 'local' = OSM locale
+  const [mapLang, setMapLang] = useState('en')
 
-  // Init map once
+  // Init map once with English tiles
   useEffect(() => {
     if (instanceRef.current || !mapRef.current) return
     const center = userLocation ? [userLocation.lat, userLocation.lng] : [51.505, -0.09]
     const map = L.map(mapRef.current, { zoomControl: true, scrollWheelZoom: true })
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
-      maxZoom: 19,
-    }).addTo(map)
+    tileLayerRef.current = _makeTileLayer('en').addTo(map)
     map.setView(center, 11)
     instanceRef.current = map
-    return () => { map.remove(); instanceRef.current = null }
+    return () => { map.remove(); instanceRef.current = null; tileLayerRef.current = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Swap tile layer when language changes
+  useEffect(() => {
+    const map = instanceRef.current
+    if (!map) return
+    if (tileLayerRef.current) map.removeLayer(tileLayerRef.current)
+    tileLayerRef.current = _makeTileLayer(mapLang).addTo(map)
+  }, [mapLang])
 
   // Update markers when properties or selectedId changes
   useEffect(() => {
@@ -113,7 +143,27 @@ function PropertyMap({ properties, selectedId, onSelectProperty, userLocation })
     }).addTo(map)
   }, [userLocation])
 
-  return <div ref={mapRef} style={{ width: '100%', height: '100%', minHeight: 320 }} />
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%', minHeight: 320 }}>
+      <div ref={mapRef} style={{ width: '100%', height: '100%', minHeight: 320 }} />
+      {/* Map language selector */}
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 1000 }}>
+        <select
+          value={mapLang}
+          onChange={e => setMapLang(e.target.value)}
+          style={{
+            padding: '4px 10px', borderRadius: 9999, fontSize: '0.75rem', fontWeight: 600,
+            background: 'rgba(17,24,39,0.9)', color: '#d1d5db',
+            border: '1px solid #4b5563', cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+          }}
+          title="Map language"
+        >
+          <option value="en">🌐 English</option>
+          <option value="local">🗺 Local</option>
+        </select>
+      </div>
+    </div>
+  )
 }
 
 // ─── Property Card ────────────────────────────────────────────────────────────

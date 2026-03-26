@@ -43,9 +43,14 @@ function PropertyMiniMap({ lat, lng, title }) {
   useEffect(() => {
     if (instRef.current || !mapRef.current || lat == null || lng == null) return
     const map = L.map(mapRef.current, { zoomControl: false, scrollWheelZoom: false, dragging: false, touchZoom: false })
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors', maxZoom: 19,
-    }).addTo(map)
+    L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+        maxZoom: 19,
+        subdomains: 'abcd',
+      }
+    ).addTo(map)
     map.setView([lat, lng], 14)
     L.marker([lat, lng]).addTo(map).bindTooltip(title ?? 'Property', { permanent: false })
     instRef.current = map
