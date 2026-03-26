@@ -22,9 +22,9 @@ import socket from '../socket'
 const MAX_LEN = 500
 const MAX_IMAGE_SIZE = 1_000_000  // ~1 MB base64
 
-export default function RideChat({ ride, user, onClose }) {
+export default function RideChat({ ride, user, onClose, defaultMessage = '' }) {
   const [messages,   setMessages]   = useState([])
-  const [text,       setText]       = useState('')
+  const [text,       setText]       = useState(defaultMessage)
   const [joined,     setJoined]     = useState(false)
   const [typers,     setTypers]     = useState([])
   const [readBy,     setReadBy]     = useState({})
@@ -249,9 +249,21 @@ export default function RideChat({ ride, user, onClose }) {
   // ── Receipt icon ───────────────────────────────────────────────────────────
 
   const ReceiptIcon = ({ status }) => {
-    if (status === 'read')      return <span className="text-blue-300 text-xs ml-1" title="Read">✓✓</span>
-    if (status === 'delivered') return <span className="text-gray-300 text-xs ml-1" title="Delivered">✓✓</span>
-    return <span className="text-gray-500 text-xs ml-1" title="Sent">✓</span>
+    const received = status === 'read' || status === 'delivered'
+    return (
+      <span className="inline-flex items-center gap-0.5 ml-1">
+        {/* Filled "o" indicator: green = received, red = not yet received */}
+        <span
+          className={`ride-chat-read-dot ${received ? 'ride-chat-read-dot-green' : 'ride-chat-read-dot-red'}`}
+          title={received ? (status === 'read' ? 'Read' : 'Delivered') : 'Sent'}
+        >
+          o
+        </span>
+        {status === 'read'      && <span className="text-blue-300 text-xs" title="Read">✓✓</span>}
+        {status === 'delivered' && <span className="text-gray-300 text-xs" title="Delivered">✓✓</span>}
+        {status === 'sent'      && <span className="text-gray-500 text-xs" title="Sent">✓</span>}
+      </span>
+    )
   }
 
   // ── Media bubble contents ──────────────────────────────────────────────────

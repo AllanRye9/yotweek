@@ -164,6 +164,11 @@ function AgentProfileModal({ agent, onClose, onStatusChange }) {
     return () => { document.body.style.overflow = prev }
   }, [])
 
+  // Notify agent of profile visit on open
+  useEffect(() => {
+    socket.emit('agent_profile_visit', { agent_id: agent.id, user_id: userId.current })
+  }, [agent.id])
+
   // Join socket room and load chat history
   useEffect(() => {
     socket.emit('agent_chat_join', { agent_id: agent.id, user_id: userId.current })
@@ -981,6 +986,9 @@ export default function PropertyManager({ userLocation }) {
   const [selectedPropertyId, setSelectedPropertyId] = useState(null)
   const [mapViewId, setMapViewId]   = useState(null)
   const [activeAgent, setActiveAgent] = useState(null)
+  // Profile visit notifications (shown when another user views your linked agent profile)
+  const [profileVisitNotif, setProfileVisitNotif] = useState(null)
+  const profileVisitTimerRef = useRef(null)
 
   // Geolocation state
   const [geoLocation, setGeoLocation]   = useState(null)
@@ -1005,6 +1013,20 @@ export default function PropertyManager({ userLocation }) {
     }
     socket.on('agent_status_changed', handleStatusChanged)
     return () => socket.off('agent_status_changed', handleStatusChanged)
+  }, [])
+
+  // Listen for profile-visit notifications (fires when a client opens this agent's profile)
+  useEffect(() => {
+    const handleProfileVisit = (data) => {
+      setProfileVisitNotif({ agent_id: data.agent_id, visitor_id: data.visitor_id, ts: Date.now() })
+      if (profileVisitTimerRef.current) clearTimeout(profileVisitTimerRef.current)
+      profileVisitTimerRef.current = setTimeout(() => setProfileVisitNotif(null), 6000)
+    }
+    socket.on('agent_profile_visit_notify', handleProfileVisit)
+    return () => {
+      socket.off('agent_profile_visit_notify', handleProfileVisit)
+      if (profileVisitTimerRef.current) clearTimeout(profileVisitTimerRef.current)
+    }
   }, [])
 
   const handleAgentStatusChange = useCallback((agentId, newStatus) => {
@@ -1045,8 +1067,30 @@ export default function PropertyManager({ userLocation }) {
 
   return (
     <div>
-      {/* Section header */}
+      {/* Agent profile-visit notification toast */}
+      {profileVisitNotif && (() => {
+        const visitedAgent = agents.find(a => a.id === profileVisitNotif.agent_id)
+        return (
+          <div className="agent-profile-visit-toast">
+            <span style={{ fontSize: '1.1rem' }}>👁️</span>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#86efac' }}>
+                Profile Viewed
+              </div>
+              <div style={{ fontSize: '0.75rem', color: '#bbf7d0' }}>
+                A client is viewing {visitedAgent ? `${visitedAgent.name}'s` : 'an agent'} profile
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setProfileVisitNotif(null)}
+              style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#4ade80', cursor: 'pointer', fontSize: '1rem' }}
+            >✕</button>
+          </div>
+        )
+      })()}
       <div style={{ marginBottom: 16 }}>
+        {/* Section header */}
         <h2 className="text-lg font-bold text-white flex items-center gap-2">🏢 Property Management</h2>
         <p className="text-xs text-gray-400 mt-0.5">
           Overview of properties, interactive map, and nearest agents.

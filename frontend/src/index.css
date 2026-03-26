@@ -1201,14 +1201,98 @@ html:not(.theme-dark) .bg-gradient-to-b {
   display: none;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* RIDE CHAT — read receipt "o" indicator                                     */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.ride-chat-read-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* Green filled "o" — message received (delivered or read) */
+.ride-chat-read-dot-green {
+  background: #16a34a;
+  color: #fff;
+  box-shadow: 0 0 0 1.5px #22c55e55;
+}
+
+/* Red filled "o" — message sent but not yet received */
+.ride-chat-read-dot-red {
+  background: #dc2626;
+  color: #fff;
+  box-shadow: 0 0 0 1.5px #ef444455;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* AGENT PROFILE VISIT NOTIFICATION TOAST                                     */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.agent-profile-visit-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 9999;
+  background: #052e16;
+  border: 1px solid #16a34a;
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  max-width: 300px;
+  animation: agent-visit-toast-in 0.3s ease-out both;
+}
+
+@keyframes agent-visit-toast-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* MAP ACTIVE DRIVER — pulsing ring for available/active drivers              */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+.map-driver-active-wrapper {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.map-driver-pulse-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid #16a34a;
+  animation: map-driver-ring 1.6s ease-out infinite;
+}
+
+@keyframes map-driver-ring {
+  0%   { transform: scale(0.5); opacity: 0.9; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+
 /* Reduced-motion overrides for new animations */
 @media (prefers-reduced-motion: reduce) {
   .notif-badge-green,
   .map-location-pulse-ring,
+  .map-driver-pulse-ring,
   .ride-chat-recording-pulse,
-  .ride-chat-media-btn {
+  .ride-chat-media-btn,
+  .agent-profile-visit-toast {
     animation: none !important;
     transition: none !important;
   }
 }
-

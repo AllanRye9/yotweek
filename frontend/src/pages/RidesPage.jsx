@@ -15,6 +15,8 @@ export default function RidesPage() {
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [rides, setRides]             = useState([])
+  // State for opening chat from the map with a pre-filled default message
+  const [mapChatRequest, setMapChatRequest] = useState(null) // { ride, defaultMsg }
   const profileRef = useRef(null)
 
   // Load platform user session
@@ -172,10 +174,16 @@ export default function RidesPage() {
             <RideShareMap
               rides={rides}
               userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
+              onOpenChat={(ride, defaultMsg) => setMapChatRequest({ ride, defaultMsg })}
             />
 
             {/* Ride share panel */}
-            <RideShare user={appUser} onRidesChange={setRides} />
+            <RideShare
+              user={appUser}
+              onRidesChange={setRides}
+              requestedRide={mapChatRequest}
+              onRequestedRideHandled={() => setMapChatRequest(null)}
+            />
           </div>
         )}
       </main>

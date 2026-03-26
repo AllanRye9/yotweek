@@ -50,9 +50,10 @@ function _countdown(departure) {
  *  autoLoadDrivers  - When true, polls /api/driver/locations every 15s
  *  onLocationUpdate - Called with {lat, lng} when the map auto-detects location
  */
-export default function RideShareMap({ rides = [], userLocation, onRequestRide, driverLocations: propDriverLocations = [], autoLoadDrivers = true, onLocationUpdate }) {
+export default function RideShareMap({ rides = [], userLocation, onRequestRide, onOpenChat, driverLocations: propDriverLocations = [], autoLoadDrivers = true, onLocationUpdate }) {
   const mapRef      = useRef(null)
   const instanceRef = useRef(null)
+  const tileLayerRef = useRef(null)
   const markersRef  = useRef([])
   const driverMarkersRef = useRef([])
   const userMarkerRef    = useRef(null)
@@ -61,6 +62,8 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
   const [driverLocations, setDriverLocations] = useState(propDriverLocations)
   const [liveTracking, setLiveTracking] = useState(false)
   const watchIdRef = useRef(null)
+  // Map language: 'en' = English (default), 'local' = locale-aware
+  const [mapLang, setMapLang] = useState('en')
   // Countdown tick — re-renders the panel every minute
   const [tick, setTick] = useState(0)
   useEffect(() => {
@@ -109,17 +112,51 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
       attributionControl: true,
     })
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
-      maxZoom: 19,
-    }).addTo(map)
+    // Default to English CartoDB tiles
+    tileLayerRef.current = L.tileLayer(
+      'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+      {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+        maxZoom: 19,
+        subdomains: 'abcd',
+      }
+    ).addTo(map)
 
     instanceRef.current = map
     return () => {
       map.remove()
       instanceRef.current = null
+      tileLayerRef.current = null
     }
   }, [])
+
+  // ── Swap tile layer when language changes ────────────────────────────────────
+  useEffect(() => {
+    const map = instanceRef.current
+    if (!map) return
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current)
+    }
+    if (mapLang === 'en') {
+      tileLayerRef.current = L.tileLayer(
+        'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+        {
+          attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+          maxZoom: 19,
+          subdomains: 'abcd',
+        }
+      ).addTo(map)
+    } else {
+      // Local language: standard OSM tiles (renders names in local script)
+      tileLayerRef.current = L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+          attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors',
+          maxZoom: 19,
+        }
+      ).addTo(map)
+    }
+  }, [mapLang])
 
   // ── Ride markers ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -186,17 +223,30 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
 
     driverLocations.forEach(dl => {
       if (dl.lat == null || dl.lng == null) return
+      // Animated pulsing icon for active (empty/available) drivers
+      const isActive = dl.empty
       const icon = L.divIcon({
         className: '',
-        html: `<div style="
-          background:${dl.empty ? '#16a34a' : '#6b7280'};color:#fff;border-radius:50%;
-          width:28px;height:28px;display:flex;align-items:center;
-          justify-content:center;font-size:14px;
-          box-shadow:0 2px 8px rgba(0,0,0,0.4);
-          border:2px solid #fff;
-        ">🚙</div>`,
-        iconSize:   [28, 28],
-        iconAnchor: [14, 14],
+        html: isActive
+          ? `<div class="map-driver-active-wrapper">
+               <div class="map-driver-pulse-ring"></div>
+               <div style="
+                 background:#16a34a;color:#fff;border-radius:50%;
+                 width:28px;height:28px;display:flex;align-items:center;
+                 justify-content:center;font-size:14px;
+                 box-shadow:0 2px 8px rgba(0,0,0,0.4);
+                 border:2px solid #fff;position:relative;z-index:1;
+               ">🚙</div>
+             </div>`
+          : `<div style="
+               background:#6b7280;color:#fff;border-radius:50%;
+               width:28px;height:28px;display:flex;align-items:center;
+               justify-content:center;font-size:14px;
+               box-shadow:0 2px 8px rgba(0,0,0,0.4);
+               border:2px solid #fff;
+             ">🚙</div>`,
+        iconSize:   isActive ? [44, 44] : [28, 28],
+        iconAnchor: isActive ? [22, 22] : [14, 14],
       })
       const seatsLine = dl.seats != null ? `<br>💺 ${dl.seats} seat${dl.seats !== 1 ? 's' : ''}` : ''
       const m = L.marker([dl.lat, dl.lng], { icon })
@@ -295,6 +345,19 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     ? selectedRide.notes.replace(/\s*\|\s*Contact:[^|]*/i, '').replace(/Contact:[^|]*/i, '').trim()
     : null
 
+  // Build a default request message for the ride
+  const _buildDefaultMsg = (ride) =>
+    `Hi ${ride.driver_name || 'there'}, I'd like to request a seat on your ride from ${ride.origin} to ${ride.destination}. Are you still available?`
+
+  const handleRequestRide = (ride) => {
+    if (onOpenChat) {
+      onOpenChat(ride, _buildDefaultMsg(ride))
+    } else {
+      onRequestRide?.(ride)
+    }
+    setSelectedRide(null)
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div className="relative ride-map-container" style={{ isolation: 'isolate' }}>
@@ -305,7 +368,7 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
       />
 
       {/* Live tracking toggle */}
-      <div className="absolute top-2 left-2 z-[1000]">
+      <div className="absolute top-2 left-2 z-[1000] flex gap-1.5">
         <button
           onClick={() => setLiveTracking(t => !t)}
           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shadow-lg transition-colors ${
@@ -318,6 +381,17 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
           <span className={`w-2 h-2 rounded-full ${liveTracking ? 'bg-white animate-pulse' : 'bg-gray-500'}`} />
           {liveTracking ? 'Live' : 'Track me'}
         </button>
+
+        {/* Map language selector */}
+        <select
+          value={mapLang}
+          onChange={e => setMapLang(e.target.value)}
+          className="px-2 py-1 rounded-full text-xs font-semibold bg-gray-900/90 text-gray-300 border border-gray-600 hover:bg-gray-800 shadow-lg cursor-pointer"
+          title="Map language"
+        >
+          <option value="en">🌐 English</option>
+          <option value="local">🗺 Local</option>
+        </select>
       </div>
 
       {/* Side-panel card for selected ride */}
@@ -366,10 +440,10 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
             )}
           </div>
           <button
-            onClick={() => { onRequestRide?.(selectedRide); setSelectedRide(null) }}
+            onClick={() => handleRequestRide(selectedRide)}
             className="w-full py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold transition-colors"
           >
-            Request Ride
+            💬 Request Ride
           </button>
         </div>
       )}
@@ -397,4 +471,3 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     </div>
   )
 }
-
