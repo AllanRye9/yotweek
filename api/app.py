@@ -146,6 +146,8 @@ from contextlib import asynccontextmanager
 async def lifespan(application):
     global _loop
     _loop = asyncio.get_running_loop()
+    # Ensure all database tables exist before the app starts serving requests.
+    init_db()
     # Initialize the local GeoIP database in a background thread so the
     # server stays responsive while the (potentially large) download runs.
     threading.Thread(target=_init_geoip_db, daemon=True).start()
