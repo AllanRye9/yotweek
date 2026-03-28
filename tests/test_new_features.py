@@ -8,6 +8,7 @@
 """
 
 import asyncio
+import os
 import uuid
 import pytest
 from types import SimpleNamespace
@@ -2588,3 +2589,194 @@ class TestUnifiedMapNearby:
         finally:
             with _driver_loc_lock:
                 _driver_locations.update(saved)
+
+
+# ---------------------------------------------------------------------------
+# iOS-friendly download endpoint
+# ---------------------------------------------------------------------------
+
+class TestIOSDownload:
+    """Tests for the /downloads/{filename} endpoint iOS-friendly improvements."""
+
+    def test_avi_mime_type(self):
+        """download_file should return video/x-msvideo for .avi files."""
+        import json
+        from api.app import download_file, DOWNLOAD_FOLDER
+        # Create a temporary .avi file in the download folder
+        avi_path = os.path.join(DOWNLOAD_FOLDER, "test_ios.avi")
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        with open(avi_path, "wb") as f:
+            f.write(b"fake avi content")
+        try:
+            resp = run(download_file("test_ios.avi"))
+            # Should use video/x-msvideo, not application/octet-stream
+            assert resp.media_type == "video/x-msvideo", f"Expected video/x-msvideo, got {resp.media_type}"
+        finally:
+            if os.path.exists(avi_path):
+                os.remove(avi_path)
+
+    def test_mkv_mime_type(self):
+        """download_file should return video/x-matroska for .mkv files."""
+        from api.app import download_file, DOWNLOAD_FOLDER
+        mkv_path = os.path.join(DOWNLOAD_FOLDER, "test_ios.mkv")
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        with open(mkv_path, "wb") as f:
+            f.write(b"fake mkv content")
+        try:
+            resp = run(download_file("test_ios.mkv"))
+            assert resp.media_type == "video/x-matroska", f"Expected video/x-matroska, got {resp.media_type}"
+        finally:
+            if os.path.exists(mkv_path):
+                os.remove(mkv_path)
+
+    def test_mp4_mime_type(self):
+        """download_file should return video/mp4 for .mp4 files."""
+        from api.app import download_file, DOWNLOAD_FOLDER
+        mp4_path = os.path.join(DOWNLOAD_FOLDER, "test_ios.mp4")
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        with open(mp4_path, "wb") as f:
+            f.write(b"fake mp4 content")
+        try:
+            resp = run(download_file("test_ios.mp4"))
+            # Python's mimetypes correctly maps .mp4 to video/mp4
+            assert "video/mp4" in resp.media_type, f"Expected video/mp4, got {resp.media_type}"
+        finally:
+            if os.path.exists(mp4_path):
+                os.remove(mp4_path)
+
+    def test_content_disposition_attachment(self):
+        """download_file should set Content-Disposition: attachment."""
+        from api.app import download_file, DOWNLOAD_FOLDER
+        txt_path = os.path.join(DOWNLOAD_FOLDER, "test_ios.txt")
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        with open(txt_path, "wb") as f:
+            f.write(b"hello")
+        try:
+            resp = run(download_file("test_ios.txt"))
+            disposition = resp.headers.get("content-disposition", "")
+            assert "attachment" in disposition, f"Expected attachment in Content-Disposition, got: {disposition}"
+            assert "test_ios.txt" in disposition, f"Expected filename in Content-Disposition, got: {disposition}"
+        finally:
+            if os.path.exists(txt_path):
+                os.remove(txt_path)
+
+    def test_ios_unsupported_header_for_avi(self):
+        """download_file should set X-iOS-Unsupported: true for .avi files."""
+        from api.app import download_file, DOWNLOAD_FOLDER
+        avi_path = os.path.join(DOWNLOAD_FOLDER, "test_ios2.avi")
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        with open(avi_path, "wb") as f:
+            f.write(b"fake avi content")
+        try:
+            resp = run(download_file("test_ios2.avi"))
+            assert resp.headers.get("x-ios-unsupported") == "true", \
+                f"Expected X-iOS-Unsupported: true for .avi, got: {resp.headers.get('x-ios-unsupported')}"
+        finally:
+            if os.path.exists(avi_path):
+                os.remove(avi_path)
+
+    def test_ios_unsupported_header_absent_for_mp4(self):
+        """download_file should NOT set X-iOS-Unsupported for .mp4 files (native support)."""
+        from api.app import download_file, DOWNLOAD_FOLDER
+        mp4_path = os.path.join(DOWNLOAD_FOLDER, "test_ios_mp4_ok.mp4")
+        os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
+        with open(mp4_path, "wb") as f:
+            f.write(b"fake mp4")
+        try:
+            resp = run(download_file("test_ios_mp4_ok.mp4"))
+            assert resp.headers.get("x-ios-unsupported") is None, \
+                "X-iOS-Unsupported should not be set for .mp4"
+        finally:
+            if os.path.exists(mp4_path):
+                os.remove(mp4_path)
+
+    def test_download_nonexistent_file_returns_404(self):
+        """download_file should return 404 for a file that does not exist."""
+        from api.app import download_file
+        resp = run(download_file("definitely_does_not_exist.avi"))
+        assert resp.status_code == 404
+
+    def test_mime_overrides_contain_avi(self):
+        """_MIME_OVERRIDES dict must include .avi → video/x-msvideo."""
+        from api.app import _MIME_OVERRIDES
+        assert ".avi" in _MIME_OVERRIDES
+        assert _MIME_OVERRIDES[".avi"] == "video/x-msvideo"
+
+    def test_mime_overrides_contain_mkv(self):
+        """_MIME_OVERRIDES dict must include .mkv → video/x-matroska."""
+        from api.app import _MIME_OVERRIDES
+        assert ".mkv" in _MIME_OVERRIDES
+        assert _MIME_OVERRIDES[".mkv"] == "video/x-matroska"
+
+    def test_ios_unsupported_exts_contains_avi(self):
+        """_IOS_UNSUPPORTED_EXTS must include .avi."""
+        from api.app import _IOS_UNSUPPORTED_EXTS
+        assert ".avi" in _IOS_UNSUPPORTED_EXTS
+
+    def test_ios_unsupported_exts_contains_mkv(self):
+        """_IOS_UNSUPPORTED_EXTS must include .mkv."""
+        from api.app import _IOS_UNSUPPORTED_EXTS
+        assert ".mkv" in _IOS_UNSUPPORTED_EXTS
+
+
+# ---------------------------------------------------------------------------
+# Property map preview endpoint (unauthenticated)
+# ---------------------------------------------------------------------------
+
+class TestPropertyMapPreview:
+    """Tests for GET /api/properties/{id}/map_preview."""
+
+    def test_returns_preview_for_valid_property(self):
+        """GET /api/properties/prop-1/map_preview returns preview with lat/lng."""
+        import json
+        from api.app import api_property_map_preview
+        resp = run(api_property_map_preview("prop-1"))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "preview" in body
+        p = body["preview"]
+        assert p["property_id"] == "prop-1"
+        assert "lat" in p
+        assert "lng" in p
+
+    def test_preview_fields_are_minimal(self):
+        """Preview should only include safe non-sensitive fields."""
+        import json
+        from api.app import api_property_map_preview
+        resp = run(api_property_map_preview("prop-1"))
+        body = json.loads(resp.body)
+        p = body["preview"]
+        # Must have location + basic metadata
+        for field in ("property_id", "title", "address", "lat", "lng", "status"):
+            assert field in p, f"Missing expected field: {field}"
+        # Must NOT expose sensitive details requiring auth
+        assert "description" not in p, "Description should not be in map_preview"
+        assert "agents" not in p, "Agents should not be in map_preview"
+        assert "price" not in p, "Price should not be in map_preview"
+
+    def test_returns_404_for_unknown_property(self):
+        """GET /api/properties/no-such-id/map_preview returns 404."""
+        from api.app import api_property_map_preview
+        resp = run(api_property_map_preview("no-such-id-xyz"))
+        assert resp.status_code == 404
+
+    def test_endpoint_does_not_require_auth(self):
+        """map_preview is unauthenticated — no session/token needed."""
+        import json
+        from api.app import api_property_map_preview
+        # Call without any session — should succeed
+        resp = run(api_property_map_preview("prop-2"))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "preview" in body
+        assert body["preview"]["property_id"] == "prop-2"
+
+    def test_multiple_properties_each_have_preview(self):
+        """All seeded properties should be accessible via map_preview."""
+        import json
+        from api.app import api_property_map_preview
+        for pid in ("prop-1", "prop-2", "prop-3"):
+            resp = run(api_property_map_preview(pid))
+            assert resp.status_code == 200, f"Expected 200 for {pid}"
+            body = json.loads(resp.body)
+            assert body["preview"]["property_id"] == pid

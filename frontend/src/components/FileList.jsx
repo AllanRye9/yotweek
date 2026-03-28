@@ -5,10 +5,17 @@ import { useAuth } from '../App'
 
 const AUDIO_EXTS = new Set(['mp3','m4a','ogg','wav','opus','flac','aac','weba'])
 const VIDEO_EXTS = new Set(['mp4','webm','mkv','avi','mov','ts','3gp'])
+// Formats that iOS Safari cannot play or reliably save via a direct link.
+const IOS_UNSUPPORTED_EXTS = new Set(['avi','mkv','wmv','flv'])
 
 function isAudio(name) { return AUDIO_EXTS.has(name.split('.').pop()?.toLowerCase()) }
 function isVideo(name) { return VIDEO_EXTS.has(name.split('.').pop()?.toLowerCase()) }
 function isMedia(name) { return isAudio(name) || isVideo(name) }
+
+/** Detect iOS (iPhone / iPad / iPod) from the user-agent. */
+function isIOS() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream
+}
 
 function formatBytes(bytes) {
   if (!bytes) return '0 B'
@@ -42,6 +49,61 @@ function MediaPlayer({ file, onClose }) {
   )
 }
 
+/**
+ * IOSDownloadButton — Renders an iOS-friendly download control.
+ *
+ * For formats that iOS Safari cannot natively save via a standard anchor tag
+ * (e.g. AVI, MKV) we fetch the file as a blob and use triggerBlobDownload()
+ * which opens the blob in a new tab so the user can long-press → "Download
+ * Linked File".  For all other files a regular <a download> is used, which
+ * iOS Safari handles correctly for most media types.
+ *
+ * A warning badge is shown for formats that iOS cannot play natively so the
+ * user knows they may need a third-party app.
+ */
+function IOSDownloadButton({ file }) {
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? ''
+  const unsupported = IOS_UNSUPPORTED_EXTS.has(ext)
+  const [fetching, setFetching] = useState(false)
+
+  const handleBlobDownload = async (e) => {
+    e.preventDefault()
+    setFetching(true)
+    try {
+      const resp = await fetch(downloadUrl(file.name))
+      if (!resp.ok) throw new Error('Download failed')
+      const blob = await resp.blob()
+      triggerBlobDownload(blob, file.name)
+    } catch {
+      // Fallback: just open the URL in a new tab
+      window.open(downloadUrl(file.name), '_blank', 'noopener')
+    } finally {
+      setFetching(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      {unsupported && (
+        <span
+          className="text-xs text-yellow-400 bg-yellow-900/30 border border-yellow-700/40 rounded px-1.5 py-0.5 leading-tight"
+          title="This format may not play natively on iOS. Download and open with a compatible app."
+        >
+          ⚠ iOS: use compatible app
+        </span>
+      )}
+      <button
+        className="btn btn-secondary btn-sm text-xs"
+        title={unsupported ? 'Tap to download — open with a compatible app on iOS' : 'Download'}
+        disabled={fetching}
+        onClick={handleBlobDownload}
+      >
+        {fetching ? <span className="spinner w-3 h-3" /> : '⬇ Tap to download'}
+      </button>
+    </div>
+  )
+}
+
 export default function FileList({ version }) {
   const { admin } = useAuth()
   const [files, setFiles]       = useState([])
@@ -50,6 +112,8 @@ export default function FileList({ version }) {
   const [player, setPlayer]     = useState(null)
   const [deleting, setDeleting] = useState(new Set())
   const [notice, setNotice]     = useState('')
+
+  const onIOS = isIOS()
 
   const load = async () => {
     setLoading(true)
@@ -183,12 +247,16 @@ export default function FileList({ version }) {
                   onClick={() => setPlayer(file)}
                 >▶</button>
               )}
-              <a
-                href={downloadUrl(file.name)}
-                download={file.name}
-                className="btn btn-secondary btn-sm text-xs"
-                title="Download"
-              >⬇</a>
+              {onIOS ? (
+                <IOSDownloadButton file={file} />
+              ) : (
+                <a
+                  href={downloadUrl(file.name)}
+                  download={file.name}
+                  className="btn btn-secondary btn-sm text-xs"
+                  title="Download"
+                >⬇</a>
+              )}
               <button
                 className="btn-danger btn-sm text-xs"
                 title="Delete"
@@ -207,3 +275,5 @@ export default function FileList({ version }) {
     </div>
   )
 }
+
+

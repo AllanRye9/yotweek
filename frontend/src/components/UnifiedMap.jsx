@@ -65,26 +65,62 @@ function _agentIcon(item, isSelected) {
  *   userLocation - {lat, lng} or null
  *   onLocationUpdate - fn({lat, lng}) called when geolocation updates
  */
+
+// Tile layer configurations — defined outside the component so the object
+// reference is stable across renders and can be safely used in effect deps.
+const TILE_LAYERS = {
+  street: {
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+    maxZoom: 19,
+    subdomains: 'abcd',
+  },
+  satellite: {
+    // USGS National Map — public domain US government imagery
+    url: 'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Tiles courtesy of the <a href="https://usgs.gov" target="_blank">U.S. Geological Survey</a>',
+    maxZoom: 16,
+  },
+}
+
 export default function UnifiedMap({ mode, items = [], selectedId, onSelectItem, userLocation, onLocationUpdate }) {
   const mapRef = useRef(null)
   const instanceRef = useRef(null)
   const markersRef = useRef({})
   const userMarkerRef = useRef(null)
   const watchIdRef = useRef(null)
+  const tileLayerRef = useRef(null)
   const [liveTracking, setLiveTracking] = useState(false)
+  const [satellite, setSatellite] = useState(false)
 
   // Init map once
   useEffect(() => {
     if (instanceRef.current || !mapRef.current) return
     const map = L.map(mapRef.current, { zoomControl: true, scrollWheelZoom: true, minZoom: 2, maxZoom: 19 })
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-      attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
-      maxZoom: 19, subdomains: 'abcd',
+    const cfg = TILE_LAYERS.street
+    tileLayerRef.current = L.tileLayer(cfg.url, {
+      attribution: cfg.attribution, maxZoom: cfg.maxZoom, subdomains: cfg.subdomains ?? '',
     }).addTo(map)
     map.setView([51.505, -0.09], 11)
     instanceRef.current = map
     return () => { map.remove(); instanceRef.current = null }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Swap tile layer when satellite toggle changes
+  useEffect(() => {
+    const map = instanceRef.current
+    if (!map) return
+    if (tileLayerRef.current) { tileLayerRef.current.remove(); tileLayerRef.current = null }
+    const cfg = satellite ? TILE_LAYERS.satellite : TILE_LAYERS.street
+    tileLayerRef.current = L.tileLayer(cfg.url, {
+      attribution: cfg.attribution, maxZoom: cfg.maxZoom, subdomains: cfg.subdomains ?? '',
+    })
+    tileLayerRef.current.addTo(map)
+    tileLayerRef.current.on('tileerror', () => {
+      // Fallback to street view if satellite tiles fail to load
+      if (satellite) setSatellite(false)
+    })
+  }, [satellite, setSatellite])
 
   // Update item markers when items, mode, or selectedId changes
   useEffect(() => {
@@ -171,7 +207,7 @@ export default function UnifiedMap({ mode, items = [], selectedId, onSelectItem,
     <div className="relative" style={{ isolation: 'isolate' }}>
       <div ref={mapRef} style={{ height: 360, borderRadius: 12, overflow: 'hidden', background: '#1a2233', position: 'relative', zIndex: 0 }} />
 
-      {/* Live tracking toggle */}
+      {/* Live tracking toggle + satellite toggle */}
       <div className="absolute top-2 left-2 z-[1000] flex gap-1.5">
         <button
           onClick={() => setLiveTracking(t => !t)}
@@ -181,6 +217,14 @@ export default function UnifiedMap({ mode, items = [], selectedId, onSelectItem,
         >
           <span className={`w-2 h-2 rounded-full ${liveTracking ? 'bg-white animate-pulse' : 'bg-gray-500'}`} />
           {liveTracking ? 'Live' : 'Track me'}
+        </button>
+        <button
+          onClick={() => setSatellite(s => !s)}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shadow-lg transition-colors ${satellite ? 'bg-emerald-600 text-white' : 'bg-gray-900/90 text-gray-300 border border-gray-600 hover:bg-gray-800'}`}
+          title={satellite ? 'Switch to street view' : 'Switch to satellite view'}
+          aria-label={satellite ? 'Street view' : 'Satellite view'}
+        >
+          {satellite ? '🗺 Street' : '🛰 Satellite'}
         </button>
       </div>
 

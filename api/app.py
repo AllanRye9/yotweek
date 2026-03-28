@@ -3809,9 +3809,46 @@ async def delete_session_files(session_id: str):
 
     return JSONResponse({"deleted": deleted})
 
+# MIME types that Python's mimetypes module maps incorrectly or leaves absent.
+# Explicit overrides are applied for both the /downloads/ (attachment) and
+# /stream/ (inline) endpoints so browsers receive an accurate Content-Type.
+# The correct MIME type is especially important on iOS Safari, which uses the
+# Content-Type to decide whether to attempt inline playback or hand the file
+# off to the Files app / a share sheet.
+_MIME_OVERRIDES = {
+    # Video
+    ".avi":  "video/x-msvideo",  # Python maps .avi → None or video/avi (non-standard)
+    ".mkv":  "video/x-matroska", # Python has no mapping for .mkv
+    ".mov":  "video/quicktime",  # Python maps .mov → video/quicktime (correct, kept explicit)
+    ".wmv":  "video/x-ms-wmv",   # Python has no reliable mapping
+    ".flv":  "video/x-flv",      # Python has no reliable mapping
+    ".ts":   "video/mp2t",       # Python maps .ts → text/vnd.trolltech.linguist
+    ".3gp":  "video/3gpp",       # Python maps .3gp → audio/3gpp (wrong for video)
+    ".3g2":  "video/3gpp2",      # Python maps .3g2 → audio/3gpp2 (wrong for video)
+    # Audio
+    ".weba": "audio/webm",       # Python has no mapping for .weba
+    ".opus": "audio/opus",       # Python maps .opus → audio/ogg (imprecise)
+}
+
+# Extensions that iOS Safari cannot play natively (no built-in codec support).
+# Used by the /downloads/ endpoint to add an X-iOS-Unsupported header so the
+# frontend can display a user-friendly warning.
+_IOS_UNSUPPORTED_EXTS = {".avi", ".mkv", ".wmv", ".flv"}
+
 @fastapi_app.get("/downloads/{filename:path}", name="download_file")
 async def download_file(filename: str):
-    """Serve downloaded file"""
+    """Serve a downloaded file as an attachment with the correct MIME type.
+
+    Content-Disposition: attachment is set explicitly so that iOS Safari
+    triggers a download / share-sheet prompt instead of trying to play the
+    file inline.  The proper MIME type (e.g. video/x-msvideo for .avi) is
+    used rather than the generic application/octet-stream so the OS can
+    associate the file with an appropriate app on the device.
+
+    For formats that iOS cannot play natively (AVI, MKV, WMV, FLV) an
+    ``X-iOS-Unsupported: true`` response header is included so the frontend
+    can surface a warning to the user.
+    """
     try:
         # When S3 is configured, redirect to a presigned URL if the object exists
         if _S3_ENABLED:
@@ -3824,24 +3861,23 @@ async def download_file(filename: str):
             return JSONResponse({"error": "Invalid filename"}, status_code=400)
         if not os.path.isfile(filepath):
             return JSONResponse({"error": "File not found"}, status_code=404)
-        return FileResponse(
-            filepath,
-            filename=filename,
-            media_type="application/octet-stream",
-        )
+        ext = os.path.splitext(filename)[1].lower()
+        media_type = _MIME_OVERRIDES.get(ext) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        # Use a safe ASCII filename in the Content-Disposition header; for
+        # filenames with non-ASCII characters also include a UTF-8 encoded
+        # filename* parameter so modern browsers (including Mobile Safari)
+        # use the correct name.  Fall back to "download" when stripping
+        # non-ASCII characters would leave an empty string.
+        safe_ascii = filename.encode("ascii", "ignore").decode().strip() or "download"
+        encoded    = urllib.parse.quote(filename, safe="")
+        disposition = f'attachment; filename="{safe_ascii}"; filename*=UTF-8\'\'{encoded}'
+        headers = {"Content-Disposition": disposition}
+        if ext in _IOS_UNSUPPORTED_EXTS:
+            headers["X-iOS-Unsupported"] = "true"
+        return FileResponse(filepath, media_type=media_type, headers=headers)
     except Exception as e:
         logger.error(f"Download error: {e}")
         return JSONResponse({"error": "File not found"}, status_code=404)
-
-# MIME types that Python's mimetypes module maps incorrectly or leaves absent,
-# causing browsers to refuse to decode the audio track inside video files.
-_MIME_OVERRIDES = {
-    ".ts":   "video/mp2t",    # Python maps .ts → text/vnd.trolltech.linguist
-    ".weba": "audio/webm",    # Python has no mapping for .weba
-    ".opus": "audio/opus",    # Python maps .opus → audio/ogg (imprecise)
-    ".3gp":  "video/3gpp",    # Python maps .3gp → audio/3gpp (wrong for video)
-    ".3g2":  "video/3gpp2",   # Python maps .3g2 → audio/3gpp2 (wrong for video)
-}
 
 @fastapi_app.get("/stream/{filename:path}")
 async def stream_file(filename: str):
@@ -8866,6 +8902,36 @@ async def api_list_properties(
         p["cover_image"] = p["images"][0] if p["images"] else None
         properties.append(p)
     return JSONResponse({"properties": properties})
+
+
+@fastapi_app.get("/api/properties/{property_id}/map_preview")
+async def api_property_map_preview(property_id: str):
+    """Return minimal property data sufficient to render a teaser map pin.
+
+    This endpoint is intentionally unauthenticated so that external links and
+    search-result cards can show a focused map preview (location pin + basic
+    context) to non-logged-in visitors.  Only non-sensitive fields are
+    returned – full description, agent profiles, and contact details require
+    authentication via the full /api/properties/{property_id} endpoint.
+    """
+    _seed_properties_if_empty()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT property_id,title,address,lat,lng,status FROM properties WHERE property_id=? LIMIT 1"
+                if not USE_POSTGRES else
+                "SELECT property_id,title,address,lat,lng,status FROM properties WHERE property_id=%s LIMIT 1",
+                (property_id,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+    if not row:
+        return JSONResponse({"error": "Property not found."}, status_code=404)
+    cols = ["property_id", "title", "address", "lat", "lng", "status"]
+    return JSONResponse({"preview": dict(zip(cols, row))})
 
 
 @fastapi_app.get("/api/properties/{property_id}")

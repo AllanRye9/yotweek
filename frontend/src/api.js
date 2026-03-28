@@ -410,6 +410,9 @@ export const listProperties = (params = {}) => {
 export const getProperty = (propertyId) =>
   request('GET', `/api/properties/${encodeURIComponent(propertyId)}`)
 
+export const getPropertyMapPreview = (propertyId) =>
+  request('GET', `/api/properties/${encodeURIComponent(propertyId)}/map_preview`)
+
 export const createProperty = (data) => request('POST', '/api/properties', data)
 
 export const updateProperty = (propertyId, data) =>

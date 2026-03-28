@@ -1,6 +1,11 @@
 /**
  * PropertyDetailPage — Full property detail with image gallery, description,
  * location map preview, and agent list (max 4) with contact buttons.
+ *
+ * Non-authenticated visitors see a focused, non-interactive map preview with
+ * a sign-in prompt overlay instead of the full property details.  After
+ * successful authentication they are automatically redirected back to this
+ * page so the full view is instantly revealed.
  */
 
 import { useState, useEffect, useRef } from 'react'
@@ -58,6 +63,108 @@ function PropertyMiniMap({ lat, lng, title }) {
       ref={mapRef}
       style={{ width: '100%', height: 200, borderRadius: 10, overflow: 'hidden', border: '1px solid #374151', marginTop: 12 }}
     />
+  )
+}
+
+// ─── Sign-in map preview shown to unauthenticated visitors ───────────────────
+//
+// Renders a non-interactive map centred on the property's location with a
+// semi-transparent overlay prompting the user to sign in.  Panning and
+// zooming are intentionally disabled to preserve the teaser experience.
+
+function PropertySignInMapPreview({ lat, lng, title, onSignIn, onSignUp }) {
+  const mapRef = useRef(null)
+  const instRef = useRef(null)
+
+  useEffect(() => {
+    if (instRef.current || !mapRef.current || lat == null || lng == null) return
+    // Fully locked-down map: no interaction at all
+    const map = L.map(mapRef.current, {
+      zoomControl: false,
+      scrollWheelZoom: false,
+      dragging: false,
+      touchZoom: false,
+      doubleClickZoom: false,
+      boxZoom: false,
+      keyboard: false,
+    })
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19,
+    }).addTo(map)
+    map.setView([lat, lng], 15)
+    // Clean location pin — no interactive popup, just a static tooltip
+    const marker = L.marker([lat, lng])
+    marker.addTo(map)
+    if (title) marker.bindTooltip(title, { permanent: true, direction: 'top', offset: [0, -10] })
+    instRef.current = map
+    return () => { map.remove(); instRef.current = null }
+  }, [lat, lng, title]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (lat == null || lng == null) return null
+
+  return (
+    <div style={{ position: 'relative', borderRadius: 12, overflow: 'hidden', marginTop: 16 }}>
+      {/* Non-interactive map */}
+      <div
+        ref={mapRef}
+        style={{ width: '100%', height: 380, background: '#1a2233' }}
+      />
+      {/* Semi-transparent overlay with sign-in CTA */}
+      <div style={{
+        position: 'absolute', inset: 0,
+        background: 'linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.72) 100%)',
+        display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'flex-end',
+        padding: '0 24px 32px',
+        pointerEvents: 'none', // let map handle any stray pointer events
+      }}>
+        <div style={{
+          background: 'rgba(17,24,39,0.92)',
+          border: '1px solid rgba(55,65,81,0.8)',
+          borderRadius: 14,
+          padding: '20px 24px',
+          maxWidth: 380,
+          width: '100%',
+          textAlign: 'center',
+          pointerEvents: 'auto',
+          boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+        }}>
+          <p style={{ color: '#f3f4f6', fontWeight: 700, fontSize: '1rem', margin: '0 0 6px' }}>
+            📍 {title ?? 'Property Location'}
+          </p>
+          <p style={{ color: '#9ca3af', fontSize: '0.84rem', margin: '0 0 16px', lineHeight: 1.5 }}>
+            Sign in to view property details, contact the agent, and see availability.
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              type="button"
+              onClick={onSignIn}
+              style={{
+                background: '#3b82f6', color: '#fff', border: 'none',
+                borderRadius: 8, padding: '9px 22px',
+                fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer',
+                minWidth: 100,
+              }}
+            >
+              Sign In
+            </button>
+            <button
+              type="button"
+              onClick={onSignUp}
+              style={{
+                background: 'transparent', color: '#e5e7eb',
+                border: '1px solid #374151',
+                borderRadius: 8, padding: '9px 22px',
+                fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
+                minWidth: 100,
+              }}
+            >
+              Sign Up
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -339,6 +446,27 @@ export default function PropertyDetailPage() {
           <Link to="/properties" style={{ color: '#3b82f6', marginTop: 12, display: 'inline-block' }}>← Back to Listings</Link>
         </div>
       ) : property && (
+        /* ── Unauthenticated: focused map preview + sign-in prompt ── */
+        !appUser && !userLoading ? (
+          <div style={{ padding: '0 24px 40px', maxWidth: 700, margin: '0 auto', width: '100%' }}>
+            <div style={{ marginBottom: 12 }}>
+              <h1 style={{ color: '#f3f4f6', fontSize: '1.3rem', fontWeight: 800, margin: '0 0 6px' }}>
+                {property.title}
+              </h1>
+              {property.address && (
+                <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>📍 {property.address}</p>
+              )}
+            </div>
+            <PropertySignInMapPreview
+              lat={property.lat}
+              lng={property.lng}
+              title={property.title}
+              onSignIn={() => setShowAuthModal(true)}
+              onSignUp={() => setShowAuthModal(true)}
+            />
+          </div>
+        ) : (
+        /* ── Authenticated: full property details ── */
         <div style={{ padding: '0 24px 40px', maxWidth: 1100, margin: '0 auto', width: '100%' }}>
           <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
@@ -415,23 +543,11 @@ export default function PropertyDetailPage() {
                     No agents assigned to this property.
                   </div>
                 )}
-
-                {!appUser && (
-                  <p style={{ color: '#6b7280', fontSize: '0.75rem', textAlign: 'center', marginTop: 12 }}>
-                    <button
-                      type="button"
-                      onClick={() => setShowAuthModal(true)}
-                      style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', fontSize: '0.75rem' }}
-                    >
-                      Sign in
-                    </button>
-                    {' '}to contact agents
-                  </p>
-                )}
               </div>
             </div>
           </div>
         </div>
+        )
       )}
     </div>
   )
