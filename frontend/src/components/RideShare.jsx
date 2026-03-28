@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers } from '../api'
+import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare } from '../api'
 import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../sounds'
 import socket from '../socket'
 import RideChat from './RideChat'
@@ -14,7 +14,22 @@ function _distKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled }) {
+/** Build the default booking message sent to a driver, prompting the client to share details. */
+function _buildClientBookingMsg(ride, userName) {
+  return (
+    `Hi ${ride.driver_name || 'Driver'}, I need an airport pickup from ${ride.origin} to ${ride.destination}. Please find my details below:\n\n` +
+    `Name: ${userName || '[your name]'}\n` +
+    `Contact: [your phone/WhatsApp]\n` +
+    `Current Location: [please share your location]\n\n` +
+    `Are you available?`
+  )
+}
+
+/** Default sections shown when showSections is not specified */
+const DEFAULT_SECTIONS = { form: true, list: true, dashboard: true, driverBroadcast: true }
+
+export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections }) {
+  const sections = { ...DEFAULT_SECTIONS, ...(showSections || {}) }
   const isDriver = user?.role === 'driver'
   const [rides, setRides] = useState([])
   const [loading, setLoading] = useState(false)
@@ -34,6 +49,11 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [geoLoading, setGeoLoading] = useState(false)
   const [originLat, setOriginLat] = useState(null)
   const [originLng, setOriginLng] = useState(null)
+  const [destLat, setDestLat] = useState(null)
+  const [destLng, setDestLng] = useState(null)
+  const [fare, setFare] = useState(null)
+  const [fareLoading, setFareLoading] = useState(false)
+  const [geoDestLoading, setGeoDestLoading] = useState(false)
   const [focusedField, setFocusedField] = useState(null)
   const [broadcasting, setBroadcasting] = useState(false)
   const [broadcastMsg, setBroadcastMsg] = useState('')
@@ -123,6 +143,18 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     )
   }
 
+  // Auto-calculate fare when both origin and destination coords are available
+  useEffect(() => {
+    if (originLat == null || originLng == null || destLat == null || destLng == null) return
+    let cancelled = false
+    setFareLoading(true)
+    calculateFare(originLat, originLng, destLat, destLng)
+      .then(d => { if (!cancelled) setFare(d.fare) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setFareLoading(false) })
+    return () => { cancelled = true }
+  }, [originLat, originLng, destLat, destLng])
+
 
   useEffect(() => {
     const onNewRide = (ride) => { setRides(prev => [ride, ...prev]); playNewRideSound() }
@@ -160,6 +192,16 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     )
   }
 
+  const handleGeoDest = () => {
+    if (!navigator.geolocation) return
+    setGeoDestLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { setDestLat(pos.coords.latitude); setDestLng(pos.coords.longitude); setGeoDestLoading(false) },
+      () => setGeoDestLoading(false),
+      { enableHighAccuracy: true, timeout: 8000 }
+    )
+  }
+
   const handlePost = async (e) => {
     e.preventDefault(); setPostError(''); setPostOk('')
     if (!user) { setPostError('Please login first.'); return }
@@ -167,10 +209,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     try {
       const notesTrimmed = notes.trim()
       const notesWithContact = contact.trim() ? `${notesTrimmed}${notesTrimmed ? ' | ' : ''}Contact: ${contact.trim()}` : notesTrimmed
-      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng)
+      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare)
       setPostOk(`Ride posted! ID: ${data.ride_id.slice(0, 8)}…`)
       setOrigin(''); setDest(''); setDeparture(''); setSeats(1); setNotes(''); setContact('')
-      setOriginLat(null); setOriginLng(null)
+      setOriginLat(null); setOriginLng(null); setDestLat(null); setDestLng(null); setFare(null)
     } catch (err) { setPostError(err.message || 'Failed to post ride.') }
     finally { setPosting(false) }
   }
@@ -256,6 +298,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       )}
 
       {/* ── Dashboard ── */}
+      {sections.dashboard && (
       <div className="ride-dashboard rounded-xl border border-gray-700 bg-gray-900/50 p-4 space-y-3">
         <h3 className="font-semibold text-gray-200 text-sm flex items-center gap-2">📊 Ride Dashboard</h3>
         <div className="grid grid-cols-3 gap-2">
@@ -288,9 +331,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           </div>
         )}
       </div>
+      )}
 
       {/* ── Driver broadcast ── */}
-      {isDriver && (
+      {sections.driverBroadcast && isDriver && (
         <div className="rounded-xl border border-yellow-700/60 bg-yellow-900/20 p-4 space-y-3">
           <h3 className="font-semibold text-yellow-300 flex items-center gap-2">
             <span className="driver-pulse-icon">🚗</span> Broadcast Your Location
@@ -308,46 +352,62 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       )}
 
       {/* ── Post a ride ── */}
-      {user && (
+      {sections.form && user && (
         <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4 space-y-4">
           <h3 className="font-semibold text-gray-200 flex items-center gap-2">
-            <span className="ride-post-icon">📌</span> Post a Shared Ride
+            <span className="ride-post-icon">✈️</span> Post Airport Pickup
           </h3>
           <form onSubmit={handlePost} className="space-y-3">
             <div className="flex gap-2">
               <div className="flex-1 ride-field-wrap">
-                <input type="text" placeholder="Origin / pickup location" value={origin}
+                <input type="text" placeholder="✈️ Airport / Pickup Location" value={origin}
                   onChange={e => setOrigin(e.target.value)} onFocus={() => setFocusedField('origin')} onBlur={() => setFocusedField(null)}
                   required className={inputCls('origin')} />
-                {focusedField === 'origin' && <span className="ride-field-hint text-xs text-blue-400/80">📍 Where are you starting from?</span>}
+                {focusedField === 'origin' && <span className="ride-field-hint text-xs text-blue-400/80">✈️ Which airport are you picking up from?</span>}
               </div>
-              <button type="button" title="Use my current location" onClick={handleGeoOrigin} disabled={geoLoading}
+              <button type="button" title="Use my current location as pickup" onClick={handleGeoOrigin} disabled={geoLoading}
                 className="px-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm transition-colors disabled:opacity-50">
                 {geoLoading ? '…' : '📍'}
               </button>
             </div>
 
-            <div className="ride-field-wrap">
-              <input type="text" placeholder="Destination" value={destination}
-                onChange={e => setDest(e.target.value)} onFocus={() => setFocusedField('dest')} onBlur={() => setFocusedField(null)}
-                required className={inputCls('dest')} />
-              {focusedField === 'dest' && <span className="ride-field-hint text-xs text-blue-400/80">🏁 Where are you headed?</span>}
+            <div className="flex gap-2">
+              <div className="flex-1 ride-field-wrap">
+                <input type="text" placeholder="🏁 Destination" value={destination}
+                  onChange={e => setDest(e.target.value)} onFocus={() => setFocusedField('dest')} onBlur={() => setFocusedField(null)}
+                  required className={inputCls('dest')} />
+                {focusedField === 'dest' && <span className="ride-field-hint text-xs text-blue-400/80">🏁 Where are you dropping passengers off?</span>}
+              </div>
+              <button type="button" title="Use my current location as destination" onClick={handleGeoDest} disabled={geoDestLoading}
+                className="px-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm transition-colors disabled:opacity-50">
+                {geoDestLoading ? '…' : '📍'}
+              </button>
             </div>
+
+            {/* Auto-calculated fare display */}
+            {(fareLoading || fare != null) && (
+              <div className="flex items-center gap-2 bg-green-900/30 border border-green-700/50 rounded-lg px-3 py-2">
+                <span className="text-green-400 text-sm">💰</span>
+                {fareLoading
+                  ? <span className="text-green-300 text-xs">Calculating fare…</span>
+                  : <span className="text-green-300 text-xs font-semibold">Estimated Fare: ${fare?.toFixed(2)}</span>}
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div className="ride-field-wrap">
-                <label className="text-xs text-gray-400 mb-1 block">Departure</label>
+                <label className="text-xs text-gray-400 mb-1 block">Pickup Time</label>
                 <input type="datetime-local" value={departure}
                   onChange={e => setDeparture(e.target.value)} onFocus={() => setFocusedField('departure')} onBlur={() => setFocusedField(null)}
                   required className={inputCls('departure')} />
-                {focusedField === 'departure' && <span className="ride-field-hint text-xs text-blue-400/80">🕐 Pick a date &amp; time</span>}
+                {focusedField === 'departure' && <span className="ride-field-hint text-xs text-blue-400/80">🕐 When are you picking up?</span>}
               </div>
               <div className="ride-field-wrap">
                 <label className="text-xs text-gray-400 mb-1 block">Available Seats</label>
                 <input type="number" min={1} max={20} value={seats}
                   onChange={e => setSeats(Number(e.target.value))} onFocus={() => setFocusedField('seats')} onBlur={() => setFocusedField(null)}
                   className={inputCls('seats')} />
-                {focusedField === 'seats' && <span className="ride-field-hint text-xs text-blue-400/80">💺 How many can join?</span>}
+                {focusedField === 'seats' && <span className="ride-field-hint text-xs text-blue-400/80">💺 How many passengers can you take?</span>}
               </div>
             </div>
 
@@ -359,7 +419,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
             </div>
 
             <div className="ride-field-wrap">
-              <textarea placeholder="Notes (optional) — e.g. luggage allowed, price…" value={notes}
+              <textarea placeholder="Notes (optional) — e.g. luggage allowed, vehicle type…" value={notes}
                 onChange={e => setNotes(e.target.value)} onFocus={() => setFocusedField('notes')} onBlur={() => setFocusedField(null)}
                 rows={2} className={`${inputCls('notes')} resize-none`} />
               {focusedField === 'notes' && <span className="ride-field-hint text-xs text-blue-400/80">📝 Any extra details for passengers?</span>}
@@ -372,16 +432,17 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               className="ride-post-btn w-full py-2.5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all">
               {posting
                 ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Posting…</span>
-                : '🚀 Post Ride'}
+                : '✈️ Post Airport Pickup'}
             </button>
           </form>
         </div>
       )}
 
       {/* ── Available rides ── */}
+      {sections.list && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-200">🗺️ Rides</h3>
+          <h3 className="font-semibold text-gray-200">🗺️ Airport Pickups</h3>
           <button onClick={loadRides} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
         </div>
 
@@ -455,12 +516,17 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <StatusTag status={ride.status} />
-                  <span className="font-semibold text-white text-sm">{ride.origin}</span>
+                  <span className="font-semibold text-white text-sm">✈️ {ride.origin}</span>
                   <span className="text-gray-500 text-xs">→</span>
                   <span className="font-semibold text-blue-300 text-sm">{ride.destination}</span>
                   {distKm != null && ride.status === 'open' && (
                     <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-900/50 text-green-300 border border-green-700/50">
                       📍 {distKm < 1 ? `${(distKm * 1000).toFixed(0)}m` : `${distKm.toFixed(1)}km`}
+                    </span>
+                  )}
+                  {ride.fare != null && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-900/50 text-blue-300 border border-blue-700/50 font-semibold">
+                      💰 ${Number(ride.fare).toFixed(2)}
                     </span>
                   )}
                 </div>
@@ -483,9 +549,9 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               </div>
               <div className="flex flex-col gap-1.5 shrink-0">
                 {ride.status === 'open' && (
-                  <button onClick={() => setChatRide(ride)}
+                  <button onClick={() => { setChatRide(ride); setChatDefaultMsg(_buildClientBookingMsg(ride, user?.name)) }}
                     className="ride-chat-btn text-xs text-blue-400 hover:text-blue-300 border border-blue-700/50 hover:border-blue-500 rounded-lg px-2 py-1 transition-colors flex items-center gap-1">
-                    💬 Chat
+                    💬 Book
                   </button>
                 )}
                 {user && ride.user_id === user.user_id && ride.status === 'open' && (
@@ -507,6 +573,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           )
         })}
       </div>
+      )}
     </div>
   )
 }

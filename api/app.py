@@ -664,6 +664,9 @@ def init_db():
                         destination TEXT NOT NULL,
                         origin_lat REAL,
                         origin_lng REAL,
+                        dest_lat REAL,
+                        dest_lng REAL,
+                        fare REAL,
                         departure TEXT NOT NULL,
                         seats INTEGER NOT NULL DEFAULT 1,
                         notes TEXT,
@@ -844,6 +847,13 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
+                for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL")]:
+                    try:
+                        cur.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -886,6 +896,9 @@ def init_db():
                         destination TEXT NOT NULL,
                         origin_lat REAL,
                         origin_lng REAL,
+                        dest_lat REAL,
+                        dest_lng REAL,
+                        fare REAL,
                         departure TEXT NOT NULL,
                         seats INTEGER NOT NULL DEFAULT 1,
                         notes TEXT,
@@ -1035,6 +1048,11 @@ def init_db():
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
                     try:
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass  # column already exists
+                for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL")]:
+                    try:
+                        conn.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
             conn.commit()
@@ -6990,6 +7008,8 @@ async def api_cv_ats_scan(
 # =========================================================
 
 _APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "50"))
+# Base fare per km for airport pickup rides (env-configurable)
+_FARE_PER_KM = float(os.environ.get("FARE_PER_KM", "1.5"))
 
 # In-memory driver location store: user_id → {lat, lng, ts, name, user_id, empty}
 _driver_locations: dict[str, dict] = {}
@@ -7942,6 +7962,9 @@ class _RidePostRequest(BaseModel):
     notes:       str = ""
     origin_lat:  float | None = None
     origin_lng:  float | None = None
+    dest_lat:    float | None = None
+    dest_lng:    float | None = None
+    fare:        float | None = None
 
 
 class _RideJoinRequest(BaseModel):
@@ -7950,7 +7973,7 @@ class _RideJoinRequest(BaseModel):
 
 @fastapi_app.post("/api/rides/post")
 async def api_ride_post(request: Request, body: _RidePostRequest):
-    """Post a new shared ride offer."""
+    """Post a new airport pickup ride offer."""
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required to post a ride."}, status_code=401)
@@ -7968,6 +7991,12 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
     if body.seats < 1 or body.seats > 20:
         return JSONResponse({"error": "Seats must be between 1 and 20."}, status_code=400)
 
+    # Auto-calculate fare if coordinates provided and fare not given
+    fare = body.fare
+    if fare is None and body.origin_lat is not None and body.dest_lat is not None:
+        dist_km = _haversine_km(body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng)
+        fare = round(dist_km * _FARE_PER_KM, 2)
+
     ride_id    = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -7977,19 +8006,19 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)""",
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)""",
                     (ride_id, user_id, user["name"], origin, destination,
-                     body.origin_lat, body.origin_lng, departure, body.seats,
-                     body.notes.strip(), created_at),
+                     body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng, fare,
+                     departure, body.seats, body.notes.strip(), created_at),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,'open',?)""",
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
                     (ride_id, user_id, user["name"], origin, destination,
-                     body.origin_lat, body.origin_lng, departure, body.seats,
-                     body.notes.strip(), created_at),
+                     body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng, fare,
+                     departure, body.seats, body.notes.strip(), created_at),
                 )
             conn.commit()
         finally:
@@ -8000,6 +8029,7 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
         "driver_name": user["name"],
         "origin":      origin,
         "destination": destination,
+        "fare":        fare,
         "departure":   departure,
         "seats":       body.seats,
         "notes":       body.notes.strip(),
@@ -8036,18 +8066,19 @@ async def api_rides_list(status: str | None = None):
         conn = _get_db()
         try:
             cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
-                    "origin_lat", "origin_lng", "departure", "seats", "notes", "status", "created_at"]
+                    "origin_lat", "origin_lng", "dest_lat", "dest_lng", "fare",
+                    "departure", "seats", "notes", "status", "created_at"]
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at"
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at"
                     f" FROM rides WHERE status IN ({pg_placeholders}) ORDER BY departure ASC LIMIT 200",
                     status_filter,
                 )
                 rows = cur.fetchall()
             else:
                 cur = conn.execute(
-                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,departure,seats,notes,status,created_at"
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at"
                     f" FROM rides WHERE status IN ({sql_placeholders}) ORDER BY departure ASC LIMIT 200",
                     status_filter,
                 )
@@ -8057,6 +8088,20 @@ async def api_rides_list(status: str | None = None):
 
     rides = [dict(zip(cols, row)) for row in rows]
     return JSONResponse({"rides": rides})
+
+
+@fastapi_app.get("/api/rides/calculate_fare")
+async def api_calculate_fare(
+    origin_lat: float, origin_lng: float,
+    dest_lat: float, dest_lng: float,
+):
+    """Calculate estimated fare for an airport pickup from origin to destination.
+
+    Returns fare in local currency units at the configured rate per km.
+    """
+    dist_km = _haversine_km(origin_lat, origin_lng, dest_lat, dest_lng)
+    fare    = round(dist_km * _FARE_PER_KM, 2)
+    return JSONResponse({"dist_km": round(dist_km, 2), "fare": fare, "rate_per_km": _FARE_PER_KM})
 
 
 @fastapi_app.delete("/api/rides/{ride_id}")
@@ -8195,25 +8240,48 @@ class _DriverLocationUpdate(BaseModel):
 
 @fastapi_app.post("/api/driver/location")
 async def api_driver_location(request: Request, body: _DriverLocationUpdate):
-    """Driver broadcasts their current location. Notifies nearby connected users."""
+    """Driver broadcasts their current location. Notifies nearby connected users.
+
+    Requires an approved driver application (verified driver).
+    """
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
 
     user = _get_app_user(user_id)
     if user is None or user.get("role") != "driver":
-        return JSONResponse({"error": "Only drivers can broadcast location."}, status_code=403)
+        return JSONResponse({"error": "Only registered drivers can broadcast location."}, status_code=403)
+
+    # Check driver application is approved (verified)
+    verified = False
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT status FROM driver_applications WHERE user_id=%s", (user_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT status FROM driver_applications WHERE user_id=?", (user_id,))
+                row = cur.fetchone()
+            verified = row is not None and row[0] == "approved"
+        finally:
+            conn.close()
+
+    if not verified:
+        return JSONResponse({"error": "Driver verification required. Please submit a driver application."}, status_code=403)
 
     ts = time.time()
     with _driver_loc_lock:
         _driver_locations[user_id] = {
-            "user_id": user_id,
-            "name":    user["name"],
-            "lat":     body.lat,
-            "lng":     body.lng,
-            "empty":   body.empty,
-            "seats":   body.seats,
-            "ts":      ts,
+            "user_id":  user_id,
+            "name":     user["name"],
+            "lat":      body.lat,
+            "lng":      body.lng,
+            "empty":    body.empty,
+            "seats":    body.seats,
+            "verified": True,
+            "ts":       ts,
         }
 
     # Notify nearby users who have shared their location.

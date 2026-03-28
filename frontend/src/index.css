@@ -1296,3 +1296,37 @@ html:not(.theme-dark) .bg-gradient-to-b {
     transition: none !important;
   }
 }
+
+/* ── Airport Pickup / Rides Page — responsive layout ─────────────────────── */
+
+/* On mobile: stack columns vertically */
+@media (max-width: 767px) {
+  .rides-page-layout {
+    flex-direction: column !important;
+  }
+  .rides-left-sidebar,
+  .rides-right-sidebar {
+    width: 100% !important;
+    position: static !important;
+    height: auto !important;
+    border-right: none !important;
+    border-left: none !important;
+    border-bottom: 1px solid #1f2937 !important;
+  }
+  .rides-center-col {
+    overflow-y: visible !important;
+  }
+  .rides-center-map {
+    min-height: 300px !important;
+  }
+}
+
+/* On tablet: hide left sidebar, show center+right side by side */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .rides-left-sidebar {
+    display: none !important;
+  }
+  .rides-right-sidebar {
+    width: 280px !important;
+  }
+}

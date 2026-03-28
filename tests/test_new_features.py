@@ -30,6 +30,7 @@ from api.app import (
     api_driver_location,
     api_driver_nearby,
     api_driver_locations,
+    api_calculate_fare,
     _UserRegisterRequest,
     _UserLoginRequest,
     _AtsRequest,
@@ -399,6 +400,59 @@ class TestRidePost:
         assert "rides" in body
         assert isinstance(body["rides"], list)
 
+    def test_post_ride_with_fare(self):
+        import json
+        _, email = _register_user("FareDriver")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_post(req, _RidePostRequest(
+            origin="JFK Airport",
+            destination="Manhattan",
+            departure="2030-08-01T10:00",
+            seats=2,
+            fare=25.50,
+            origin_lat=40.6413,
+            origin_lng=-73.7781,
+            dest_lat=40.7128,
+            dest_lng=-74.0060,
+        )))
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+        ride_id = body["ride_id"]
+        # Verify fare appears in list
+        list_resp = run(api_rides_list())
+        rides = json.loads(list_resp.body)["rides"]
+        posted = [r for r in rides if r["ride_id"] == ride_id]
+        assert len(posted) == 1
+        assert posted[0]["fare"] == 25.50
+
+
+class TestCalculateFare:
+    """Tests for the fare calculation endpoint."""
+
+    def test_calculate_fare_returns_fare(self):
+        import json
+        # London to Paris ~341 km
+        resp = run(api_calculate_fare(
+            origin_lat=51.5074, origin_lng=-0.1278,
+            dest_lat=48.8566, dest_lng=2.3522,
+        ))
+        body = json.loads(resp.body)
+        assert "fare" in body
+        assert "dist_km" in body
+        assert body["fare"] > 0
+        assert body["dist_km"] > 300
+
+    def test_calculate_fare_same_point(self):
+        import json
+        resp = run(api_calculate_fare(
+            origin_lat=0.0, origin_lng=0.0,
+            dest_lat=0.0, dest_lng=0.0,
+        ))
+        body = json.loads(resp.body)
+        assert body["fare"] == 0.0
+        assert body["dist_km"] == 0.0
+
 
 class TestRideCancel:
     def test_cancel_own_ride(self):
@@ -445,13 +499,27 @@ class TestRideCancel:
 
 class TestDriverGeolocation:
     def _driver_session(self):
-        _, email = _register_user("GeoDriver")
-        # Re-register as driver
+        """Register a driver user, submit and approve a driver application, return session."""
+        from api.app import api_driver_apply, _DriverApplyRequest, _DriverApproveRequest
+        import json
         email2 = _unique_email("geodriver")
-        run(api_user_register(_UserRegisterRequest(
+        reg_resp = run(api_user_register(_UserRegisterRequest(
             name="GeoDriver", email=email2, password="password123", role="driver",
         )))
+        user_id = json.loads(reg_resp.body)["user_id"]
         session = _login_session(email2)
+
+        # Submit and approve a driver application so the driver can broadcast
+        apply_req = _make_request({"app_user_id": user_id})
+        apply_resp = run(api_driver_apply(apply_req, _DriverApplyRequest(
+            vehicle_make="Toyota", vehicle_model="Camry",
+            vehicle_year=2022, vehicle_color="White", license_plate="GEO001",
+        )))
+        app_id = json.loads(apply_resp.body).get("app_id")
+        if app_id:
+            admin_req = _make_request({"admin_user": "admin"})
+            run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=True)))
+
         return session, email2
 
     def test_passenger_cannot_broadcast(self):

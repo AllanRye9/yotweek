@@ -334,6 +334,54 @@ error once and for all for the vast majority of cases:
 
 ---
 
+## Airport Pickup Service
+
+The platform includes a full **Airport Pickup Service** at `/rides`:
+
+```mermaid
+flowchart LR
+    C([✈️ Client at Airport]) -->|Finds nearest driver| D[Airport Pickup Board]
+    D -->|Books via chat| DV[🚗 Verified Driver]
+    DV -->|Real-time location| M[🗺️ Live Map]
+    M -->|Tracks driver| C
+```
+
+### Features
+
+- **Driver registration & verification** — Drivers must submit a vehicle application and be approved by an admin before they can post their location. Verified drivers display a ✓ badge on the map.
+- **Live driver map** — OpenStreetMap shows all active, verified drivers with animated pulse markers indicating availability. Non-verified drivers cannot broadcast.
+- **Auto-calculated fares** — Fares are computed using the Haversine formula between pickup airport and destination at a configurable rate per km (`FARE_PER_KM` env var, default `1.5`).
+- **Nearest-driver search** — Clients find the nearest available driver at their airport sorted by proximity.
+- **Booking chat with auto-response** — When a client opens a chat, a pre-filled message prompts them to share their current location, full name, and contact details.
+- **3-column responsive layout** — Left sidebar (sticky): dashboard & driver alerts. Center (scrollable): post form at top + live map. Right sidebar (sticky): 🗺️ Airport Pickups list.
+- **Mobile responsive** — Columns stack vertically on mobile; left sidebar hidden on tablet.
+
+### Layout
+
+| Column | Content | Behaviour |
+|--------|---------|-----------|
+| Left (280 px) | 📊 Dashboard + 📡 Driver Broadcast | Sticky |
+| Center (flex) | ✈️ Post Airport Pickup form + 🗺️ Map | Scrollable |
+| Right (340 px) | 🗺️ Airport Pickups list | Sticky |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/rides/calculate_fare` | Auto-calculate fare: `?origin_lat=&origin_lng=&dest_lat=&dest_lng=` |
+| `POST` | `/api/rides/post` | Post an airport pickup (includes `fare`, `dest_lat`, `dest_lng`) |
+| `GET` | `/api/rides/list` | List all airport pickups (includes `fare` in response) |
+| `POST` | `/api/driver/location` | Broadcast driver location (requires verified application) |
+| `GET` | `/api/driver/locations` | All active verified driver locations (includes `verified` flag) |
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FARE_PER_KM` | `1.5` | Base fare rate per km for auto-calculated fares |
+
+---
+
 ## License
 
 This project is provided as-is for personal and educational use.

@@ -12,6 +12,7 @@ A cross-platform mobile application (Android & iOS) that mirrors every feature o
 | 🔄 **Document Converter** | Convert between PDF, Word, Excel, PowerPoint, JPEG, and PNG |
 | ⭐ **Reviews** | Read user reviews and submit your own star rating + comment |
 | ⬇ **Active Downloads** | Real-time progress bar for all running downloads; cancel individual jobs |
+| ✈️ **Airport Pickup Service** | View available airport pickups with auto-calculated fare, driver verification badge, and booking controls |
 
 ## Architecture
 

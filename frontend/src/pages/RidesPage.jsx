@@ -129,9 +129,9 @@ export default function RidesPage() {
       {/* ── Page header ── */}
       <div style={{ padding: '12px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>🚗 Ride Share &amp; Driver Alerts</h1>
+          <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>✈️ Airport Pickup Service</h1>
           <p style={{ color: '#6b7280', fontSize: '0.82rem', margin: '2px 0 0' }}>
-            Post shared rides, find passengers, and receive real-time driver alerts.
+            Find registered drivers, book airport pickups, and track drivers in real time.
           </p>
         </div>
       </div>
@@ -148,7 +148,7 @@ export default function RidesPage() {
           <div>
             <h2 className="text-xl font-bold text-white mb-2">Login Required</h2>
             <p className="text-gray-400 text-sm max-w-xs">
-              Please login or create a free account to view rides, post a ride, and receive driver alerts.
+              Please login or create a free account to view pickups, post a ride, and receive driver alerts.
             </p>
           </div>
           <div className="flex gap-3">
@@ -168,81 +168,85 @@ export default function RidesPage() {
         </div>
       ) : (
         /* ── 3-column authenticated layout ── */
-        <div style={{ flex: 1, display: 'flex', height: 'calc(100vh - 110px)', minHeight: 0 }}>
+        <div className="rides-page-layout" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
 
-          {/* ── Left: Available Rides ── */}
-          <aside style={{
+          {/* ── Left: Driver Dashboard & Alerts (sticky) ── */}
+          <aside className="rides-left-sidebar" style={{
             width: 280, flexShrink: 0,
             borderRight: '1px solid #1f2937',
-            overflowY: 'auto',
             background: '#111827',
+            position: 'sticky',
+            top: 56, /* navbar height */
+            height: 'calc(100vh - 56px)',
+            overflowY: 'auto',
             display: 'flex', flexDirection: 'column',
           }}>
             <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🚗 Available Rides</div>
-              <div style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 2 }}>{openRides.length} open ride{openRides.length !== 1 ? 's' : ''}</div>
+              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📊 Dashboard &amp; Alerts</div>
+              <div style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 2 }}>
+                {openRides.length} open pickup{openRides.length !== 1 ? 's' : ''}
+              </div>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
-              {openRides.length === 0 ? (
-                <div style={{ color: '#4b5563', textAlign: 'center', padding: '24px 8px', fontSize: '0.82rem' }}>
-                  No open rides yet. Post one!
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {openRides.map(ride => (
-                    <div key={ride.ride_id} style={{
-                      background: '#1f2937', border: '1px solid #374151', borderRadius: 10,
-                      padding: '10px 12px',
-                    }}>
-                      <div style={{ color: '#f3f4f6', fontSize: '0.82rem', fontWeight: 600, marginBottom: 2 }}>
-                        {ride.origin} → {ride.destination}
-                      </div>
-                      <div style={{ color: '#9ca3af', fontSize: '0.72rem', marginBottom: 4 }}>
-                        🕐 {ride.departure ? new Date(ride.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <span style={{ color: '#86efac', fontSize: '0.72rem' }}>💺 {ride.seats} seat{ride.seats !== 1 ? 's' : ''}</span>
-                        <span style={{ color: '#6b7280', fontSize: '0.72rem' }}>👤 {ride.driver_name ?? ride.user_name ?? 'Driver'}</span>
-                      </div>
-                      {ride.notes && (
-                        <div style={{ color: '#6b7280', fontSize: '0.7rem', marginTop: 4, fontStyle: 'italic' }}>
-                          {ride.notes.length > 60 ? ride.notes.slice(0, 60) + '…' : ride.notes}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
+              <RideShare
+                user={appUser}
+                onRidesChange={setRides}
+                requestedRide={null}
+                onRequestedRideHandled={() => {}}
+                showSections={{ dashboard: true, driverBroadcast: true, form: false, list: false }}
+              />
             </div>
           </aside>
 
-          {/* ── Center: Map ── */}
-          <main style={{ flex: 1, minWidth: 0, height: '100%', background: '#030712', display: 'flex', flexDirection: 'column' }}>
-            <RideShareMap
-              rides={rides}
-              userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
-              onOpenChat={(ride, defaultMsg) => setMapChatRequest({ ride, defaultMsg })}
-              mapHeight="100%"
-            />
+          {/* ── Center: Post Form + Map (scrollable) ── */}
+          <main className="rides-center-col" style={{
+            flex: 1, minWidth: 0,
+            overflowY: 'auto',
+            background: '#030712',
+            display: 'flex', flexDirection: 'column',
+          }}>
+            {/* Post Airport Pickup form */}
+            <div style={{ padding: '12px 12px 0', borderBottom: '1px solid #1f2937' }}>
+              <RideShare
+                user={appUser}
+                onRidesChange={() => {}} /* list managed by right panel */
+                requestedRide={mapChatRequest}
+                onRequestedRideHandled={() => setMapChatRequest(null)}
+                showSections={{ form: true, dashboard: false, driverBroadcast: false, list: false }}
+              />
+            </div>
+            {/* Map */}
+            <div className="rides-center-map" style={{ flex: 1, minHeight: 400 }}>
+              <RideShareMap
+                rides={rides}
+                userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
+                onOpenChat={(ride, defaultMsg) => setMapChatRequest({ ride, defaultMsg })}
+                mapHeight="100%"
+              />
+            </div>
           </main>
 
-          {/* ── Right: Ride Dashboard ── */}
-          <aside style={{
+          {/* ── Right: Airport Pickups List (sticky) ── */}
+          <aside className="rides-right-sidebar" style={{
             width: 340, flexShrink: 0,
             borderLeft: '1px solid #1f2937',
-            overflowY: 'auto',
             background: '#111827',
+            position: 'sticky',
+            top: 56,
+            height: 'calc(100vh - 56px)',
+            overflowY: 'auto',
             display: 'flex', flexDirection: 'column',
           }}>
             <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📊 Ride Dashboard</div>
+              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🗺️ Airport Pickups</div>
             </div>
-            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px' }}>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
               <RideShare
                 user={appUser}
                 onRidesChange={setRides}
                 requestedRide={mapChatRequest}
                 onRequestedRideHandled={() => setMapChatRequest(null)}
+                showSections={{ list: true, dashboard: false, driverBroadcast: false, form: false }}
               />
             </div>
           </aside>

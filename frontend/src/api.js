@@ -354,8 +354,11 @@ export const getRideChatInbox = () => request('GET', '/api/rides/chat/inbox')
 
 // ── Ride Sharing ──────────────────────────────────────────────────────────────
 
-export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null) =>
-  request('POST', '/api/rides/post', { origin, destination, departure, seats, notes, origin_lat, origin_lng })
+export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null, dest_lat = null, dest_lng = null, fare = null) =>
+  request('POST', '/api/rides/post', { origin, destination, departure, seats, notes, origin_lat, origin_lng, dest_lat, dest_lng, fare })
+
+export const calculateFare = (origin_lat, origin_lng, dest_lat, dest_lng) =>
+  request('GET', `/api/rides/calculate_fare?origin_lat=${origin_lat}&origin_lng=${origin_lng}&dest_lat=${dest_lat}&dest_lng=${dest_lng}`)
 
 export const listRides = (status = null) =>
   request('GET', `/api/rides/list${status ? `?status=${encodeURIComponent(status)}` : ''}`)

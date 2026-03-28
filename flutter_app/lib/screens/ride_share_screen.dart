@@ -146,7 +146,7 @@ class _RideShareScreenState extends State<RideShareScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Ride Share'),
+        title: const Text('✈️ Airport Pickup Service'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -185,7 +185,7 @@ class _RideShareScreenState extends State<RideShareScreen>
                             SizedBox(height: 120),
                             Center(
                               child: Text(
-                                'No rides posted yet.\nBe the first!',
+                                'No airport pickups posted yet.\nBe the first!',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(color: Colors.grey),
                               ),
@@ -271,6 +271,8 @@ class _RideCard extends StatelessWidget {
     final isCancelled = status == 'cancelled';
     final contact = _extractContact(ride['notes'] as String?);
     final noteText = _extractNotes(ride['notes'] as String?);
+    final fare = ride['fare'];
+    final fareText = fare != null ? '\$${(fare as num).toStringAsFixed(2)}' : null;
 
     return AnimatedOpacity(
       opacity: isCancelled ? 0.55 : 1.0,
@@ -292,7 +294,7 @@ class _RideCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${ride['origin']}  →  ${ride['destination']}',
+                    '✈️ ${ride['origin']}  →  ${ride['destination']}',
                     style: const TextStyle(
                         fontWeight: FontWeight.w700, fontSize: 13),
                     maxLines: 1,
@@ -310,6 +312,8 @@ class _RideCard extends StatelessWidget {
                 _detail(Icons.access_time, _formatDate(ride['departure'] as String?)),
                 _detail(Icons.event_seat, '${ride['seats']} seat(s)'),
                 _detail(Icons.person_outline, ride['driver_name'] as String? ?? '—'),
+                if (fareText != null)
+                  _detail(Icons.attach_money, fareText),
               ],
             ),
             if (noteText != null && noteText.isNotEmpty) ...[

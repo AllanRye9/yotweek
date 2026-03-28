@@ -225,10 +225,14 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
       if (dl.lat == null || dl.lng == null) return
       // Animated pulsing icon for active (empty/available) drivers
       const isActive = dl.empty
+      const isVerified = dl.verified === true
+      const verifiedBadge = isVerified
+        ? `<span style="position:absolute;top:-4px;right:-4px;background:#2563eb;border-radius:50%;width:12px;height:12px;display:flex;align-items:center;justify-content:center;font-size:8px;border:1px solid #fff;z-index:2;" title="Verified Driver">✓</span>`
+        : ''
       const icon = L.divIcon({
         className: '',
         html: isActive
-          ? `<div class="map-driver-active-wrapper">
+          ? `<div class="map-driver-active-wrapper" style="position:relative;">
                <div class="map-driver-pulse-ring"></div>
                <div style="
                  background:#16a34a;color:#fff;border-radius:50%;
@@ -236,23 +240,26 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
                  justify-content:center;font-size:14px;
                  box-shadow:0 2px 8px rgba(0,0,0,0.4);
                  border:2px solid #fff;position:relative;z-index:1;
-               ">🚙</div>
+               ">🚙${verifiedBadge}</div>
              </div>`
-          : `<div style="
-               background:#6b7280;color:#fff;border-radius:50%;
-               width:28px;height:28px;display:flex;align-items:center;
-               justify-content:center;font-size:14px;
-               box-shadow:0 2px 8px rgba(0,0,0,0.4);
-               border:2px solid #fff;
-             ">🚙</div>`,
+          : `<div style="position:relative;display:inline-block;">
+               <div style="
+                 background:#6b7280;color:#fff;border-radius:50%;
+                 width:28px;height:28px;display:flex;align-items:center;
+                 justify-content:center;font-size:14px;
+                 box-shadow:0 2px 8px rgba(0,0,0,0.4);
+                 border:2px solid #fff;
+               ">🚙${verifiedBadge}</div>
+             </div>`,
         iconSize:   isActive ? [44, 44] : [28, 28],
         iconAnchor: isActive ? [22, 22] : [14, 14],
       })
       const seatsLine = dl.seats != null ? `<br>💺 ${dl.seats} seat${dl.seats !== 1 ? 's' : ''}` : ''
+      const verifiedLine = isVerified ? '<br><span style="color:#60a5fa;">✓ Verified Driver</span>' : ''
       const m = L.marker([dl.lat, dl.lng], { icon })
         .addTo(map)
         .bindTooltip(
-          `<strong>${dl.name}</strong><br>${dl.empty ? '🟢 Available' : '🔴 Occupied'}${seatsLine}`,
+          `<strong>${dl.name}</strong>${verifiedLine}<br>${dl.empty ? '🟢 Available' : '🔴 Occupied'}${seatsLine}`,
           { direction: 'top' }
         )
       driverMarkersRef.current.push(m)
@@ -451,16 +458,17 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
       {/* Driver count badge */}
       {driverLocations.length > 0 && (
         <div className="absolute bottom-10 right-2 z-[1000] bg-green-900/90 border border-green-700 rounded-full px-2.5 py-0.5 text-xs text-green-300 font-medium">
-          {driverLocations.filter(d => d.empty).length} driver{driverLocations.filter(d => d.empty).length !== 1 ? 's' : ''} available
+          {driverLocations.filter(d => d.empty).length} verified driver{driverLocations.filter(d => d.empty).length !== 1 ? 's' : ''} available
         </div>
       )}
 
       {/* Legend */}
       <div className="absolute bottom-2 left-2 z-[1000] flex gap-1.5 flex-wrap">
         {[
-          { icon: '&#x1F697;', label: 'Ride' },
+          { icon: '&#x1F697;', label: 'Pickup' },
           { icon: '&#x1F699;', label: 'Driver' },
           { icon: '&#x1F464;', label: 'You' },
+          { icon: '✓', label: 'Verified' },
         ].map(l => (
           <div key={l.label} className="flex items-center gap-1 bg-gray-900/80 rounded-full px-2 py-0.5 text-xs text-gray-300">
             <span dangerouslySetInnerHTML={{ __html: l.icon }} />
