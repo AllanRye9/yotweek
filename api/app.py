@@ -21,6 +21,13 @@ try:
 except ImportError:
     psycopg2 = None
 # Tuple of integrity-error types so except clauses work for both backends
+
+try:
+    import boto3
+    from botocore.exceptions import ClientError as _BotocoreClientError
+except ImportError:
+    boto3 = None
+    _BotocoreClientError = Exception
 _IntegrityErrors: tuple = (sqlite3.IntegrityError,)
 if psycopg2 is not None:
     _IntegrityErrors = (sqlite3.IntegrityError, psycopg2.IntegrityError)
@@ -258,6 +265,123 @@ os.makedirs(DATA_DIR, exist_ok=True)
 # PostgreSQL support: when DATABASE_URL is set, use PostgreSQL instead of SQLite
 DATABASE_URL = os.environ.get("DATABASE_URL")
 USE_POSTGRES = bool(DATABASE_URL and psycopg2 is not None)
+
+# =========================================================
+# S3-COMPATIBLE OBJECT STORAGE
+# Set all five BUCKET_* variables to enable cloud storage.
+# When configured, completed downloads are uploaded to the
+# bucket and served via presigned URLs; files are also deleted
+# from the bucket on removal/cleanup.
+# =========================================================
+
+BUCKET_NAME             = os.environ.get("BUCKET_NAME", "")
+BUCKET_REGION           = os.environ.get("BUCKET_REGION", "")
+BUCKET_ENDPOINT         = os.environ.get("BUCKET_ENDPOINT", "")
+BUCKET_ACCESS_KEY_ID    = os.environ.get("BUCKET_ACCESS_KEY_ID", "")
+BUCKET_SECRET_ACCESS_KEY = os.environ.get("BUCKET_SECRET_ACCESS_KEY", "")
+
+_S3_ENABLED = bool(
+    boto3 is not None
+    and BUCKET_NAME
+    and BUCKET_ACCESS_KEY_ID
+    and BUCKET_SECRET_ACCESS_KEY
+)
+
+_s3_client_instance = None
+_s3_client_lock = threading.Lock()
+
+
+def _get_s3_client():
+    """Return a cached boto3 S3 client, or *None* when S3 is not configured."""
+    global _s3_client_instance
+    if not _S3_ENABLED:
+        return None
+    if _s3_client_instance is not None:
+        return _s3_client_instance
+    with _s3_client_lock:
+        if _s3_client_instance is None:
+            kwargs = {
+                "aws_access_key_id":     BUCKET_ACCESS_KEY_ID,
+                "aws_secret_access_key": BUCKET_SECRET_ACCESS_KEY,
+            }
+            if BUCKET_REGION:
+                kwargs["region_name"] = BUCKET_REGION
+            if BUCKET_ENDPOINT:
+                kwargs["endpoint_url"] = BUCKET_ENDPOINT
+            _s3_client_instance = boto3.client("s3", **kwargs)
+    return _s3_client_instance
+
+
+def _s3_upload_file(local_path: str, key: str) -> bool:
+    """Upload *local_path* to the configured bucket under *key*.
+
+    Returns ``True`` on success, ``False`` when S3 is not configured or the
+    upload fails (errors are logged but never re-raised so callers always get
+    a usable result).
+    """
+    client = _get_s3_client()
+    if client is None:
+        return False
+    try:
+        client.upload_file(local_path, BUCKET_NAME, key)
+        logger.info("S3 upload: %s → s3://%s/%s", local_path, BUCKET_NAME, key)
+        return True
+    except Exception as exc:
+        logger.error("S3 upload failed for %s: %s", key, exc)
+        return False
+
+
+def _s3_delete_file(key: str) -> bool:
+    """Delete *key* from the configured bucket.
+
+    Returns ``True`` on success, ``False`` otherwise.
+    """
+    client = _get_s3_client()
+    if client is None:
+        return False
+    try:
+        client.delete_object(Bucket=BUCKET_NAME, Key=key)
+        logger.info("S3 delete: s3://%s/%s", BUCKET_NAME, key)
+        return True
+    except Exception as exc:
+        logger.error("S3 delete failed for %s: %s", key, exc)
+        return False
+
+
+def _s3_presigned_url(key: str, expires_in: int = 3600) -> str | None:
+    """Generate a presigned download URL for *key* (default expiry 1 hour).
+
+    Returns the URL string on success, or ``None`` when S3 is not configured or
+    URL generation fails.
+    """
+    client = _get_s3_client()
+    if client is None:
+        return None
+    try:
+        url = client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": BUCKET_NAME, "Key": key},
+            ExpiresIn=expires_in,
+        )
+        return url
+    except Exception as exc:
+        logger.error("S3 presigned URL failed for %s: %s", key, exc)
+        return None
+
+
+def _s3_object_exists(key: str) -> bool:
+    """Return *True* when *key* exists in the configured bucket."""
+    client = _get_s3_client()
+    if client is None:
+        return False
+    try:
+        client.head_object(Bucket=BUCKET_NAME, Key=key)
+        return True
+    except _BotocoreClientError:
+        return False
+    except Exception as exc:
+        logger.error("S3 head_object failed for %s: %s", key, exc)
+        return False
 
 # Paths whose visits are tracked for analytics (main site + admin page)
 TRACKED_VISITOR_PATHS = {"/const", "/"}
@@ -2911,6 +3035,13 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                         "file_size": os.path.getsize(file_path),
                         "file_size_hr": format_size(os.path.getsize(file_path))
                     })
+                    # Upload to S3 if configured
+                    if _S3_ENABLED:
+                        threading.Thread(
+                            target=_s3_upload_file,
+                            args=(file_path, file),
+                            daemon=True,
+                        ).start()
                     break
 
             # Record in the URL deduplication cache
@@ -2968,6 +3099,12 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                     "file_size_hr": format_size(os.path.getsize(ssyt_path)),
                 })
                 _cache_completed_download(url, download_id, ssyt_filename)
+            if _S3_ENABLED:
+                threading.Thread(
+                    target=_s3_upload_file,
+                    args=(ssyt_path, ssyt_filename),
+                    daemon=True,
+                ).start()
             emit_from_thread(
                 "progress",
                 {"id": download_id, "line": "", "percent": 100,
@@ -3023,6 +3160,12 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                     "file_size_hr": format_size(os.path.getsize(alt_path)),
                 })
                 _cache_completed_download(url, download_id, alt_filename)
+            if _S3_ENABLED:
+                threading.Thread(
+                    target=_s3_upload_file,
+                    args=(alt_path, alt_filename),
+                    daemon=True,
+                ).start()
             emit_from_thread(
                 "progress",
                 {"id": download_id, "line": "", "percent": 100,
@@ -3154,6 +3297,12 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
                         "file_size_hr": format_size(os.path.getsize(alt_path)),
                     })
                     _cache_completed_download(url, download_id, alt_filename)
+                if _S3_ENABLED:
+                    threading.Thread(
+                        target=_s3_upload_file,
+                        args=(alt_path, alt_filename),
+                        daemon=True,
+                    ).start()
                 emit_from_thread(
                     "progress",
                     {"id": download_id, "line": "", "percent": 100,
@@ -3625,8 +3774,15 @@ async def delete_session_files(session_id: str):
     for filename in owned_files:
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
         try:
-            if os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)) and os.path.isfile(filepath):
+            if _S3_ENABLED:
+                _s3_delete_file(filename)
+            local_deleted = (
+                os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER))
+                and os.path.isfile(filepath)
+            )
+            if local_deleted:
                 os.remove(filepath)
+            if local_deleted or _S3_ENABLED:
                 deleted.append(filename)
         except Exception as e:
             logger.warning(f"Could not delete session file {filename}: {e}")
@@ -3637,6 +3793,12 @@ async def delete_session_files(session_id: str):
 async def download_file(filename: str):
     """Serve downloaded file"""
     try:
+        # When S3 is configured, redirect to a presigned URL if the object exists
+        if _S3_ENABLED:
+            presigned = _s3_presigned_url(filename)
+            if presigned:
+                return RedirectResponse(presigned)
+            # Fall through to local file if the S3 object is not found yet
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
         if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
             return JSONResponse({"error": "Invalid filename"}, status_code=400)
@@ -3674,6 +3836,12 @@ async def stream_file(filename: str):
     which would otherwise prevent the browser from decoding the audio track.
     """
     try:
+        # When S3 is configured, redirect to a presigned URL for inline playback
+        if _S3_ENABLED:
+            presigned = _s3_presigned_url(filename)
+            if presigned:
+                return RedirectResponse(presigned)
+            # Fall through to local file if the S3 object is not found yet
         filepath = os.path.join(DOWNLOAD_FOLDER, filename)
         if not os.path.realpath(filepath).startswith(os.path.realpath(DOWNLOAD_FOLDER)):
             return JSONResponse({"error": "Invalid filename"}, status_code=400)
@@ -3701,10 +3869,17 @@ async def delete_file(filename: str):
         if not os.path.abspath(filepath).startswith(os.path.abspath(DOWNLOAD_FOLDER)):
             return JSONResponse({"error": "Invalid filename"}, status_code=400)
 
-        if os.path.exists(filepath) and os.path.isfile(filepath):
+        # Delete from S3 if configured
+        if _S3_ENABLED:
+            _s3_delete_file(filename)
+
+        local_exists = os.path.exists(filepath) and os.path.isfile(filepath)
+        if local_exists:
             os.remove(filepath)
-            emit_from_thread("files_updated")
             logger.info(f"Deleted file: {filename}")
+
+        if local_exists or _S3_ENABLED:
+            emit_from_thread("files_updated")
             return JSONResponse({"success": True})
         else:
             return JSONResponse({"error": "File not found"}, status_code=404)
@@ -10036,6 +10211,8 @@ def cleanup_old_files():
             if os.path.isfile(filepath):
                 if os.path.getmtime(filepath) < cutoff:
                     os.remove(filepath)
+                    if _S3_ENABLED:
+                        _s3_delete_file(filename)
                     logger.info(f"Auto-cleaned file (>{Config.FILE_RETENTION_MINUTES} min): {filename}")
                     files_deleted = True
 
@@ -10109,6 +10286,16 @@ if USE_POSTGRES:
     logger.info("Using PostgreSQL database via DATABASE_URL")
 else:
     logger.info(f"Using SQLite database at {DB_PATH}")
+
+if _S3_ENABLED:
+    logger.info(
+        "S3 object storage enabled: bucket=%s region=%s endpoint=%s",
+        BUCKET_NAME,
+        BUCKET_REGION or "(default)",
+        BUCKET_ENDPOINT or "(AWS)",
+    )
+else:
+    logger.info("S3 object storage disabled (BUCKET_* variables not set)")
 
 # Load persisted data
 load_persistence()
