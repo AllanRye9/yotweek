@@ -1316,7 +1316,7 @@ html:not(.theme-dark) .bg-gradient-to-b {
   .rides-center-col {
     overflow-y: visible !important;
   }
-  .rides-center-col > div:last-child {
+  .rides-center-map {
     min-height: 300px !important;
   }
 }

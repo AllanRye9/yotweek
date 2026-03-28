@@ -216,7 +216,7 @@ export default function RidesPage() {
               />
             </div>
             {/* Map */}
-            <div style={{ flex: 1, minHeight: 400 }}>
+            <div className="rides-center-map" style={{ flex: 1, minHeight: 400 }}>
               <RideShareMap
                 rides={rides}
                 userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}

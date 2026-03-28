@@ -14,6 +14,17 @@ function _distKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+/** Build the default booking message sent to a driver, prompting the client to share details. */
+function _buildClientBookingMsg(ride, userName) {
+  return (
+    `Hi ${ride.driver_name || 'Driver'}, I need an airport pickup from ${ride.origin} to ${ride.destination}. Please find my details below:\n\n` +
+    `Name: ${userName || '[your name]'}\n` +
+    `Contact: [your phone/WhatsApp]\n` +
+    `Current Location: [please share your location]\n\n` +
+    `Are you available?`
+  )
+}
+
 /** Default sections shown when showSections is not specified */
 const DEFAULT_SECTIONS = { form: true, list: true, dashboard: true, driverBroadcast: true }
 
@@ -495,8 +506,6 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           const distKm = (userLat != null && ride.origin_lat != null)
             ? _distKm(userLat, userLng, ride.origin_lat, ride.origin_lng)
             : null
-          // Auto-message prompts client to share location, name and contact
-          const clientDefaultMsg = `Hi ${ride.driver_name || 'Driver'}, I need an airport pickup from ${ride.origin} to ${ride.destination}. Please find my details below:\n\nName: ${user?.name || '[your name]'}\nContact: [your phone/WhatsApp]\nCurrent Location: [please share your location]\n\nAre you available?`
           return (
           <div key={ride.ride_id}
             className={`ride-card rounded-xl border p-4 space-y-2 transition-all ${
@@ -540,7 +549,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               </div>
               <div className="flex flex-col gap-1.5 shrink-0">
                 {ride.status === 'open' && (
-                  <button onClick={() => { setChatRide(ride); setChatDefaultMsg(clientDefaultMsg) }}
+                  <button onClick={() => { setChatRide(ride); setChatDefaultMsg(_buildClientBookingMsg(ride, user?.name)) }}
                     className="ride-chat-btn text-xs text-blue-400 hover:text-blue-300 border border-blue-700/50 hover:border-blue-500 rounded-lg px-2 py-1 transition-colors flex items-center gap-1">
                     💬 Book
                   </button>
