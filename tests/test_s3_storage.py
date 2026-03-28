@@ -320,3 +320,112 @@ class TestS3ObjectExists:
             result = _s3_object_exists("video.mp4")
 
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _s3_upload_bytes
+# ---------------------------------------------------------------------------
+
+class TestS3UploadBytes:
+    """_s3_upload_bytes() must behave correctly in all scenarios."""
+
+    def test_returns_false_when_s3_disabled(self):
+        with patch.object(app_module, "_S3_ENABLED", False):
+            assert app_module._s3_upload_bytes(b"data", "chat_media/msg1.jpg") is False
+
+    def test_uploads_bytes_via_put_object_and_returns_true(self):
+        mock_client = _make_mock_client()
+        mock_client.put_object = MagicMock(return_value={})
+
+        with (
+            patch.object(app_module, "_S3_ENABLED", True),
+            patch.object(app_module, "BUCKET_NAME", "test-bucket"),
+            patch("api.app._get_s3_client", return_value=mock_client),
+        ):
+            result = app_module._s3_upload_bytes(b"imagedata", "chat_media/msg1.jpg", "image/jpeg")
+
+        assert result is True
+        mock_client.put_object.assert_called_once()
+        _, kwargs = mock_client.put_object.call_args
+        assert kwargs["Bucket"] == "test-bucket"
+        assert kwargs["Key"] == "chat_media/msg1.jpg"
+        assert kwargs["ContentType"] == "image/jpeg"
+
+    def test_returns_false_on_exception(self):
+        mock_client = _make_mock_client()
+        mock_client.put_object = MagicMock(side_effect=Exception("network error"))
+
+        with (
+            patch.object(app_module, "_S3_ENABLED", True),
+            patch.object(app_module, "BUCKET_NAME", "test-bucket"),
+            patch("api.app._get_s3_client", return_value=mock_client),
+        ):
+            result = app_module._s3_upload_bytes(b"data", "chat_media/msg1.jpg")
+
+        assert result is False
+
+    def test_default_content_type_is_octet_stream(self):
+        mock_client = _make_mock_client()
+        mock_client.put_object = MagicMock(return_value={})
+
+        with (
+            patch.object(app_module, "_S3_ENABLED", True),
+            patch.object(app_module, "BUCKET_NAME", "test-bucket"),
+            patch("api.app._get_s3_client", return_value=mock_client),
+        ):
+            app_module._s3_upload_bytes(b"data", "file.bin")
+
+        _, kwargs = mock_client.put_object.call_args
+        assert kwargs["ContentType"] == "application/octet-stream"
+
+
+# ---------------------------------------------------------------------------
+# _resolve_chat_media
+# ---------------------------------------------------------------------------
+
+class TestResolveChatMedia:
+    """_resolve_chat_media() must replace S3 keys with presigned URLs."""
+
+    def test_no_op_when_s3_disabled(self):
+        messages = [{"media_type": "image", "media_data": "chat_media/msg1.jpg"}]
+        with patch.object(app_module, "_S3_ENABLED", False):
+            result = app_module._resolve_chat_media(messages)
+        # Value is left unchanged when S3 is disabled
+        assert result[0]["media_data"] == "chat_media/msg1.jpg"
+
+    def test_replaces_s3_key_with_presigned_url(self):
+        messages = [{"media_type": "image", "media_data": "chat_media/msg1.jpg"}]
+        expected_url = "https://example.com/presigned?key=chat_media/msg1.jpg"
+
+        with (
+            patch.object(app_module, "_S3_ENABLED", True),
+            patch("api.app._s3_presigned_url", return_value=expected_url),
+        ):
+            result = app_module._resolve_chat_media(messages)
+
+        assert result[0]["media_data"] == expected_url
+
+    def test_leaves_non_s3_media_data_unchanged(self):
+        """Base64 payloads (not starting with chat_media/) are left as-is."""
+        b64 = "/9j/4AAQSkZJRgABAQEASABIAAD"  # fake base64 JPEG
+        messages = [{"media_type": "image", "media_data": b64}]
+
+        with patch.object(app_module, "_S3_ENABLED", True):
+            result = app_module._resolve_chat_media(messages)
+
+        assert result[0]["media_data"] == b64
+
+    def test_handles_empty_media_data(self):
+        messages = [{"media_type": "text", "media_data": None}]
+        with patch.object(app_module, "_S3_ENABLED", True):
+            result = app_module._resolve_chat_media(messages)
+        assert result[0]["media_data"] is None
+
+    def test_returns_same_list_reference(self):
+        messages = [{"media_data": "chat_media/x.webm"}]
+        with (
+            patch.object(app_module, "_S3_ENABLED", True),
+            patch("api.app._s3_presigned_url", return_value="https://url"),
+        ):
+            result = app_module._resolve_chat_media(messages)
+        assert result is messages  # mutates in-place and returns the list

@@ -1,6 +1,8 @@
 import os
 import re
 import sys
+import io
+import base64
 import math
 import secrets
 import subprocess
@@ -381,6 +383,24 @@ def _s3_object_exists(key: str) -> bool:
         return False
     except Exception as exc:
         logger.error("S3 head_object failed for %s: %s", key, exc)
+        return False
+
+
+def _s3_upload_bytes(data: bytes, key: str, content_type: str = "application/octet-stream") -> bool:
+    """Upload raw *data* bytes to the configured bucket under *key*.
+
+    Returns ``True`` on success, ``False`` when S3 is not configured or the
+    upload fails (errors are logged but never re-raised).
+    """
+    client = _get_s3_client()
+    if client is None:
+        return False
+    try:
+        client.put_object(Body=io.BytesIO(data), Bucket=BUCKET_NAME, Key=key, ContentType=content_type)
+        logger.info("S3 upload bytes: s3://%s/%s (%d bytes)", BUCKET_NAME, key, len(data))
+        return True
+    except Exception as exc:
+        logger.error("S3 upload bytes failed for %s: %s", key, exc)
         return False
 
 # Paths whose visits are tracked for analytics (main site + admin page)
@@ -7274,7 +7294,14 @@ async def api_user_upload_avatar(request: Request, file: UploadFile = File(...))
     with open(avatar_path, "wb") as fh:
         fh.write(data)
 
-    avatar_url = f"/static/avatars/{filename}"
+    # When S3 is configured, upload the avatar to the media bucket and serve
+    # via the /api/avatars/ endpoint (which redirects to a presigned URL).
+    if _S3_ENABLED:
+        s3_key = f"avatars/{filename}"
+        _s3_upload_bytes(data, s3_key, ct)
+        avatar_url = f"/api/avatars/{filename}"
+    else:
+        avatar_url = f"/static/avatars/{filename}"
 
     with _db_lock:
         conn = _get_db()
@@ -7289,6 +7316,32 @@ async def api_user_upload_avatar(request: Request, file: UploadFile = File(...))
             conn.close()
 
     return JSONResponse({"ok": True, "avatar_url": avatar_url})
+
+
+@fastapi_app.get("/api/avatars/{filename}")
+async def api_serve_avatar(filename: str):
+    """Serve a user avatar from the media bucket (S3) or the local filesystem.
+
+    When S3 is configured the client is redirected to a presigned URL so the
+    image is streamed directly from the bucket.  Falls back to the locally
+    cached copy when S3 is unavailable or not configured.
+    """
+    # Sanitise filename to prevent path-traversal
+    safe_name = os.path.basename(filename)
+    if not safe_name or safe_name != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    if _S3_ENABLED:
+        presigned = _s3_presigned_url(f"avatars/{safe_name}")
+        if presigned:
+            return RedirectResponse(presigned)
+
+    local_path = os.path.join(AVATARS_DIR, safe_name)
+    if os.path.exists(local_path):
+        mime = mimetypes.guess_type(safe_name)[0] or "image/jpeg"
+        return FileResponse(local_path, media_type=mime)
+
+    raise HTTPException(status_code=404, detail="Avatar not found.")
 
 
 # ── Notifications ──────────────────────────────────────────────────────────────
@@ -7401,6 +7454,26 @@ async def api_mark_all_notifications_read(request: Request):
 
 # ── Ride chat messages (persistent) ────────────────────────────────────────────
 
+_CHAT_MEDIA_PREFIX = "chat_media/"
+
+
+def _resolve_chat_media(messages: list[dict]) -> list[dict]:
+    """Replace S3 object keys in *messages* ``media_data`` fields with presigned URLs.
+
+    When S3 is not configured or the key cannot be resolved the field is left
+    unchanged so callers always receive a usable list.
+    """
+    if not _S3_ENABLED:
+        return messages
+    for msg in messages:
+        md = msg.get("media_data")
+        if md and isinstance(md, str) and md.startswith(_CHAT_MEDIA_PREFIX):
+            url = _s3_presigned_url(md)
+            if url:
+                msg["media_data"] = url
+    return messages
+
+
 @fastapi_app.get("/api/rides/{ride_id}/chat")
 async def api_get_ride_chat(request: Request, ride_id: str):
     """Return persisted chat messages for a ride (most recent last, max 200)."""
@@ -7432,6 +7505,7 @@ async def api_get_ride_chat(request: Request, ride_id: str):
             conn.close()
 
     messages = [dict(zip(cols, row)) for row in rows]
+    _resolve_chat_media(messages)
     return JSONResponse({"messages": messages})
 
 
@@ -9599,6 +9673,7 @@ async def on_join_ride_chat(sid, data):
                     d["role"] = d.pop("sender_role")
                     d["id"]   = d.pop("msg_id")
                     history.append(d)
+                _resolve_chat_media(history)
             finally:
                 conn.close()
     except Exception as e:
@@ -9656,6 +9731,24 @@ async def on_ride_chat_message(sid, data):
     if media_data and len(media_data) > 1_400_000:
         media_data = None
 
+    # When S3 is configured, upload image/audio media to the bucket and store
+    # the S3 object key in place of the raw base64 payload.  This keeps large
+    # binary blobs out of the database and ensures persistence across restarts.
+    _MEDIA_TYPE_INFO = {
+        "image": ("jpg",  "image/jpeg"),
+        "audio": ("webm", "audio/webm"),
+    }
+    db_media_data = media_data  # value written to the database
+    if _S3_ENABLED and media_data and media_type in _MEDIA_TYPE_INFO:
+        try:
+            raw_bytes = base64.b64decode(media_data)
+            ext, mime = _MEDIA_TYPE_INFO[media_type]
+            s3_key = f"chat_media/{msg_id}.{ext}"
+            if _s3_upload_bytes(raw_bytes, s3_key, mime):
+                db_media_data = s3_key  # store only the S3 key in the DB
+        except Exception as _exc:
+            logger.warning("Failed to upload ride chat media to S3: %s", _exc)
+
     ts = time.time()
     msg = {
         "ride_id":    ride_id,
@@ -9683,7 +9776,7 @@ async def on_ride_chat_message(sid, data):
                         " (msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at)"
                         " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
                         " ON CONFLICT (msg_id) DO NOTHING",
-                        (msg_id, ride_id, name, role, text or None, media_type, media_data,
+                        (msg_id, ride_id, name, role, text or None, media_type, db_media_data,
                          msg_lat, msg_lng, ts, created),
                     )
                 else:
@@ -9691,7 +9784,7 @@ async def on_ride_chat_message(sid, data):
                         "INSERT OR IGNORE INTO ride_chat_messages"
                         " (msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at)"
                         " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                        (msg_id, ride_id, name, role, text or None, media_type, media_data,
+                        (msg_id, ride_id, name, role, text or None, media_type, db_media_data,
                          msg_lat, msg_lng, ts, created),
                     )
                 conn.commit()
