@@ -10154,7 +10154,7 @@ async def api_dm_send(request: Request, body: _DMSendRequest):
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
-    content = body.content.strip()[:4000]
+    content = body.content.strip()[:4000]  # 4000 chars to accommodate E2E encrypted payloads (base64)
     if not content:
         return JSONResponse({"error": "Message cannot be empty."}, status_code=400)
     conv = _get_dm_conversation(body.conv_id)

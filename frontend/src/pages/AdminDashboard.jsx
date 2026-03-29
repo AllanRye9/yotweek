@@ -690,7 +690,8 @@ export default function AdminDashboard() {
           )}
 
           {/* Reviews tab */}
-          {tab === 'reviews' && (            <div className="space-y-4">
+          {tab === 'reviews' && (
+            <div className="space-y-4">
               {loadingReviews ? (
                 <div className="flex justify-center py-12"><div className="spinner w-8 h-8" /></div>
               ) : (

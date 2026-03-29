@@ -2323,8 +2323,7 @@ class TestProperties:
         import json
         from api.app import api_create_property, _PropertyCreateRequest
         resp_data, email = _register_user(name="PropOwner", role="passenger")
-        import json as _json
-        user_id = _json.loads(resp_data.body)["user_id"]
+        user_id = json.loads(resp_data.body)["user_id"]
         _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
@@ -2356,10 +2355,10 @@ class TestProperties:
 
     def test_create_property_invalid_status(self):
         """POST /api/properties with invalid status → 400."""
-        import json as _json
+        import json
         from api.app import api_create_property, _PropertyCreateRequest
         resp_data, email = _register_user(name="PropOwner2", role="passenger")
-        user_id = _json.loads(resp_data.body)["user_id"]
+        user_id = json.loads(resp_data.body)["user_id"]
         _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
@@ -2373,10 +2372,9 @@ class TestProperties:
     def test_create_property_max_4_agents(self):
         """POST /api/properties should silently cap agent_ids at 4."""
         import json
-        import json as _json
         from api.app import api_create_property, api_get_property, _PropertyCreateRequest
         resp_data, email = _register_user(name="PropOwner3", role="passenger")
-        user_id = _json.loads(resp_data.body)["user_id"]
+        user_id = json.loads(resp_data.body)["user_id"]
         _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
@@ -2405,10 +2403,9 @@ class TestProperties:
     def test_update_property_access_denied_for_other_user(self):
         """PUT /api/properties/:id as non-owner → 403."""
         import json
-        import json as _json
         from api.app import api_create_property, api_update_property, _PropertyCreateRequest, _PropertyUpdateRequest
         resp_data1, email1 = _register_user(name="Owner1", role="passenger")
-        user_id1 = _json.loads(resp_data1.body)["user_id"]
+        user_id1 = json.loads(resp_data1.body)["user_id"]
         _grant_posting_permission(user_id1)
         _, email2 = _register_user(name="Other1", role="passenger")
         session1 = _login_session(email1)
@@ -2423,10 +2420,9 @@ class TestProperties:
     def test_update_property_by_owner_ok(self):
         """PUT /api/properties/:id as owner should succeed."""
         import json
-        import json as _json
         from api.app import api_create_property, api_update_property, _PropertyCreateRequest, _PropertyUpdateRequest
         resp_data, email = _register_user(name="OwnerUpdate", role="passenger")
-        user_id = _json.loads(resp_data.body)["user_id"]
+        user_id = json.loads(resp_data.body)["user_id"]
         _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
@@ -2450,10 +2446,9 @@ class TestProperties:
     def test_delete_property_by_owner_ok(self):
         """DELETE /api/properties/:id as owner should succeed."""
         import json
-        import json as _json
         from api.app import api_create_property, api_delete_property, api_get_property, _PropertyCreateRequest
         resp_data, email = _register_user(name="OwnerDelete", role="passenger")
-        user_id = _json.loads(resp_data.body)["user_id"]
+        user_id = json.loads(resp_data.body)["user_id"]
         _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
@@ -2935,13 +2930,13 @@ class TestBucketWriteJson:
 
     def test_payload_is_valid_json(self, monkeypatch):
         """The bytes written to S3 should be valid JSON."""
-        import json as _json
+        import json
         from api import app as app_mod
         payloads = []
         monkeypatch.setattr(app_mod, "_s3_upload_bytes", lambda data, key, ct="application/json": payloads.append(data) or True)
         app_mod._bucket_write_json("notifications", "notification", "notif-1", {"foo": "bar"})
         assert len(payloads) == 1
-        obj = _json.loads(payloads[0])
+        obj = json.loads(payloads[0])
         assert obj["foo"] == "bar"
 
     def test_content_type_is_json(self, monkeypatch):
@@ -3255,7 +3250,6 @@ class TestPublicKeyEndpoints:
         """PUT /api/auth/public_key with empty key → 400."""
         from api.app import api_store_public_key, _StorePublicKeyRequest
         resp_data, email = _register_user(name="PKEmpty")
-        import json as _json
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_store_public_key(req, _StorePublicKeyRequest(public_key="   ")))

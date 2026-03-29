@@ -22,6 +22,7 @@ import { getSharedSecret, encryptMessage, decryptMessage, isEncryptedPayload } f
  *  onClose     - callback to close this panel
  */
 
+// E2E-encrypted payloads are base64-encoded and larger than plaintext; 4000 chars accommodates them
 const MAX_LEN = 4000
 
 export default function DMChat({ conv, currentUser, onClose }) {
