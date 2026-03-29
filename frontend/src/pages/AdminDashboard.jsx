@@ -9,6 +9,7 @@ import {
   getCookieStatus, uploadCookies, deleteCookies,
   getAdminRides,
   getAdminDriverApplications, approveDriverApplication,
+  getAdminAgentApplications, adminApproveAgentApplication,
   getAdminReviews, deleteAdminReview,
 } from '../api'
 import AdminStats from '../components/admin/AdminStats'
@@ -25,6 +26,7 @@ const SIDEBAR_TABS = [
   { id: 'visitors',     icon: '👥', label: 'Visitors'     },
   { id: 'rides',        icon: '🚗', label: 'Rides'        },
   { id: 'drivers',      icon: '🚕', label: 'Driver Apps'  },
+  { id: 'agents',       icon: '🏡', label: 'Agent Apps'   },
   { id: 'reviews',      icon: '⭐',  label: 'Reviews'      },
   { id: 'database',     icon: '🗄',  label: 'Database'    },
   { id: 'cookies',      icon: '🍪',  label: 'Cookies'     },
@@ -104,6 +106,8 @@ export default function AdminDashboard() {
   const [ridesData, setRidesData]     = useState(null)
   const [driverApps, setDriverApps]   = useState([])
   const [loadingDriverApps, setLoadingDriverApps] = useState(false)
+  const [agentApps, setAgentApps]     = useState([])
+  const [loadingAgentApps, setLoadingAgentApps] = useState(false)
   const [adminReviews, setAdminReviews] = useState([])
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [cookieStatus, setCookieStatus] = useState(null)
@@ -164,6 +168,12 @@ export default function AdminDashboard() {
     finally { setLoadingDriverApps(false) }
   }, [])
 
+  const fetchAgentApps = useCallback(async () => {
+    setLoadingAgentApps(true)
+    try { setAgentApps((await getAdminAgentApplications()).applications || []) } catch {}
+    finally { setLoadingAgentApps(false) }
+  }, [])
+
   const fetchAdminReviews = useCallback(async () => {
     setLoadingReviews(true)
     try { setAdminReviews((await getAdminReviews()).reviews || []) } catch {}
@@ -181,6 +191,7 @@ export default function AdminDashboard() {
     if (tab === 'cookies')    fetchCookies()
     if (tab === 'rides')      fetchRides()
     if (tab === 'drivers')    fetchDriverApps()
+    if (tab === 'agents')     fetchAgentApps()
     if (tab === 'reviews')    fetchAdminReviews()
   }, [tab])
 
@@ -326,6 +337,7 @@ export default function AdminDashboard() {
               if (tab === 'visitors')  fetchVisitors()
               if (tab === 'rides')     fetchRides()
               if (tab === 'drivers')   fetchDriverApps()
+              if (tab === 'agents')    fetchAgentApps()
               if (tab === 'reviews')   fetchAdminReviews()
             }}
           >↻ Refresh</button>
@@ -576,9 +588,109 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Reviews tab */}
-          {tab === 'reviews' && (
+          {/* Agent Applications tab */}
+          {tab === 'agents' && (
             <div className="space-y-4">
+              {loadingAgentApps ? (
+                <div className="flex justify-center py-12"><div className="spinner w-8 h-8" /></div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div className="rounded-xl border border-blue-800/40 bg-blue-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total</p>
+                      <p className="text-2xl font-bold text-white">{agentApps.length}</p>
+                    </div>
+                    <div className="rounded-xl border border-amber-700/40 bg-amber-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Pending</p>
+                      <p className="text-2xl font-bold text-amber-300">{agentApps.filter(a => a.status === 'pending').length}</p>
+                    </div>
+                    <div className="rounded-xl border border-green-800/40 bg-green-900/20 p-4">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Approved</p>
+                      <p className="text-2xl font-bold text-green-300">{agentApps.filter(a => a.status === 'approved').length}</p>
+                    </div>
+                  </div>
+
+                  <div className="card overflow-x-auto">
+                    <h3 className="font-semibold text-white mb-3">🏡 Agent Applications</h3>
+                    {agentApps.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-4 text-center">No agent applications yet.</p>
+                    ) : (
+                      <table className="w-full text-xs text-left text-gray-300 border-collapse">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-700">
+                            <th className="py-2 pr-3">Status</th>
+                            <th className="py-2 pr-3">Name</th>
+                            <th className="py-2 pr-3">Agency</th>
+                            <th className="py-2 pr-3">License #</th>
+                            <th className="py-2 pr-3">Email</th>
+                            <th className="py-2 pr-3">Applied</th>
+                            <th className="py-2">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agentApps.map(a => (
+                            <tr key={a.app_id} className="border-b border-gray-800/60 hover:bg-gray-800/30">
+                              <td className="py-2 pr-3">
+                                <span className={`ride-status-tag ${
+                                  a.status === 'approved' ? 'ride-tag-taken'
+                                  : a.status === 'rejected' ? 'ride-tag-cancelled'
+                                  : 'ride-tag-open'
+                                }`}>
+                                  {a.status}
+                                </span>
+                              </td>
+                              <td className="py-2 pr-3 font-medium">{a.full_name}</td>
+                              <td className="py-2 pr-3">{a.agency_name || '—'}</td>
+                              <td className="py-2 pr-3 font-mono">{a.license_number}</td>
+                              <td className="py-2 pr-3 text-gray-400">{a.email}</td>
+                              <td className="py-2 pr-3 text-gray-500 whitespace-nowrap">
+                                {new Date(a.created_at).toLocaleDateString()}
+                              </td>
+                              <td className="py-2">
+                                {a.status === 'pending' && (
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      className="text-xs px-2 py-1 rounded bg-green-800/60 hover:bg-green-700 text-green-300 border border-green-700/50 transition-colors"
+                                      onClick={async () => {
+                                        try {
+                                          await adminApproveAgentApplication(a.app_id, true)
+                                          fetchAgentApps()
+                                          setNotice(`✅ ${a.full_name} approved as agent.`)
+                                          setTimeout(() => setNotice(''), 3000)
+                                        } catch (e) { setError(e.message) }
+                                      }}
+                                    >
+                                      ✅ Approve
+                                    </button>
+                                    <button
+                                      className="text-xs px-2 py-1 rounded bg-red-900/40 hover:bg-red-800 text-red-300 border border-red-700/50 transition-colors"
+                                      onClick={async () => {
+                                        try {
+                                          await adminApproveAgentApplication(a.app_id, false)
+                                          fetchAgentApps()
+                                          setNotice(`❌ ${a.full_name} rejected.`)
+                                          setTimeout(() => setNotice(''), 3000)
+                                        } catch (e) { setError(e.message) }
+                                      }}
+                                    >
+                                      ✗ Reject
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Reviews tab */}
+          {tab === 'reviews' && (            <div className="space-y-4">
               {loadingReviews ? (
                 <div className="flex justify-center py-12"><div className="spinner w-8 h-8" /></div>
               ) : (

@@ -92,6 +92,22 @@ def _login_session(email, session=None):
     return session
 
 
+def _grant_posting_permission(user_id):
+    """Directly set can_post_properties=1 for a user (simulates admin approval)."""
+    from api.app import _get_db, _db_lock, USE_POSTGRES
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE app_users SET can_post_properties=1 WHERE user_id=%s", (user_id,))
+            else:
+                conn.execute("UPDATE app_users SET can_post_properties=1 WHERE user_id=?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+
 # ---------------------------------------------------------------------------
 # ATS keyword extraction
 # ---------------------------------------------------------------------------
@@ -2306,7 +2322,10 @@ class TestProperties:
         """POST /api/properties with valid data should create a property."""
         import json
         from api.app import api_create_property, _PropertyCreateRequest
-        _, email = _register_user(name="PropOwner", role="passenger")
+        resp_data, email = _register_user(name="PropOwner", role="passenger")
+        import json as _json
+        user_id = _json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_create_property(req, _PropertyCreateRequest(
@@ -2323,14 +2342,30 @@ class TestProperties:
         assert data["property"]["title"] == "My Test Property"
         assert data["property"]["price"] == 1500.0
 
+    def test_create_property_requires_posting_permission(self):
+        """POST /api/properties without can_post_properties → 403."""
+        from api.app import api_create_property, _PropertyCreateRequest
+        _, email = _register_user(name="NoPerm", role="passenger")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_create_property(req, _PropertyCreateRequest(
+            title="No Permission",
+            lat=51.5, lng=-0.1,
+        )))
+        assert resp.status_code == 403
+
     def test_create_property_invalid_status(self):
         """POST /api/properties with invalid status → 400."""
+        import json as _json
         from api.app import api_create_property, _PropertyCreateRequest
-        _, email = _register_user(name="PropOwner2", role="passenger")
+        resp_data, email = _register_user(name="PropOwner2", role="passenger")
+        user_id = _json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_create_property(req, _PropertyCreateRequest(
             title="Bad Status Property",
+            lat=51.5, lng=-0.1,
             status="invalid_status",
         )))
         assert resp.status_code == 400
@@ -2338,12 +2373,16 @@ class TestProperties:
     def test_create_property_max_4_agents(self):
         """POST /api/properties should silently cap agent_ids at 4."""
         import json
+        import json as _json
         from api.app import api_create_property, api_get_property, _PropertyCreateRequest
-        _, email = _register_user(name="PropOwner3", role="passenger")
+        resp_data, email = _register_user(name="PropOwner3", role="passenger")
+        user_id = _json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_create_property(req, _PropertyCreateRequest(
             title="Many Agents Property",
+            lat=51.5, lng=-0.1,
             agent_ids=["agent-1", "agent-2", "agent-3", "agent-4", "agent-5", "agent-6"],
         )))
         assert resp.status_code == 201
@@ -2366,12 +2405,15 @@ class TestProperties:
     def test_update_property_access_denied_for_other_user(self):
         """PUT /api/properties/:id as non-owner → 403."""
         import json
+        import json as _json
         from api.app import api_create_property, api_update_property, _PropertyCreateRequest, _PropertyUpdateRequest
-        _, email1 = _register_user(name="Owner1", role="passenger")
+        resp_data1, email1 = _register_user(name="Owner1", role="passenger")
+        user_id1 = _json.loads(resp_data1.body)["user_id"]
+        _grant_posting_permission(user_id1)
         _, email2 = _register_user(name="Other1", role="passenger")
         session1 = _login_session(email1)
         req1 = _make_request(session1)
-        pid = json.loads(run(api_create_property(req1, _PropertyCreateRequest(title="Owner1 Prop"))).body)["property"]["property_id"]
+        pid = json.loads(run(api_create_property(req1, _PropertyCreateRequest(title="Owner1 Prop", lat=51.5, lng=-0.1))).body)["property"]["property_id"]
 
         session2 = _login_session(email2)
         req2 = _make_request(session2)
@@ -2381,11 +2423,14 @@ class TestProperties:
     def test_update_property_by_owner_ok(self):
         """PUT /api/properties/:id as owner should succeed."""
         import json
+        import json as _json
         from api.app import api_create_property, api_update_property, _PropertyCreateRequest, _PropertyUpdateRequest
-        _, email = _register_user(name="OwnerUpdate", role="passenger")
+        resp_data, email = _register_user(name="OwnerUpdate", role="passenger")
+        user_id = _json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
-        pid = json.loads(run(api_create_property(req, _PropertyCreateRequest(title="Original Title"))).body)["property"]["property_id"]
+        pid = json.loads(run(api_create_property(req, _PropertyCreateRequest(title="Original Title", lat=51.5, lng=-0.1))).body)["property"]["property_id"]
         resp = run(api_update_property(req, pid, _PropertyUpdateRequest(title="Updated Title", status="sold")))
         assert resp.status_code == 200
         data = json.loads(resp.body)
@@ -2405,11 +2450,14 @@ class TestProperties:
     def test_delete_property_by_owner_ok(self):
         """DELETE /api/properties/:id as owner should succeed."""
         import json
+        import json as _json
         from api.app import api_create_property, api_delete_property, api_get_property, _PropertyCreateRequest
-        _, email = _register_user(name="OwnerDelete", role="passenger")
+        resp_data, email = _register_user(name="OwnerDelete", role="passenger")
+        user_id = _json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
         session = _login_session(email)
         req = _make_request(session)
-        pid = json.loads(run(api_create_property(req, _PropertyCreateRequest(title="To Delete"))).body)["property"]["property_id"]
+        pid = json.loads(run(api_create_property(req, _PropertyCreateRequest(title="To Delete", lat=51.5, lng=-0.1))).body)["property"]["property_id"]
         resp = run(api_delete_property(req, pid))
         assert resp.status_code == 200
         assert json.loads(resp.body)["ok"] is True
@@ -3057,6 +3105,7 @@ class TestPropertyBucketSync:
         from api import app as app_mod
         resp, _ = _register_user("PropBucket")
         user_id = json.loads(resp.body)["user_id"]
+        _grant_posting_permission(user_id)
         calls = []
         monkeypatch.setattr(app_mod, "_bucket_write_json",
                             lambda folder, tp, rid, data: calls.append(folder) or False)
@@ -3077,6 +3126,7 @@ class TestPropertyBucketSync:
         from api import app as app_mod
         resp, _ = _register_user("PropUpdateBucket")
         user_id = json.loads(resp.body)["user_id"]
+        _grant_posting_permission(user_id)
         req = _make_request({"app_user_id": user_id})
         r = run(app_mod.api_create_property(req, app_mod._PropertyCreateRequest(
             title="Old Title",
@@ -3185,3 +3235,322 @@ class TestNotificationBucketSync:
         app_mod._create_notification(user_id, "test", "Hi", "Body")
         assert len(payloads) >= 1
         assert payloads[0].get("read_status") is False
+
+
+# ---------------------------------------------------------------------------
+# E2E public key endpoints
+# ---------------------------------------------------------------------------
+
+class TestPublicKeyEndpoints:
+    """Tests for PUT /api/auth/public_key and GET /api/users/{user_id}/public_key."""
+
+    def test_store_public_key_requires_login(self):
+        """PUT /api/auth/public_key without login → 401."""
+        from api.app import api_store_public_key, _StorePublicKeyRequest
+        req = _make_request({})
+        resp = run(api_store_public_key(req, _StorePublicKeyRequest(public_key="abc")))
+        assert resp.status_code == 401
+
+    def test_store_public_key_rejects_empty(self):
+        """PUT /api/auth/public_key with empty key → 400."""
+        from api.app import api_store_public_key, _StorePublicKeyRequest
+        resp_data, email = _register_user(name="PKEmpty")
+        import json as _json
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_store_public_key(req, _StorePublicKeyRequest(public_key="   ")))
+        assert resp.status_code == 400
+
+    def test_store_and_retrieve_public_key(self):
+        """Store a public key and retrieve it via GET /api/users/{id}/public_key."""
+        import json
+        from api.app import api_store_public_key, api_get_user_public_key, _StorePublicKeyRequest
+        resp_data, email = _register_user(name="PKUser")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+
+        pk_value = '{"kty":"EC","crv":"P-256","x":"test","y":"test"}'
+        store_resp = run(api_store_public_key(req, _StorePublicKeyRequest(public_key=pk_value)))
+        assert store_resp.status_code == 200
+        assert json.loads(store_resp.body)["ok"] is True
+
+        # Another logged-in user can retrieve it
+        resp_data2, email2 = _register_user(name="PKRetriever")
+        session2 = _login_session(email2)
+        req2 = _make_request(session2)
+        get_resp = run(api_get_user_public_key(req2, user_id))
+        assert get_resp.status_code == 200
+        data = json.loads(get_resp.body)
+        assert data["public_key"] == pk_value
+        assert data["user_id"] == user_id
+
+    def test_get_public_key_requires_login(self):
+        """GET /api/users/{id}/public_key without login → 401."""
+        from api.app import api_get_user_public_key
+        req = _make_request({})
+        resp = run(api_get_user_public_key(req, "some-user-id"))
+        assert resp.status_code == 401
+
+    def test_get_public_key_not_found(self):
+        """GET /api/users/nonexistent/public_key → 404."""
+        from api.app import api_get_user_public_key
+        resp_data, email = _register_user(name="PKNotFoundCaller")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_get_user_public_key(req, "nonexistent-user-xyz"))
+        assert resp.status_code == 404
+
+    def test_public_key_stored_in_user_profile(self):
+        """After storing a public key, api_user_me should include public_key."""
+        import json
+        from api.app import api_store_public_key, api_user_me, _StorePublicKeyRequest
+        resp_data, email = _register_user(name="PKProfile")
+        session = _login_session(email)
+        req = _make_request(session)
+        pk_value = '{"kty":"EC","crv":"P-256","x":"abc","y":"def"}'
+        run(api_store_public_key(req, _StorePublicKeyRequest(public_key=pk_value)))
+        me_resp = run(api_user_me(req))
+        data = json.loads(me_resp.body)
+        assert data.get("public_key") == pk_value
+
+
+# ---------------------------------------------------------------------------
+# Agent application endpoints
+# ---------------------------------------------------------------------------
+
+class TestAgentApplications:
+    """Tests for agent registration: POST /api/agent_applications,
+    GET /api/agent_applications/status, GET /api/admin/agent_applications,
+    POST /api/admin/agent_applications/{id}/approve."""
+
+    def test_submit_requires_login(self):
+        """POST /api/agent_applications without login → 401."""
+        from api.app import api_agent_apply, _AgentApplyRequest
+        req = _make_request({})
+        resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Jane", email="j@x.com", license_number="LIC-1"
+        )))
+        assert resp.status_code == 401
+
+    def test_submit_missing_full_name(self):
+        """POST /api/agent_applications without full_name → 400."""
+        from api.app import api_agent_apply, _AgentApplyRequest
+        resp_data, email = _register_user(name="AgentNoName")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="  ", email="j@x.com", license_number="LIC-1"
+        )))
+        assert resp.status_code == 400
+
+    def test_submit_missing_license(self):
+        """POST /api/agent_applications without license_number → 400."""
+        from api.app import api_agent_apply, _AgentApplyRequest
+        resp_data, email = _register_user(name="AgentNoLic")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Jane Smith", email="j@x.com", license_number=""
+        )))
+        assert resp.status_code == 400
+
+    def test_submit_ok(self):
+        """POST /api/agent_applications with valid data → 201 with app_id."""
+        import json
+        from api.app import api_agent_apply, _AgentApplyRequest
+        resp_data, email = _register_user(name="AgentOK")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Jane Smith",
+            email="jane@agency.com",
+            phone="+1 555 000 1234",
+            agency_name="Smith Realty",
+            license_number="REA-999",
+        )))
+        assert resp.status_code == 201
+        data = json.loads(resp.body)
+        assert data["ok"] is True
+        assert "app_id" in data
+
+    def test_status_requires_login(self):
+        """GET /api/agent_applications/status without login → 401."""
+        from api.app import api_agent_application_status
+        req = _make_request({})
+        resp = run(api_agent_application_status(req))
+        assert resp.status_code == 401
+
+    def test_status_none_before_applying(self):
+        """GET /api/agent_applications/status returns null for a new user."""
+        import json
+        from api.app import api_agent_application_status
+        resp_data, email = _register_user(name="AgentNoApp")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_agent_application_status(req))
+        assert resp.status_code == 200
+        assert json.loads(resp.body)["application"] is None
+
+    def test_status_pending_after_submit(self):
+        """After submitting an application, status should be 'pending'."""
+        import json
+        from api.app import api_agent_apply, api_agent_application_status, _AgentApplyRequest
+        resp_data, email = _register_user(name="AgentPending")
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Bob Pending", email="bob@x.com", license_number="LIC-P"
+        )))
+        resp = run(api_agent_application_status(req))
+        data = json.loads(resp.body)
+        assert data["application"]["status"] == "pending"
+        assert data["application"]["license_number"] == "LIC-P"
+
+    def test_admin_list_requires_admin(self):
+        """GET /api/admin/agent_applications without admin session → 401."""
+        from api.app import api_admin_agent_applications
+        req = _make_request({})
+        resp = run(api_admin_agent_applications(req))
+        assert resp.status_code == 401
+
+    def test_admin_list_returns_applications(self):
+        """GET /api/admin/agent_applications with admin session returns list."""
+        import json
+        from api.app import api_agent_apply, api_admin_agent_applications, _AgentApplyRequest
+        resp_data, email = _register_user(name="AgentForAdmin")
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Admin Listed", email="al@x.com", license_number="LIC-AL"
+        )))
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_agent_applications(admin_req))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert isinstance(data["applications"], list)
+        assert any(a["license_number"] == "LIC-AL" for a in data["applications"])
+
+    def test_approve_grants_posting_permission(self):
+        """Approving an agent sets can_post_properties=1 and creates a notification."""
+        import json
+        from api.app import (api_agent_apply, api_admin_agent_approve, api_agent_application_status,
+                              api_get_notifications, _AgentApplyRequest, _AgentApproveRequest)
+        resp_data, email = _register_user(name="AgentApprove")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+        apply_resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Approvable Agent", email="approve@x.com", license_number="LIC-APP"
+        )))
+        app_id = json.loads(apply_resp.body)["app_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        approve_resp = run(api_admin_agent_approve(admin_req, app_id, _AgentApproveRequest(approved=True)))
+        assert approve_resp.status_code == 200
+        assert json.loads(approve_resp.body)["status"] == "approved"
+
+        # Status should now be approved
+        status_resp = run(api_agent_application_status(req))
+        assert json.loads(status_resp.body)["application"]["status"] == "approved"
+
+        # User should now have can_post_properties flag
+        from api.app import _get_app_user
+        user = _get_app_user(user_id)
+        assert user["can_post_properties"] == 1
+
+        # Notification should be created
+        notif_resp = run(api_get_notifications(req))
+        notifs = json.loads(notif_resp.body)["notifications"]
+        assert any(n["type"] == "agent_approved" for n in notifs)
+
+    def test_reject_does_not_grant_posting_permission(self):
+        """Rejecting an agent does NOT set can_post_properties."""
+        import json
+        from api.app import (api_agent_apply, api_admin_agent_approve, api_get_notifications,
+                              _AgentApplyRequest, _AgentApproveRequest, _get_app_user)
+        resp_data, email = _register_user(name="AgentReject")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+        apply_resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Rejectable Agent", email="reject@x.com", license_number="LIC-REJ"
+        )))
+        app_id = json.loads(apply_resp.body)["app_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        reject_resp = run(api_admin_agent_approve(admin_req, app_id, _AgentApproveRequest(approved=False)))
+        assert reject_resp.status_code == 200
+        assert json.loads(reject_resp.body)["status"] == "rejected"
+
+        user = _get_app_user(user_id)
+        assert not user["can_post_properties"]
+
+        notif_resp = run(api_get_notifications(req))
+        notifs = json.loads(notif_resp.body)["notifications"]
+        assert any(n["type"] == "agent_rejected" for n in notifs)
+
+    def test_approve_nonexistent_application(self):
+        """Approving a non-existent application → 404."""
+        from api.app import api_admin_agent_approve, _AgentApproveRequest
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_agent_approve(admin_req, "nonexistent-app-xyz", _AgentApproveRequest(approved=True)))
+        assert resp.status_code == 404
+
+    def test_approved_agent_can_post_property(self):
+        """An approved agent (can_post_properties=1) can create a property."""
+        import json
+        from api.app import (api_agent_apply, api_admin_agent_approve, api_create_property,
+                              _AgentApplyRequest, _AgentApproveRequest, _PropertyCreateRequest)
+        resp_data, email = _register_user(name="PostingAgent")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+        apply_resp = run(api_agent_apply(req, _AgentApplyRequest(
+            full_name="Posting Agent", email="post@x.com", license_number="LIC-POST"
+        )))
+        app_id = json.loads(apply_resp.body)["app_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        run(api_admin_agent_approve(admin_req, app_id, _AgentApproveRequest(approved=True)))
+
+        prop_resp = run(api_create_property(req, _PropertyCreateRequest(
+            title="Agent Property",
+            description="Listed by approved agent",
+            price=2000.0,
+            address="10 Agent Lane",
+            lat=51.5,
+            lng=-0.12,
+            status="active",
+        )))
+        assert prop_resp.status_code == 201
+
+    def test_property_requires_lat_lng(self):
+        """POST /api/properties without lat/lng → 400."""
+        import json
+        from api.app import api_create_property, _PropertyCreateRequest
+        resp_data, email = _register_user(name="PropNoPin")
+        user_id = json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_create_property(req, _PropertyCreateRequest(
+            title="No Pin Property",
+            status="active",
+        )))
+        assert resp.status_code == 400
+
+    def test_agent_reg_bucket_sync(self, monkeypatch):
+        """Submitting an agent application writes to agent_reg/pending bucket."""
+        import json
+        from api import app as app_mod
+        resp_data, email = _register_user("AgentBucket")
+        user_id = json.loads(resp_data.body)["user_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        req = _make_request({"app_user_id": user_id})
+        run(app_mod.api_agent_apply(req, app_mod._AgentApplyRequest(
+            full_name="Bucket Test Agent", email="bucket@x.com", license_number="LIC-B"
+        )))
+        assert "agent_reg/pending" in calls
