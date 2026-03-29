@@ -403,6 +403,22 @@ def _s3_upload_bytes(data: bytes, key: str, content_type: str = "application/oct
         logger.error("S3 upload bytes failed for %s: %s", key, exc)
         return False
 
+
+def _bucket_write_json(folder: str, type_prefix: str, record_id: str, data: dict) -> bool:
+    """Write *data* as a JSON file to *folder* in the configured bucket.
+
+    The key is ``{folder}/{type_prefix}_{timestamp}_{record_id}.json``.
+    This follows the bucket file-naming convention:
+        {type}_{timestamp}_{uuid}.json
+    Returns ``True`` on success, ``False`` when S3 is not configured or the
+    write fails (errors are logged but never re-raised).
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    key = f"{folder.rstrip('/')}/{type_prefix}_{ts}_{record_id}.json"
+    payload = json.dumps(data, default=str).encode("utf-8")
+    return _s3_upload_bytes(payload, key, "application/json")
+
+
 # Paths whose visits are tracked for analytics (main site + admin page)
 TRACKED_VISITOR_PATHS = {"/const", "/"}
 
@@ -7442,6 +7458,16 @@ def _create_notification(user_id: str, notif_type: str, title: str, body: str) -
             conn.commit()
         finally:
             conn.close()
+    # Persist notification record to bucket
+    _bucket_write_json("notifications", "notification", notif_id, {
+        "notif_id": notif_id,
+        "user_id": user_id,
+        "type": notif_type,
+        "title": title,
+        "body": body,
+        "read_status": False,
+        "created_at": created,
+    })
     return notif_id
 
 
@@ -7525,6 +7551,68 @@ async def api_mark_all_notifications_read(request: Request):
             conn.close()
 
     return JSONResponse({"ok": True})
+
+
+# ── Platform stats ─────────────────────────────────────────────────────────────
+
+@fastapi_app.get("/api/platform_stats")
+async def api_platform_stats():
+    """Return aggregated platform-wide statistics.
+
+    Counts are computed live from the database and the result is also
+    persisted to the bucket under /stats/ for historical reference.
+    """
+    with _db_lock:
+        conn = _get_db()
+        try:
+            ph = "%s" if USE_POSTGRES else "?"
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM rides")
+                total_rides = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM rides WHERE status='open'")
+                open_rides = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM properties")
+                total_properties = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM properties WHERE status='active'")
+                active_properties = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM driver_applications WHERE status='approved'")
+                registered_drivers = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM driver_applications WHERE status='pending'")
+                pending_driver_apps = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM app_users")
+                total_users = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM notifications")
+                total_notifications = cur.fetchone()[0]
+            else:
+                total_rides = conn.execute("SELECT COUNT(*) FROM rides").fetchone()[0]
+                open_rides = conn.execute("SELECT COUNT(*) FROM rides WHERE status='open'").fetchone()[0]
+                total_properties = conn.execute("SELECT COUNT(*) FROM properties").fetchone()[0]
+                active_properties = conn.execute("SELECT COUNT(*) FROM properties WHERE status='active'").fetchone()[0]
+                registered_drivers = conn.execute("SELECT COUNT(*) FROM driver_applications WHERE status='approved'").fetchone()[0]
+                pending_driver_apps = conn.execute("SELECT COUNT(*) FROM driver_applications WHERE status='pending'").fetchone()[0]
+                total_users = conn.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
+                total_notifications = conn.execute("SELECT COUNT(*) FROM notifications").fetchone()[0]
+        finally:
+            conn.close()
+
+    stats = {
+        "total_rides": total_rides,
+        "open_rides": open_rides,
+        "total_properties": total_properties,
+        "active_properties": active_properties,
+        "registered_drivers": registered_drivers,
+        "pending_driver_applications": pending_driver_apps,
+        "total_users": total_users,
+        "total_notifications": total_notifications,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    # Persist daily stats snapshot to bucket under /stats/
+    today = datetime.now(timezone.utc).strftime("%Y%m%d")
+    _bucket_write_json("stats", "stats", today, stats)
+
+    return JSONResponse(stats)
 
 
 # ── Ride chat messages (persistent) ────────────────────────────────────────────
@@ -7779,6 +7867,19 @@ async def api_driver_apply(request: Request, body: _DriverApplyRequest):
         finally:
             conn.close()
 
+    # Persist driver application to bucket under /driver_reg/pending/
+    _bucket_write_json("driver_reg/pending", "driver_reg", app_id, {
+        "app_id": app_id,
+        "user_id": user_id,
+        "vehicle_make": body.vehicle_make.strip(),
+        "vehicle_model": body.vehicle_model.strip(),
+        "vehicle_year": body.vehicle_year,
+        "vehicle_color": body.vehicle_color.strip(),
+        "license_plate": body.license_plate.strip().upper(),
+        "status": "pending",
+        "created_at": created,
+    })
+
     return JSONResponse({"ok": True, "app_id": app_id}, status_code=201)
 
 
@@ -7890,6 +7991,7 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             conn.close()
 
     # Send in-app notification to the affected user
+    reviewed_at = datetime.now(timezone.utc).isoformat()
     if body.approved:
         _create_notification(
             target_user_id,
@@ -7906,6 +8008,13 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
                 "title": "🎉 Driver Application Approved",
                 "body":  "Your driver application has been approved!",
             }, room=sid))
+        # Persist approved record to bucket under /driver_reg/verified/
+        _bucket_write_json("driver_reg/verified", "driver_reg", app_id, {
+            "app_id": app_id,
+            "user_id": target_user_id,
+            "status": "approved",
+            "reviewed_at": reviewed_at,
+        })
     else:
         _create_notification(
             target_user_id,
@@ -7913,6 +8022,13 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             "❌ Driver Application Rejected",
             "Unfortunately, your driver application was not approved this time. You may re-apply with updated details.",
         )
+        # Persist rejected record to bucket under /driver_reg/pending/ (status update)
+        _bucket_write_json("driver_reg/pending", "driver_reg", app_id, {
+            "app_id": app_id,
+            "user_id": target_user_id,
+            "status": new_status,
+            "reviewed_at": reviewed_at,
+        })
 
     return JSONResponse({"ok": True, "status": new_status})
 
@@ -8039,6 +8155,17 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
     # Notify all connected users via Socket.IO
     asyncio.ensure_future(sio.emit("new_ride", ride_data))
 
+    # Persist ride record to bucket under /rides/
+    _bucket_write_json("rides", "ride", ride_id, {
+        **ride_data,
+        "user_id": user_id,
+        "status": "open",
+        "origin_lat": body.origin_lat,
+        "origin_lng": body.origin_lng,
+        "dest_lat": body.dest_lat,
+        "dest_lng": body.dest_lng,
+    })
+
     return JSONResponse({"ok": True, "ride_id": ride_id}, status_code=201)
 
 
@@ -8136,6 +8263,8 @@ async def api_ride_cancel(request: Request, ride_id: str):
             conn.close()
 
     asyncio.ensure_future(sio.emit("ride_cancelled", {"ride_id": ride_id}))
+    # Persist status update to bucket
+    _bucket_write_json("rides", "ride", ride_id, {"ride_id": ride_id, "status": "cancelled"})
     return JSONResponse({"ok": True})
 
 
@@ -8173,6 +8302,15 @@ async def api_ride_take(request: Request, ride_id: str):
             conn.close()
 
     asyncio.ensure_future(sio.emit("ride_taken", {"ride_id": ride_id}))
+    # Persist status update to bucket; a "taken" ride moves into history
+    completed_at = datetime.now(timezone.utc).isoformat()
+    _bucket_write_json("rides", "ride", ride_id, {"ride_id": ride_id, "status": "taken"})
+    _bucket_write_json("history", "history", ride_id, {
+        "ride_id": ride_id,
+        "user_id": user_id,
+        "status": "taken",
+        "completed_at": completed_at,
+    })
     # Notify the ride poster
     _create_notification(
         user_id,
@@ -9072,6 +9210,9 @@ async def api_create_property(request: Request, body: _PropertyCreateRequest):
             conn.close()
 
     prop = _get_property_row(property_id, with_agents=True)
+    # Persist property record to bucket under /properties/
+    if prop:
+        _bucket_write_json("properties", "property", property_id, prop)
     return JSONResponse({"ok": True, "property": prop}, status_code=201)
 
 
@@ -9146,6 +9287,9 @@ async def api_update_property(request: Request, property_id: str, body: _Propert
                 conn.close()
 
     prop = _get_property_row(property_id, with_agents=True)
+    # Persist updated property record to bucket (overwrites previous snapshot)
+    if prop:
+        _bucket_write_json("properties", "property", property_id, prop)
     return JSONResponse({"ok": True, "property": prop})
 
 

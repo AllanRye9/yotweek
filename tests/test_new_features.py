@@ -2857,3 +2857,331 @@ class TestPropertyMapPreview:
             assert resp.status_code == 200, f"Expected 200 for {pid}"
             body = json.loads(resp.body)
             assert body["preview"]["property_id"] == pid
+
+
+# ---------------------------------------------------------------------------
+# Bucket data storage helpers
+# ---------------------------------------------------------------------------
+
+class TestBucketWriteJson:
+    """Tests for the _bucket_write_json helper."""
+
+    def test_returns_false_when_s3_disabled(self):
+        """_bucket_write_json should return False gracefully when S3 is not configured."""
+        from api.app import _bucket_write_json, _S3_ENABLED
+        # S3 is not configured in tests, so this must return False without raising
+        result = _bucket_write_json("properties", "property", "test-id", {"key": "value"})
+        assert result is False
+
+    def test_key_format_uses_naming_convention(self, monkeypatch):
+        """The generated S3 key should follow {folder}/{type}_{ts}_{id}.json."""
+        import re
+        from api import app as app_mod
+        captured = []
+        monkeypatch.setattr(app_mod, "_s3_upload_bytes", lambda data, key, ct="application/json": captured.append(key) or True)
+        app_mod._bucket_write_json("rides", "ride", "abc123", {"ride_id": "abc123"})
+        assert len(captured) == 1
+        key = captured[0]
+        # key format: rides/ride_{YYYYMMDD_HHMMSS}_abc123.json
+        assert re.match(r"rides/ride_\d{8}_\d{6}_abc123\.json", key), f"Unexpected key: {key}"
+
+    def test_payload_is_valid_json(self, monkeypatch):
+        """The bytes written to S3 should be valid JSON."""
+        import json as _json
+        from api import app as app_mod
+        payloads = []
+        monkeypatch.setattr(app_mod, "_s3_upload_bytes", lambda data, key, ct="application/json": payloads.append(data) or True)
+        app_mod._bucket_write_json("notifications", "notification", "notif-1", {"foo": "bar"})
+        assert len(payloads) == 1
+        obj = _json.loads(payloads[0])
+        assert obj["foo"] == "bar"
+
+    def test_content_type_is_json(self, monkeypatch):
+        """The content-type passed to _s3_upload_bytes should be application/json."""
+        from api import app as app_mod
+        cts = []
+        monkeypatch.setattr(app_mod, "_s3_upload_bytes", lambda data, key, ct="application/json": cts.append(ct) or True)
+        app_mod._bucket_write_json("stats", "stats", "20250329", {"total": 5})
+        assert cts[0] == "application/json"
+
+    def test_folder_prefix_in_key(self, monkeypatch):
+        """The key must start with the folder name."""
+        from api import app as app_mod
+        keys = []
+        monkeypatch.setattr(app_mod, "_s3_upload_bytes", lambda data, key, ct="application/json": keys.append(key) or True)
+        app_mod._bucket_write_json("driver_reg/pending", "driver_reg", "app-1", {})
+        assert keys[0].startswith("driver_reg/pending/")
+
+
+# ---------------------------------------------------------------------------
+# Platform stats endpoint
+# ---------------------------------------------------------------------------
+
+class TestPlatformStats:
+    """Tests for GET /api/platform_stats."""
+
+    def test_returns_200(self):
+        import json
+        from api.app import api_platform_stats
+        resp = run(api_platform_stats())
+        assert resp.status_code == 200
+
+    def test_response_has_required_fields(self):
+        import json
+        from api.app import api_platform_stats
+        resp = run(api_platform_stats())
+        data = json.loads(resp.body)
+        for field in ("total_rides", "open_rides", "total_properties", "active_properties",
+                      "registered_drivers", "pending_driver_applications",
+                      "total_users", "total_notifications", "generated_at"):
+            assert field in data, f"Missing field: {field}"
+
+    def test_counts_are_non_negative(self):
+        import json
+        from api.app import api_platform_stats
+        data = json.loads(run(api_platform_stats()).body)
+        for field in ("total_rides", "open_rides", "total_properties", "active_properties",
+                      "registered_drivers", "pending_driver_applications",
+                      "total_users", "total_notifications"):
+            assert data[field] >= 0, f"{field} should be >= 0"
+
+    def test_total_rides_increases_after_post(self):
+        """Posting a ride should increment total_rides."""
+        import json
+        from api.app import api_platform_stats, api_ride_post, _RidePostRequest
+        before = json.loads(run(api_platform_stats()).body)["total_rides"]
+        resp, email = _register_user("StatsRideUser")
+        user_id = json.loads(resp.body)["user_id"]
+        session = {"app_user_id": user_id}
+        req = _make_request(session)
+        run(api_ride_post(req, _RidePostRequest(
+            origin="Airport", destination="City", departure="2025-12-01T10:00", seats=2,
+        )))
+        after = json.loads(run(api_platform_stats()).body)["total_rides"]
+        assert after == before + 1
+
+    def test_total_users_increases_after_register(self):
+        """Registering a user should increment total_users."""
+        import json
+        from api.app import api_platform_stats
+        before = json.loads(run(api_platform_stats()).body)["total_users"]
+        _register_user("StatsNewUser")
+        after = json.loads(run(api_platform_stats()).body)["total_users"]
+        assert after == before + 1
+
+    def test_bucket_write_called_on_stats(self, monkeypatch):
+        """platform_stats should attempt to write a stats JSON to the bucket."""
+        from api import app as app_mod
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        run(app_mod.api_platform_stats())
+        assert any(c == "stats" for c in calls), "Expected a bucket write to 'stats' folder"
+
+    def test_generated_at_is_iso_format(self):
+        """generated_at should be a valid ISO-8601 timestamp."""
+        import json
+        from datetime import datetime, timezone
+        from api.app import api_platform_stats
+        data = json.loads(run(api_platform_stats()).body)
+        ts = data["generated_at"]
+        # Should not raise
+        datetime.fromisoformat(ts)
+
+
+# ---------------------------------------------------------------------------
+# Bucket sync on ride post
+# ---------------------------------------------------------------------------
+
+class TestRideBucketSync:
+    """Verify that ride operations write to the bucket."""
+
+    def test_ride_post_writes_to_bucket(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append((folder, tp)) or False)
+        resp, _ = _register_user("RideBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        run(app_mod.api_ride_post(req, app_mod._RidePostRequest(
+            origin="Airport", destination="Hotel", departure="2025-11-01T08:00", seats=1,
+        )))
+        folders = [f for f, _ in calls]
+        assert "rides" in folders
+
+    def test_ride_cancel_writes_to_bucket(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("RideCancelBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        r = run(app_mod.api_ride_post(req, app_mod._RidePostRequest(
+            origin="X", destination="Y", departure="2025-11-01T09:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        run(app_mod.api_ride_cancel(_make_request({"app_user_id": user_id}), ride_id))
+        assert "rides" in calls
+
+    def test_ride_take_writes_to_rides_and_history(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("RideTakeBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        r = run(app_mod.api_ride_post(req, app_mod._RidePostRequest(
+            origin="A", destination="B", departure="2025-11-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        run(app_mod.api_ride_take(_make_request({"app_user_id": user_id}), ride_id))
+        assert "rides" in calls
+        assert "history" in calls
+
+
+# ---------------------------------------------------------------------------
+# Bucket sync on property create/update
+# ---------------------------------------------------------------------------
+
+class TestPropertyBucketSync:
+    """Verify that property operations write to the bucket."""
+
+    def test_create_property_writes_to_bucket(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("PropBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        req = _make_request({"app_user_id": user_id})
+        run(app_mod.api_create_property(req, app_mod._PropertyCreateRequest(
+            title="Test House",
+            description="Nice house",
+            price=100000,
+            address="1 Main St",
+            lat=51.5,
+            lng=-0.1,
+            status="active",
+        )))
+        assert "properties" in calls
+
+    def test_update_property_writes_to_bucket(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("PropUpdateBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        r = run(app_mod.api_create_property(req, app_mod._PropertyCreateRequest(
+            title="Old Title",
+            description="desc",
+            price=50000,
+            address="2 Side St",
+            lat=51.6,
+            lng=-0.2,
+            status="active",
+        )))
+        prop_id = json.loads(r.body)["property"]["property_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        run(app_mod.api_update_property(req, prop_id, app_mod._PropertyUpdateRequest(title="New Title")))
+        assert "properties" in calls
+
+
+# ---------------------------------------------------------------------------
+# Bucket sync on driver registration
+# ---------------------------------------------------------------------------
+
+class TestDriverRegBucketSync:
+    """Verify that driver registration writes to the correct bucket folders."""
+
+    def test_apply_writes_to_driver_reg_pending(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("DriverRegBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        req = _make_request({"app_user_id": user_id})
+        run(app_mod.api_driver_apply(req, app_mod._DriverApplyRequest(
+            vehicle_make="Toyota",
+            vehicle_model="Corolla",
+            vehicle_year=2020,
+            vehicle_color="White",
+            license_plate="XYZ789",
+        )))
+        assert "driver_reg/pending" in calls
+
+    def test_approve_writes_to_driver_reg_verified(self, monkeypatch):
+        import json
+        import uuid as _uuid
+        from api import app as app_mod
+        resp, _ = _register_user("DriverApproveBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        # Insert an application directly
+        from api.app import _get_db, _db_lock, USE_POSTGRES
+        from datetime import datetime, timezone
+        app_id = str(_uuid.uuid4())
+        created = datetime.now(timezone.utc).isoformat()
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO driver_applications (app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (app_id, user_id, "Honda", "Civic", 2019, "Red", "AA1234", created),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO driver_applications (app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,created_at) VALUES (?,?,?,?,?,?,?,?)",
+                        (app_id, user_id, "Honda", "Civic", 2019, "Red", "AA1234", created),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        admin_req = _make_request({"admin_user": "admin"})
+        run(app_mod.api_admin_driver_approve(admin_req, app_id, app_mod._DriverApproveRequest(approved=True)))
+        assert "driver_reg/verified" in calls
+
+
+# ---------------------------------------------------------------------------
+# Bucket sync on notification create
+# ---------------------------------------------------------------------------
+
+class TestNotificationBucketSync:
+    """Verify that _create_notification writes to the notifications bucket folder."""
+
+    def test_create_notification_writes_to_bucket(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("NotifBucket")
+        user_id = json.loads(resp.body)["user_id"]
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        app_mod._create_notification(user_id, "test", "Title", "Body")
+        assert "notifications" in calls
+
+    def test_notification_bucket_payload_has_read_status(self, monkeypatch):
+        import json
+        from api import app as app_mod
+        resp, _ = _register_user("NotifBucketPayload")
+        user_id = json.loads(resp.body)["user_id"]
+        payloads = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: payloads.append(data) or False)
+        app_mod._create_notification(user_id, "test", "Hi", "Body")
+        assert len(payloads) >= 1
+        assert payloads[0].get("read_status") is False
