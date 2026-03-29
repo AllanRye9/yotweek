@@ -754,6 +754,11 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                       💰 ${Number(ride.fare).toFixed(2)}
                     </span>
                   )}
+                  {ride.fare != null && ride.seats > 1 && (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-900/50 text-emerald-300 border border-emerald-700/50 font-semibold">
+                      👤 ${(Number(ride.fare) / ride.seats).toFixed(2)}/person
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400">
                   🕐 {new Date(ride.departure).toLocaleString()} · 💺 {ride.seats} seat{ride.seats !== 1 ? 's' : ''} · 👤 {ride.driver_name}

@@ -101,3 +101,16 @@ export function playNewRideSound() {
     setTimeout(() => ctx.close().catch(() => {}), 600)
   } catch (_) {}
 }
+
+/** Gentle three-note ascending chime — played when a new message or notification arrives. */
+export function playMessageChime() {
+  try {
+    const ctx = makeCtx()
+    if (!ctx) return
+    const t = ctx.currentTime
+    playTone(ctx, 523, t,        0.12, 0.18)
+    playTone(ctx, 659, t + 0.14, 0.12, 0.18)
+    playTone(ctx, 784, t + 0.28, 0.14, 0.22)
+    setTimeout(() => ctx.close().catch(() => {}), 900)
+  } catch (_) {}
+}

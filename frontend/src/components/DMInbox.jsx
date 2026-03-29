@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import socket from '../socket'
 import {
   dmListConversations, dmStartConversation, dmSendMessage, listUsers,
 } from '../api'
 import DMChat from './DMChat'
+import { playMessageChime } from '../sounds'
 
 /**
  * DMInbox — Direct-message inbox.
@@ -32,6 +33,7 @@ export default function DMInbox({ currentUser }) {
   const [allUsers,       setAllUsers]        = useState([])
   const [userSearch,     setUserSearch]      = useState('')
   const [totalUnread,    setTotalUnread]     = useState(0)
+  const prevUnreadRef    = useRef(0)
 
   const myId = currentUser?.user_id
 
@@ -42,7 +44,13 @@ export default function DMInbox({ currentUser }) {
       const data = await dmListConversations()
       const convs = data.conversations || []
       setConversations(convs)
-      setTotalUnread(convs.reduce((s, c) => s + (c.unread_count || 0), 0))
+      const newTotal = convs.reduce((s, c) => s + (c.unread_count || 0), 0)
+      // Play chime when unread count increases (new message arrived)
+      if (newTotal > prevUnreadRef.current) {
+        playMessageChime()
+      }
+      prevUnreadRef.current = newTotal
+      setTotalUnread(newTotal)
     } catch {
       // ignore
     } finally {

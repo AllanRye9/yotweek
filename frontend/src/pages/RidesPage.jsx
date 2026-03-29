@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
 import RideShare from '../components/RideShare'
+import DMInbox from '../components/DMInbox'
 import ThemeSelector from '../components/ThemeSelector'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
@@ -16,6 +17,8 @@ export default function RidesPage() {
   const [rides, setRides]             = useState([])
   // State for opening chat from the map with a pre-filled default message
   const [mapChatRequest, setMapChatRequest] = useState(null) // { ride, defaultMsg }
+  // Active center panel tab: 'post' | 'broadcast' | 'dashboard'
+  const [centerTab, setCenterTab] = useState('post')
   const profileRef = useRef(null)
 
   // Load platform user session
@@ -40,7 +43,7 @@ export default function RidesPage() {
   const openRides = rides.filter(r => r.status === 'open')
 
   return (
-    <div style={{ minHeight: '100vh', background: '#030712', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ height: '100vh', background: '#030712', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Auth modal */}
       {showAuthModal && !appUser && (
         <UserAuth
@@ -73,48 +76,14 @@ export default function RidesPage() {
 
           <ThemeSelector />
 
-          {/* User profile avatar */}
-          {!userLoading && (
-            <div className="relative" ref={profileRef}>
-              {appUser ? (
-                <>
-                  {/* Compact avatar button — shows name on larger screens */}
-                  <button
-                    onClick={() => setProfileOpen(o => !o)}
-                    className="nav-profile-btn flex items-center gap-2 rounded-full bg-blue-700 hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 pl-1 pr-3 py-1"
-                    aria-label="Profile"
-                    title={appUser.name}
-                  >
-                    {appUser.avatar_url ? (
-                      <img src={appUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
-                    ) : (
-                      <span className="w-7 h-7 rounded-full bg-blue-800 flex items-center justify-center text-sm shrink-0">
-                        {appUser.role === 'driver' ? '🚗' : '🧍'}
-                      </span>
-                    )}
-                    <span className="hidden sm:block text-white text-xs font-medium max-w-[100px] truncate">{appUser.name}</span>
-                    <span className="hidden sm:block text-blue-300 text-xs">▾</span>
-                  </button>
-                  {profileOpen && (
-                    <div className="nav-profile-dropdown absolute right-0 top-11 w-72 sm:w-80 lg:w-96 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 max-h-[85vh] overflow-y-auto">
-                      <UserProfile
-                        user={appUser}
-                        onLogout={() => { setAppUser(false); setProfileOpen(false) }}
-                        onLocationUpdate={() => {}}
-                        onUserUpdate={(u) => setAppUser(u)}
-                      />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <button
-                  onClick={() => setShowAuthModal(true)}
-                  className="text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
-                >
-                  Login / Register
-                </button>
-              )}
-            </div>
+          {/* User profile avatar (shown in navbar when not logged in or loading) */}
+          {!userLoading && !appUser && (
+            <button
+              onClick={() => setShowAuthModal(true)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
+            >
+              Login / Register
+            </button>
           )}
 
           {admin && (
@@ -126,18 +95,18 @@ export default function RidesPage() {
       </nav>
 
       {/* ── Page header ── */}
-      <div style={{ padding: '12px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+      <div style={{ padding: '8px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
         <div>
-          <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>🚗 Ride Share</h1>
-          <p style={{ color: '#6b7280', fontSize: '0.82rem', margin: '2px 0 0' }}>
-            Find registered drivers, book airport & standard rides, and get real-time driver alerts.
+          <h1 style={{ color: '#f3f4f6', fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>🚗 Ride Share</h1>
+          <p style={{ color: '#6b7280', fontSize: '0.75rem', margin: '1px 0 0' }}>
+            Find drivers, book rides, and get real-time alerts.
           </p>
         </div>
       </div>
 
       {/* ── Main content ── */}
       {userLoading ? (
-        <div className="flex justify-center py-16">
+        <div className="flex justify-center py-16 flex-1">
           <div className="spinner w-10 h-10" />
         </div>
       ) : !appUser ? (
@@ -167,68 +136,146 @@ export default function RidesPage() {
         </div>
       ) : (
         /* ── 3-column authenticated layout ── */
-        <div className="rides-page-layout" style={{ flex: 1, display: 'flex', minHeight: 0 }}>
+        <div className="rides-page-layout" style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
 
-          {/* ── Left: Driver Dashboard & Alerts (sticky) ── */}
+          {/* ── Left: Inbox & Chat (fixed) ── */}
           <aside className="rides-left-sidebar" style={{
             width: 280, flexShrink: 0,
             borderRight: '1px solid #1f2937',
             background: '#111827',
-            position: 'sticky',
-            top: 56, /* navbar height */
-            height: 'calc(100vh - 56px)',
+            height: '100%',
             overflowY: 'auto',
             display: 'flex', flexDirection: 'column',
           }}>
-            <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📊 Dashboard &amp; Alerts</div>
-              <div style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 2 }}>
-                {openRides.length} open pickup{openRides.length !== 1 ? 's' : ''}
-              </div>
+            <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937', flexShrink: 0 }}>
+              <div style={{ color: '#d1d5db', fontSize: '0.82rem', fontWeight: 700 }}>💬 Inbox</div>
             </div>
             <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
-              <RideShare
-                user={appUser}
-                onRidesChange={setRides}
-                requestedRide={null}
-                onRequestedRideHandled={() => {}}
-                showSections={{ dashboard: true, driverBroadcast: true, form: false, list: false }}
-              />
+              <DMInbox currentUser={appUser} />
             </div>
           </aside>
 
-          {/* ── Center: Post Form (scrollable) ── */}
+          {/* ── Center: Post / Broadcast / Dashboard (compact) ── */}
           <main className="rides-center-col" style={{
-            flex: 1, minWidth: 0,
+            flexBasis: '25%', flexShrink: 0,
             overflowY: 'auto',
             background: '#030712',
             display: 'flex', flexDirection: 'column',
+            borderRight: '1px solid #1f2937',
           }}>
-            {/* Post Ride form */}
-            <div style={{ padding: '12px 12px 0', borderBottom: '1px solid #1f2937' }}>
-              <RideShare
-                user={appUser}
-                onRidesChange={() => {}} /* list managed by right panel */
-                requestedRide={mapChatRequest}
-                onRequestedRideHandled={() => setMapChatRequest(null)}
-                showSections={{ form: true, dashboard: false, driverBroadcast: false, list: false }}
-              />
+            {/* Compact tab bar with icons */}
+            <div style={{ display: 'flex', borderBottom: '1px solid #1f2937', flexShrink: 0 }}>
+              {[
+                { key: 'post',      icon: '🚗', label: 'Post Ride' },
+                { key: 'broadcast', icon: '📡', label: 'Broadcast' },
+                { key: 'dashboard', icon: '📊', label: 'Dashboard' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  onClick={() => setCenterTab(tab.key)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 4px',
+                    background: centerTab === tab.key ? '#1f2937' : 'transparent',
+                    border: 'none',
+                    borderBottom: centerTab === tab.key ? '2px solid #3b82f6' : '2px solid transparent',
+                    color: centerTab === tab.key ? '#f3f4f6' : '#6b7280',
+                    cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <span style={{ fontSize: '1rem' }}>{tab.icon}</span>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 600, letterSpacing: '0.03em' }}>{tab.label}</span>
+                </button>
+              ))}
+            </div>
+            {/* Active tab content */}
+            <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
+              {centerTab === 'post' && (
+                <RideShare
+                  user={appUser}
+                  onRidesChange={() => {}}
+                  requestedRide={mapChatRequest}
+                  onRequestedRideHandled={() => setMapChatRequest(null)}
+                  showSections={{ form: true, dashboard: false, driverBroadcast: false, list: false }}
+                />
+              )}
+              {centerTab === 'broadcast' && (
+                <RideShare
+                  user={appUser}
+                  onRidesChange={() => {}}
+                  requestedRide={null}
+                  onRequestedRideHandled={() => {}}
+                  showSections={{ form: false, dashboard: false, driverBroadcast: true, list: false }}
+                />
+              )}
+              {centerTab === 'dashboard' && (
+                <RideShare
+                  user={appUser}
+                  onRidesChange={setRides}
+                  requestedRide={null}
+                  onRequestedRideHandled={() => {}}
+                  showSections={{ form: false, dashboard: true, driverBroadcast: false, list: false }}
+                />
+              )}
             </div>
           </main>
 
-          {/* ── Right: All Rides List (sticky) ── */}
+          {/* ── Right: All Rides (expanded) ── */}
           <aside className="rides-right-sidebar" style={{
-            width: 340, flexShrink: 0,
-            borderLeft: '1px solid #1f2937',
-            background: '#111827',
-            position: 'sticky',
-            top: 56,
-            height: 'calc(100vh - 56px)',
+            flexGrow: 1,
             overflowY: 'auto',
+            background: '#111827',
             display: 'flex', flexDirection: 'column',
+            position: 'relative',
           }}>
-            <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🚗 All Rides</div>
+            {/* Top-right profile header */}
+            <div
+              ref={profileRef}
+              style={{ position: 'absolute', top: 10, right: 20, zIndex: 20 }}
+            >
+              {appUser && (
+                <>
+                  <button
+                    onClick={() => setProfileOpen(o => !o)}
+                    className="flex items-center gap-2 rounded-full bg-blue-700 hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 pl-1 pr-3 py-1"
+                    aria-label="Profile"
+                    title={appUser.name}
+                  >
+                    {appUser.avatar_url ? (
+                      <img
+                        src={appUser.avatar_url}
+                        alt=""
+                        style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+                      />
+                    ) : (
+                      <span style={{ width: 30, height: 30, borderRadius: '50%', background: '#1e40af', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.85rem', flexShrink: 0 }}>
+                        {appUser.role === 'driver' ? '🚗' : '🧍'}
+                      </span>
+                    )}
+                    <span className="hidden sm:block text-white text-xs font-medium max-w-[100px] truncate">{appUser.name}</span>
+                    <span className="hidden sm:block text-blue-300 text-xs">▾</span>
+                  </button>
+                  {profileOpen && (
+                    <div className="absolute right-0 top-11 w-72 sm:w-80 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 max-h-[80vh] overflow-y-auto">
+                      <UserProfile
+                        user={appUser}
+                        onLogout={() => { setAppUser(false); setProfileOpen(false) }}
+                        onLocationUpdate={() => {}}
+                        onUserUpdate={(u) => setAppUser(u)}
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #1f2937', flexShrink: 0, paddingRight: 180 }}>
+              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🗺️ All Rides</div>
+              <div style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 2 }}>
+                {rides.filter(r => r.status === 'open').length} open · fares shown per person for shared rides
+              </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
               <RideShare
@@ -245,7 +292,7 @@ export default function RidesPage() {
       )}
 
       {/* ── Footer ── */}
-      <footer className="border-t border-gray-800 py-4 px-4 text-center text-xs text-gray-600">
+      <footer className="border-t border-gray-800 py-3 px-4 text-center text-xs text-gray-600" style={{ flexShrink: 0 }}>
         <p>yotweek © {new Date().getFullYear()} — <Link to="/" className="hover:text-gray-400">Back to Home</Link></p>
       </footer>
     </div>
