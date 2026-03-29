@@ -158,6 +158,13 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [gettingUserLoc, setGettingUserLoc] = useState(false)
   // Track which ride has the fare calculator open
   const [calcOpenRideId, setCalcOpenRideId] = useState(null)
+  // Advanced search / filter state
+  const [rideTypeFilter, setRideTypeFilter] = useState('all')  // 'all' | 'airport' | 'standard'
+  const [sortBy, setSortBy] = useState('departure')             // 'departure' | 'fare_asc' | 'fare_desc'
+  const [postRideType, setPostRideType] = useState('airport')   // for the post form
+  // Pagination
+  const PAGE_SIZE = 12
+  const [page, setPage] = useState(1)
 
   const loadRides = useCallback(async () => {
     setLoading(true)
@@ -192,27 +199,50 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const filteredRides = useMemo(() => {
     const q = locationFilter.trim().toLowerCase()
     let list = rides
+
+    // Location text filter
     if (q) {
       list = list.filter(r =>
         (r.origin      || '').toLowerCase().includes(q) ||
         (r.destination || '').toLowerCase().includes(q)
       )
     }
-    // Sort open rides by distance from user location (nearest first)
-    if (userLat != null && userLng != null) {
-      list = [...list].sort((a, b) => {
-        const aOpen = a.status === 'open' && a.origin_lat != null
-        const bOpen = b.status === 'open' && b.origin_lat != null
-        if (!aOpen && !bOpen) return 0
-        if (!aOpen) return 1
-        if (!bOpen) return -1
-        const da = _distKm(userLat, userLng, a.origin_lat, a.origin_lng)
-        const db = _distKm(userLat, userLng, b.origin_lat, b.origin_lng)
-        return da - db
-      })
+
+    // Ride type filter
+    if (rideTypeFilter !== 'all') {
+      list = list.filter(r => (r.ride_type || 'airport') === rideTypeFilter)
     }
+
+    // Sort
+    if (sortBy === 'fare_asc') {
+      list = [...list].sort((a, b) => (a.fare ?? Infinity) - (b.fare ?? Infinity))
+    } else if (sortBy === 'fare_desc') {
+      list = [...list].sort((a, b) => (b.fare ?? -Infinity) - (a.fare ?? -Infinity))
+    } else if (sortBy === 'departure') {
+      // Sort open rides by distance from user location (nearest first), else by departure
+      if (userLat != null && userLng != null) {
+        list = [...list].sort((a, b) => {
+          const aOpen = a.status === 'open' && a.origin_lat != null
+          const bOpen = b.status === 'open' && b.origin_lat != null
+          if (!aOpen && !bOpen) return 0
+          if (!aOpen) return 1
+          if (!bOpen) return -1
+          const da = _distKm(userLat, userLng, a.origin_lat, a.origin_lng)
+          const db = _distKm(userLat, userLng, b.origin_lat, b.origin_lng)
+          return da - db
+        })
+      }
+    }
+
     return list
-  }, [rides, locationFilter, userLat, userLng])
+  }, [rides, locationFilter, rideTypeFilter, sortBy, userLat, userLng])
+
+  // Paginated slice
+  const totalPages = Math.max(1, Math.ceil(filteredRides.length / PAGE_SIZE))
+  const pagedRides = filteredRides.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+
+  // Reset to page 1 when filters change
+  useMemo(() => { setPage(1) }, [locationFilter, rideTypeFilter, sortBy]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Available origin locations for autocomplete suggestions
   const locationSuggestions = useMemo(() => {
@@ -254,12 +284,22 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     const onCancelled = ({ ride_id }) => setRides(prev => prev.map(r => r.ride_id === ride_id ? { ...r, status: 'cancelled' } : r))
     const onTaken = ({ ride_id }) => { setRides(prev => prev.map(r => r.ride_id === ride_id ? { ...r, status: 'taken' } : r)); playRideTakenSound() }
     const onDriverNearby = (data) => {
+      // Calculate distance to driver if coordinates available
+      const driverLat = data.lat
+      const driverLng = data.lng
+      let distKm = null
+      if (driverLat != null && driverLng != null && userLat != null && userLng != null) {
+        distKm = _distKm(userLat, userLng, driverLat, driverLng)
+      }
+      const isVeryClose = distKm != null && distKm <= 6
       playDriverAlertSound()
-      setDriverAlert(data)
+      setDriverAlert({ ...data, distKm, isVeryClose })
       setAlertVisible(true)
-      setAlertLog(prev => [{ ...data, receivedAt: Date.now() }, ...prev.slice(0, 19)])
+      setAlertLog(prev => [{ ...data, distKm, isVeryClose, receivedAt: Date.now() }, ...prev.slice(0, 19)])
       if (alertTimerRef.current) clearTimeout(alertTimerRef.current)
-      alertTimerRef.current = setTimeout(() => { setAlertVisible(false); setTimeout(() => setDriverAlert(null), 500) }, 8000)
+      // Very close drivers stay visible longer
+      const duration = isVeryClose ? 12000 : 8000
+      alertTimerRef.current = setTimeout(() => { setAlertVisible(false); setTimeout(() => setDriverAlert(null), 500) }, duration)
     }
     socket.on('new_ride', onNewRide)
     socket.on('ride_cancelled', onCancelled)
@@ -271,7 +311,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       socket.off('ride_taken', onTaken)
       socket.off('driver_nearby', onDriverNearby)
     }
-  }, [])
+  }, [userLat, userLng])
 
   useEffect(() => { if (user?.user_id) socket.emit('identify', { user_id: user.user_id }) }, [user])
 
@@ -302,7 +342,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     try {
       const notesTrimmed = notes.trim()
       const notesWithContact = contact.trim() ? `${notesTrimmed}${notesTrimmed ? ' | ' : ''}Contact: ${contact.trim()}` : notesTrimmed
-      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare)
+      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare, postRideType)
       setPostOk(`Ride posted! ID: ${data.ride_id.slice(0, 8)}…`)
       setOrigin(''); setDest(''); setDeparture(''); setSeats(1); setNotes(''); setContact('')
       setOriginLat(null); setOriginLng(null); setDestLat(null); setDestLng(null); setFare(null)
@@ -379,11 +419,25 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
 
       {/* ── Driver nearby alert toast ── */}
       {driverAlert && (
-        <div className={`fixed top-4 right-4 z-50 max-w-xs bg-green-900 border border-green-500 rounded-xl p-4 shadow-2xl driver-alert-toast ${alertVisible ? 'driver-alert-enter' : 'driver-alert-exit'}`}>
+        <div className={`fixed top-4 right-4 z-50 max-w-xs rounded-xl p-4 shadow-2xl driver-alert-toast ${alertVisible ? 'driver-alert-enter' : 'driver-alert-exit'} ${
+          driverAlert.isVeryClose
+            ? 'driver-alert-very-close bg-emerald-900 border-2 border-emerald-400'
+            : 'bg-green-900 border border-green-500'
+        }`}>
+          {driverAlert.isVeryClose && (
+            <div className="driver-alert-proximity-ring" />
+          )}
           <div className="flex items-center gap-2 mb-1">
-            <span className="driver-alert-icon text-xl">🚗</span>
-            <p className="text-green-300 font-semibold text-sm">Driver Nearby!</p>
+            <span className={`driver-alert-icon text-xl ${driverAlert.isVeryClose ? 'driver-alert-icon-urgent' : ''}`}>🚗</span>
+            <p className={`font-semibold text-sm ${driverAlert.isVeryClose ? 'text-emerald-200' : 'text-green-300'}`}>
+              {driverAlert.isVeryClose ? '🔥 Driver Very Close!' : 'Driver Nearby!'}
+            </p>
           </div>
+          {driverAlert.isVeryClose && driverAlert.distKm != null && (
+            <div className="driver-alert-dist-badge mb-1">
+              📍 Only {driverAlert.distKm < 1 ? `${(driverAlert.distKm * 1000).toFixed(0)}m` : `${driverAlert.distKm.toFixed(1)}km`} away!
+            </div>
+          )}
           <p className="text-green-200 text-xs">{driverAlert.message}</p>
           {driverAlert.driver_name && <p className="text-green-400 text-xs mt-1 font-medium">👤 {driverAlert.driver_name}</p>}
           {driverAlert.seats > 0 && <p className="text-green-300 text-xs mt-0.5">💺 {driverAlert.seats} empty seat{driverAlert.seats !== 1 ? 's' : ''}</p>}
@@ -415,8 +469,19 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
             </p>
             <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
               {alertLog.map((a, i) => (
-                <div key={i} className="flex items-center justify-between gap-2 bg-green-900/20 border border-green-700/30 rounded-lg px-2.5 py-1.5 text-xs">
-                  <span className="text-green-300 font-medium truncate">🚗 {a.driver_name || 'Driver'} — {a.empty ? 'empty car' : 'occupied'}</span>
+                <div key={i} className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs border ${
+                  a.isVeryClose
+                    ? 'bg-emerald-900/30 border-emerald-700/50'
+                    : 'bg-green-900/20 border-green-700/30'
+                }`}>
+                  <span className={`font-medium truncate ${a.isVeryClose ? 'text-emerald-300' : 'text-green-300'}`}>
+                    🚗 {a.driver_name || 'Driver'} — {a.empty ? 'empty car' : 'occupied'}
+                    {a.isVeryClose && a.distKm != null && (
+                      <span className="ml-1 text-emerald-400 font-bold">
+                        · 📍{a.distKm < 1 ? `${(a.distKm * 1000).toFixed(0)}m` : `${a.distKm.toFixed(1)}km`}
+                      </span>
+                    )}
+                  </span>
                   <span className="text-gray-500 shrink-0">{new Date(a.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                 </div>
               ))}
@@ -450,9 +515,9 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           <div className="flex items-center gap-2">
             <span className="text-xl">✈️</span>
             <div>
-              <p className="text-sm font-semibold text-blue-300">Post Airport Pickup — Drivers Only</p>
+              <p className="text-sm font-semibold text-blue-300">Post Ride — Drivers Only</p>
               <p className="text-xs text-blue-400/70 mt-0.5">
-                Register as a verified driver from your profile to post pickup rides and earn on the platform.
+                Register as a verified driver from your profile to post rides and earn on the platform.
               </p>
             </div>
           </div>
@@ -461,16 +526,36 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       {sections.form && isDriver && (
         <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4 space-y-4">
           <h3 className="font-semibold text-gray-200 flex items-center gap-2">
-            <span className="ride-post-icon">✈️</span> Post Airport Pickup
+            <span className="ride-post-icon">🚗</span> Post a Ride
             <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-900/60 text-green-300 border border-green-700/50">✅ Verified Driver</span>
           </h3>
+
+          {/* Ride type selector */}
+          <div className="flex gap-2">
+            {[
+              { value: 'airport',  label: '✈️ Airport Pickup', desc: 'Terminal / airport pickup'  },
+              { value: 'standard', label: '🚗 Standard Ride',  desc: 'City / inter-city ride'     },
+            ].map(opt => (
+              <button key={opt.value} type="button"
+                onClick={() => setPostRideType(opt.value)}
+                className={`flex-1 rounded-xl border p-2.5 text-left transition-all text-xs ${
+                  postRideType === opt.value
+                    ? 'border-blue-500 bg-blue-900/40 text-blue-300'
+                    : 'border-gray-700 bg-gray-800/60 text-gray-400 hover:border-gray-500 hover:text-gray-300'
+                }`}>
+                <p className="font-semibold">{opt.label}</p>
+                <p className="opacity-70 mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+
           <form onSubmit={handlePost} className="space-y-3">
             <div className="flex gap-2">
               <div className="flex-1 ride-field-wrap">
-                <input type="text" placeholder="✈️ Airport / Pickup Location" value={origin}
+                <input type="text" placeholder={postRideType === 'airport' ? '✈️ Airport / Pickup Location' : '📍 Pickup Location'} value={origin}
                   onChange={e => setOrigin(e.target.value)} onFocus={() => setFocusedField('origin')} onBlur={() => setFocusedField(null)}
                   required className={inputCls('origin')} />
-                {focusedField === 'origin' && <span className="ride-field-hint text-xs text-blue-400/80">✈️ Which airport are you picking up from?</span>}
+                {focusedField === 'origin' && <span className="ride-field-hint text-xs text-blue-400/80">{postRideType === 'airport' ? '✈️ Which airport are you picking up from?' : '📍 Where are you picking up from?'}</span>}
               </div>
               <button type="button" title="Use my current location as pickup" onClick={handleGeoOrigin} disabled={geoLoading}
                 className="px-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm transition-colors disabled:opacity-50">
@@ -539,7 +624,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               className="ride-post-btn w-full py-2.5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-all">
               {posting
                 ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Posting…</span>
-                : '✈️ Post Airport Pickup'}
+                : postRideType === 'airport' ? '✈️ Post Airport Pickup' : '🚗 Post Standard Ride'}
             </button>
           </form>
         </div>
@@ -549,55 +634,79 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       {sections.list && (
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-200">🗺️ Airport Pickups</h3>
+          <h3 className="font-semibold text-gray-200">🗺️ All Rides</h3>
           <button onClick={loadRides} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
         </div>
 
-        {/* Location search filter */}
-        <div className="space-y-2">
+        {/* ── Advanced search bar ── */}
+        <div className="rounded-xl border border-gray-700/70 bg-gray-900/60 p-3 space-y-2">
+          <p className="text-xs text-gray-400 font-semibold flex items-center gap-1.5">🔍 Search &amp; Filter</p>
           <div className="flex gap-2 items-center">
             <div className="relative flex-1">
               <input
                 type="text"
-                placeholder="🔍 Filter by location (origin or destination)…"
+                placeholder="Filter by location (origin or destination)…"
                 value={locationFilter}
                 onChange={e => setLocationFilter(e.target.value)}
                 list="location-suggestions"
                 className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 pr-8"
               />
               {locationFilter && (
-                <button
-                  onClick={() => setLocationFilter('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs"
-                  title="Clear filter"
-                >✕</button>
+                <button onClick={() => setLocationFilter('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300 text-xs" title="Clear">✕</button>
               )}
               <datalist id="location-suggestions">
                 {locationSuggestions.map(s => <option key={s} value={s} />)}
               </datalist>
             </div>
-            <button
-              onClick={handleGetUserLocation}
-              disabled={gettingUserLoc}
+            <button onClick={handleGetUserLocation} disabled={gettingUserLoc}
               title="Use my location to sort nearest rides first"
-              className={`px-3 py-2 rounded-lg text-sm transition-colors shrink-0 ${
-                userLat != null
-                  ? 'bg-green-800/60 text-green-300 border border-green-700/50 hover:bg-green-700/60'
-                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border border-gray-600'
-              } disabled:opacity-50`}
-            >
+              className={`px-3 py-2 rounded-lg text-sm transition-colors shrink-0 border disabled:opacity-50 ${
+                userLat != null ? 'bg-green-800/60 text-green-300 border-green-700/50 hover:bg-green-700/60' : 'bg-gray-700 hover:bg-gray-600 text-gray-300 border-gray-600'
+              }`}>
               {gettingUserLoc ? '…' : userLat != null ? '📍 Near me' : '📍'}
             </button>
           </div>
+
+          {/* Filter pills */}
+          <div className="flex flex-wrap gap-2 items-center">
+            {/* Ride type */}
+            <div className="flex gap-1">
+              {[['all','🌐 All'], ['airport','✈️ Airport'], ['standard','🚗 Standard']].map(([val, lbl]) => (
+                <button key={val} onClick={() => setRideTypeFilter(val)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    rideTypeFilter === val ? 'bg-blue-700 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
+                  }`}>{lbl}</button>
+              ))}
+            </div>
+
+            {/* Sort */}
+            <div className="flex gap-1 ml-auto">
+              <span className="text-xs text-gray-500 self-center">Sort:</span>
+              {[
+                ['departure',  '🕐 Time'],
+                ['fare_asc',   '💰 Low price'],
+                ['fare_desc',  '💰 High price'],
+              ].map(([val, lbl]) => (
+                <button key={val} onClick={() => setSortBy(val)}
+                  className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                    sortBy === val ? 'bg-indigo-700 border-indigo-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
+                  }`}>{lbl}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Status summary */}
           {userLat != null && (
             <p className="text-xs text-green-400 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-              Showing nearest rides first · {filteredRides.filter(r => r.status === 'open').length} open ride{filteredRides.filter(r => r.status === 'open').length !== 1 ? 's' : ''}
+              Showing nearest rides first · {filteredRides.filter(r => r.status === 'open').length} open
             </p>
           )}
-          {locationFilter && !userLat && (
+          {filteredRides.length > 0 && (
             <p className="text-xs text-gray-500">
-              {filteredRides.length} result{filteredRides.length !== 1 ? 's' : ''} for "{locationFilter}"
+              {filteredRides.length} ride{filteredRides.length !== 1 ? 's' : ''} found
+              {filteredRides.length > PAGE_SIZE && ` · Page ${page} of ${totalPages}`}
             </p>
           )}
         </div>
@@ -605,14 +714,15 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         {loading && <div className="flex justify-center py-8"><div className="spinner w-8 h-8" /></div>}
         {!loading && filteredRides.length === 0 && (
           <div className="text-center py-10 text-gray-500 text-sm">
-            {locationFilter ? `No rides matching "${locationFilter}".` : 'No rides posted yet. Be the first!'}
+            {locationFilter || rideTypeFilter !== 'all' ? 'No rides matching your search.' : 'No rides posted yet. Be the first!'}
           </div>
         )}
 
-        {filteredRides.map(ride => {
+        {pagedRides.map(ride => {
           const distKm = (userLat != null && ride.origin_lat != null)
             ? _distKm(userLat, userLng, ride.origin_lat, ride.origin_lng)
             : null
+          const rideTypeLabel = (ride.ride_type || 'airport') === 'airport' ? '✈️' : '🚗'
           return (
           <div key={ride.ride_id}
             className={`ride-card ride-card-enter rounded-xl border p-4 space-y-2 transition-all ${
@@ -623,12 +733,20 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <StatusTag status={ride.status} />
-                  <span className="font-semibold text-white text-sm">✈️ {ride.origin}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-700/60 text-gray-300 border border-gray-600/50">
+                    {rideTypeLabel} {(ride.ride_type || 'airport') === 'airport' ? 'Airport' : 'Standard'}
+                  </span>
+                  <span className="font-semibold text-white text-sm">{rideTypeLabel} {ride.origin}</span>
                   <span className="text-gray-500 text-xs">→</span>
                   <span className="font-semibold text-blue-300 text-sm">{ride.destination}</span>
                   {distKm != null && ride.status === 'open' && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-900/50 text-green-300 border border-green-700/50">
+                    <span className={`text-xs px-1.5 py-0.5 rounded-full border font-medium ${
+                      distKm <= 6
+                        ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700/60 driver-close-badge'
+                        : 'bg-green-900/50 text-green-300 border-green-700/50'
+                    }`}>
                       📍 {distKm < 1 ? `${(distKm * 1000).toFixed(0)}m` : `${distKm.toFixed(1)}km`}
+                      {distKm <= 6 && ' 🔥'}
                     </span>
                   )}
                   {ride.fare != null && (
@@ -690,6 +808,41 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           </div>
           )
         })}
+
+        {/* ── Pagination ── */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between pt-2 border-t border-gray-700/50">
+            <button
+              onClick={() => setPage(p => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="text-xs px-4 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              ← Back
+            </button>
+            <div className="flex gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).slice(
+                Math.max(0, page - 3), Math.min(totalPages, page + 2)
+              ).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`text-xs w-7 h-7 rounded-lg border transition-colors ${
+                    p === page ? 'bg-blue-700 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="text-xs px-4 py-2 rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+            >
+              Next →
+            </button>
+          </div>
+        )}
       </div>
       )}
     </div>

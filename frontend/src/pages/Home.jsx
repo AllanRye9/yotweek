@@ -588,6 +588,15 @@ export default function Home() {
                         onLogout={() => { setAppUser(false); setProfileOpen(false) }}
                         onLocationUpdate={() => {}}
                       />
+                      <div className="px-3 py-2 border-t border-gray-700/50 bg-gray-800/30">
+                        <Link
+                          to="/profile"
+                          onClick={() => setProfileOpen(false)}
+                          className="flex items-center gap-2 text-xs text-blue-400 hover:text-blue-300 transition-colors py-1"
+                        >
+                          👤 View Full Profile Page →
+                        </Link>
+                      </div>
                     </div>
                   )}
                 </>

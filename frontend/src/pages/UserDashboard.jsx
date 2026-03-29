@@ -7,7 +7,6 @@ import FileList from '../components/FileList'
 import CVGenerator from '../components/CVGenerator'
 import DocConverter from '../components/DocConverter'
 import RideShare from '../components/RideShare'
-import RideShareMap from '../components/RideShareMap'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import PropertyManager from '../components/PropertyManager'
@@ -560,13 +559,6 @@ export default function UserDashboard() {
                 <div className="mb-4">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
                   <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
-                </div>
-                <div className="mb-4 ride-map-container">
-                  <RideShareMap
-                    userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
-                    onLocationUpdate={(loc) => setAppUser(u => ({ ...u, lat: loc.lat, lng: loc.lng }))}
-                    autoLoadDrivers={true}
-                  />
                 </div>
                 <RideShare user={appUser} />
               </div>

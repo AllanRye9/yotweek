@@ -4,6 +4,7 @@ import {
   updateProfileDetails, uploadAvatar, getNotifications, markNotificationRead, markAllNotificationsRead,
 } from '../api'
 import socket from '../socket'
+import DMInbox from './DMInbox'
 
 // ─── Tab definitions ─────────────────────────────────────────────────────────
 
@@ -335,10 +336,11 @@ function DriverRoleTab({ user }) {
 
 // ─── Inbox tab ────────────────────────────────────────────────────────────────
 
-function InboxTab({ unreadCount, onUnreadChange }) {
+function InboxTab({ user, unreadCount, onUnreadChange }) {
   const [notifications, setNotifications] = useState(null)
   const [loading,       setLoading]       = useState(true)
   const [markingAll,    setMarkingAll]     = useState(false)
+  const [activeSection, setActiveSection] = useState('messages') // 'messages' | 'notifications'
 
   const load = () => {
     setLoading(true)
@@ -373,57 +375,112 @@ function InboxTab({ unreadCount, onUnreadChange }) {
     setMarkingAll(false)
   }
 
+  // Clicking a DM/message notification navigates to the messages section
+  const handleNotifClick = (n) => {
+    if (!n.read) handleMarkRead(n.notif_id)
+    if (n.type === 'dm' || n.type === 'message') {
+      setActiveSection('messages')
+    }
+  }
+
   const typeIcons = {
     driver_approved: '🎉',
     driver_rejected: '❌',
     ride_taken:      '✅',
+    dm:              '💬',
+    message:         '💬',
     system:          'ℹ️',
   }
 
-  if (loading) return <div className="text-gray-500 text-sm py-4">Loading...</div>
-
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-400 font-medium">
-          {notifications?.length ?? 0} notification{(notifications?.length ?? 0) !== 1 ? 's' : ''}
-          {unreadCount > 0 && <span className="ml-2 text-blue-400">&middot; {unreadCount} unread</span>}
-        </p>
-        {unreadCount > 0 && (
-          <button onClick={handleMarkAll} disabled={markingAll}
-            className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50">
-            {markingAll ? 'Marking...' : 'Mark all read'}
-          </button>
-        )}
+      {/* Section tabs */}
+      <div className="flex gap-1 bg-gray-800/50 rounded-lg p-1">
+        <button
+          onClick={() => setActiveSection('messages')}
+          className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${
+            activeSection === 'messages'
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          💬 Messages
+        </button>
+        <button
+          onClick={() => setActiveSection('notifications')}
+          className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors relative ${
+            activeSection === 'notifications'
+              ? 'bg-blue-600 text-white'
+              : 'text-gray-400 hover:text-gray-200'
+          }`}
+        >
+          🔔 Notifications
+          {unreadCount > 0 && (
+            <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </button>
       </div>
 
-      {notifications?.length === 0 && (
-        <p className="text-gray-500 text-sm py-4 text-center">Your inbox is empty.</p>
+      {/* ── Messages section (DM inbox) ── */}
+      {activeSection === 'messages' && (
+        <DMInbox currentUser={user} />
       )}
 
-      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-        {notifications?.map(n => (
-          <div
-            key={n.notif_id}
-            className={`rounded-xl p-3 border transition-colors ${
-              n.read ? 'bg-gray-800/30 border-gray-700/40 cursor-default' : 'bg-blue-900/20 border-blue-700/50 cursor-pointer hover:bg-blue-900/30'
-            }`}
-            onClick={() => !n.read && handleMarkRead(n.notif_id)}
-          >
-            <div className="flex items-start gap-2">
-              <span className="text-lg shrink-0">{typeIcons[n.type] || 'ℹ️'}</span>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between gap-2">
-                  <p className={`text-xs font-semibold truncate ${n.read ? 'text-gray-300' : 'text-white'}`}>{n.title}</p>
-                  {!n.read && <span className="w-2 h-2 rounded-full bg-blue-400 shrink-0" />}
-                </div>
-                <p className="text-xs text-gray-400 mt-0.5">{n.body}</p>
-                <p className="text-xs text-gray-600 mt-1">{new Date(n.created_at).toLocaleString()}</p>
-              </div>
-            </div>
+      {/* ── Notifications section ── */}
+      {activeSection === 'notifications' && (
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-gray-400 font-medium">
+              {notifications?.length ?? 0} notification{(notifications?.length ?? 0) !== 1 ? 's' : ''}
+              {unreadCount > 0 && <span className="ml-2 text-blue-400">&middot; {unreadCount} unread</span>}
+            </p>
+            {unreadCount > 0 && (
+              <button onClick={handleMarkAll} disabled={markingAll}
+                className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50">
+                {markingAll ? 'Marking...' : 'Mark all read'}
+              </button>
+            )}
           </div>
-        ))}
-      </div>
+
+          {loading ? (
+            <div className="text-center py-6"><div className="spinner w-6 h-6 mx-auto" /></div>
+          ) : notifications?.length === 0 ? (
+            <p className="text-gray-500 text-sm py-4 text-center">No notifications yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {notifications?.map(n => (
+                <div
+                  key={n.notif_id}
+                  className={`rounded-xl p-3 border transition-colors cursor-pointer ${
+                    n.read ? 'bg-gray-800/30 border-gray-700/40 hover:bg-gray-800/50' : 'bg-blue-900/20 border-blue-700/50 hover:bg-blue-900/30'
+                  }`}
+                  onClick={() => handleNotifClick(n)}
+                  title={(n.type === 'dm' || n.type === 'message') ? 'Click to open messages' : 'Click to mark as read'}
+                >
+                  <div className="flex items-start gap-2">
+                    <span className="text-lg shrink-0">{typeIcons[n.type] || 'ℹ️'}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className={`text-xs font-semibold truncate ${n.read ? 'text-gray-300' : 'text-white'}`}>{n.title}</p>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {!n.read && <span className="w-2 h-2 rounded-full bg-blue-400" />}
+                          {(n.type === 'dm' || n.type === 'message') && (
+                            <span className="text-[10px] text-blue-400 whitespace-nowrap">→ msgs</span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-0.5">{n.body}</p>
+                      <p className="text-xs text-gray-600 mt-1">{new Date(n.created_at).toLocaleString()}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }
@@ -724,7 +781,7 @@ export default function UserProfile({ user: initialUser, onLogout, onLocationUpd
           {tab === 'history'  && <RideHistoryTab userId={user.user_id} />}
           {tab === 'stats'    && <StatsTab user={user} />}
           {tab === 'driver'   && <DriverRoleTab user={user} />}
-          {tab === 'inbox'    && <InboxTab unreadCount={unread} onUnreadChange={setUnread} />}
+          {tab === 'inbox'    && <InboxTab user={user} unreadCount={unread} onUnreadChange={setUnread} />}
         </div>
       </div>
     </div>

@@ -911,14 +911,150 @@ html:not(.theme-dark) .bg-gradient-to-b {
   to { transform: rotate(360deg); }
 }
 
+/* ── Very-close driver alert (≤6km) ── */
+.driver-alert-very-close {
+  position: relative;
+  overflow: visible;
+}
+
+.driver-alert-proximity-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 14px;
+  border: 2px solid rgba(52, 211, 153, 0.7);
+  animation: proximity-ring-pulse 1.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes proximity-ring-pulse {
+  0%, 100% { transform: scale(1);    opacity: 0.8; }
+  50%        { transform: scale(1.04); opacity: 0.3; }
+}
+
+.driver-alert-icon-urgent {
+  animation: driver-alert-bounce 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+             driver-urgent-flash 0.8s ease-in-out 0.6s infinite;
+}
+
+@keyframes driver-urgent-flash {
+  0%, 100% { filter: brightness(1);   }
+  50%       { filter: brightness(1.6); }
+}
+
+.driver-alert-dist-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #a7f3d0;
+  background: rgba(5, 150, 105, 0.3);
+  border: 1px solid rgba(52, 211, 153, 0.4);
+  border-radius: 999px;
+  padding: 2px 8px;
+  animation: dist-badge-glow 1.4s ease-in-out infinite;
+}
+
+@keyframes dist-badge-glow {
+  0%, 100% { box-shadow: 0 0 0px rgba(52,211,153,0); }
+  50%       { box-shadow: 0 0 8px rgba(52,211,153,0.6); }
+}
+
+/* Ride card close-distance badge */
+.driver-close-badge {
+  animation: close-badge-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes close-badge-pulse {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.05); }
+}
+
+/* ── Profile page animations ── */
+@keyframes bounce-slow {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-10px); }
+}
+.animate-bounce-slow {
+  animation: bounce-slow 2.5s ease-in-out infinite;
+}
+
+.profile-avatar-ring {
+  width: 80px;
+  height: 80px;
+}
+
+.profile-avatar-ring-pulse {
+  animation: avatar-ring-expand 2s ease-out infinite;
+  border: 2px solid rgba(59, 130, 246, 0.5);
+  z-index: 0;
+}
+
+@keyframes avatar-ring-expand {
+  0%   { transform: scale(1);    opacity: 0.7; }
+  100% { transform: scale(1.35); opacity: 0;   }
+}
+
+.profile-bg-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  opacity: 0.12;
+  pointer-events: none;
+}
+.profile-bg-blob-1 {
+  width: 200px; height: 200px;
+  background: #3b82f6;
+  top: -40px; right: -40px;
+  animation: blob-float 6s ease-in-out infinite;
+}
+.profile-bg-blob-2 {
+  width: 160px; height: 160px;
+  background: #8b5cf6;
+  bottom: -20px; left: 20px;
+  animation: blob-float 8s ease-in-out infinite reverse;
+}
+
+@keyframes blob-float {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%       { transform: translate(10px, -10px) scale(1.05); }
+}
+
+.profile-verified-badge {
+  animation: verified-shimmer 3s ease-in-out infinite;
+}
+
+@keyframes verified-shimmer {
+  0%, 100% { box-shadow: 0 0 0px rgba(74,222,128,0); }
+  50%       { box-shadow: 0 0 8px rgba(74,222,128,0.4); }
+}
+
+.profile-stat-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.profile-stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.profile-quick-link {
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   .ride-status-tag,
   .ride-card,
   .driver-alert-toast,
   .driver-alert-icon,
+  .driver-alert-icon-urgent,
+  .driver-alert-proximity-ring,
+  .driver-alert-dist-badge,
+  .driver-close-badge,
   .driver-pulse-icon,
-  .driver-broadcast-spinner {
+  .driver-broadcast-spinner,
+  .animate-bounce-slow,
+  .profile-avatar-ring-pulse,
+  .profile-bg-blob,
+  .profile-verified-badge {
     animation: none !important;
   }
 }

@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
 import RideShare from '../components/RideShare'
-import RideShareMap from '../components/RideShareMap'
 import ThemeSelector from '../components/ThemeSelector'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
@@ -129,9 +128,9 @@ export default function RidesPage() {
       {/* ── Page header ── */}
       <div style={{ padding: '12px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>✈️ Airport Pickup Service</h1>
+          <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>🚗 Ride Share</h1>
           <p style={{ color: '#6b7280', fontSize: '0.82rem', margin: '2px 0 0' }}>
-            Find registered drivers, book airport pickups, and track drivers in real time.
+            Find registered drivers, book airport & standard rides, and get real-time driver alerts.
           </p>
         </div>
       </div>
@@ -198,14 +197,14 @@ export default function RidesPage() {
             </div>
           </aside>
 
-          {/* ── Center: Post Form + Map (scrollable) ── */}
+          {/* ── Center: Post Form (scrollable) ── */}
           <main className="rides-center-col" style={{
             flex: 1, minWidth: 0,
             overflowY: 'auto',
             background: '#030712',
             display: 'flex', flexDirection: 'column',
           }}>
-            {/* Post Airport Pickup form */}
+            {/* Post Ride form */}
             <div style={{ padding: '12px 12px 0', borderBottom: '1px solid #1f2937' }}>
               <RideShare
                 user={appUser}
@@ -215,18 +214,9 @@ export default function RidesPage() {
                 showSections={{ form: true, dashboard: false, driverBroadcast: false, list: false }}
               />
             </div>
-            {/* Map */}
-            <div className="rides-center-map" style={{ flex: 1, minHeight: 400 }}>
-              <RideShareMap
-                rides={rides}
-                userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
-                onOpenChat={(ride, defaultMsg) => setMapChatRequest({ ride, defaultMsg })}
-                mapHeight="100%"
-              />
-            </div>
           </main>
 
-          {/* ── Right: Airport Pickups List (sticky) ── */}
+          {/* ── Right: All Rides List (sticky) ── */}
           <aside className="rides-right-sidebar" style={{
             width: 340, flexShrink: 0,
             borderLeft: '1px solid #1f2937',
@@ -238,7 +228,7 @@ export default function RidesPage() {
             display: 'flex', flexDirection: 'column',
           }}>
             <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🗺️ Airport Pickups</div>
+              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🚗 All Rides</div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
               <RideShare

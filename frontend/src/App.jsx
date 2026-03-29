@@ -12,6 +12,7 @@ import PropertiesPage from './pages/PropertiesPage'
 import PropertyDetailPage from './pages/PropertyDetailPage'
 import PropertyInboxPage from './pages/PropertyInboxPage'
 import UnifiedMapPage from './pages/UnifiedMapPage'
+import ProfilePage from './pages/ProfilePage'
 
 // ─── Auth Context ─────────────────────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -115,6 +116,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/rides" element={<RidesPage />} />
             <Route path="/dashboard" element={<UserDashboard />} />
+            <Route path="/profile" element={<ProfilePage />} />
             <Route path="/properties" element={<PropertiesPage />} />
             <Route path="/properties/:propertyId" element={<PropertyDetailPage />} />
             <Route path="/property-inbox" element={<PropertyInboxPage />} />

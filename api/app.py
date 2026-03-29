@@ -877,7 +877,7 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
-                for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL")]:
+                for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL"), ("ride_type", "TEXT DEFAULT 'airport'")]:
                     try:
                         cur.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1099,7 +1099,7 @@ def init_db():
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
-                for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL")]:
+                for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL"), ("ride_type", "TEXT DEFAULT 'airport'")]:
                     try:
                         conn.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -8405,6 +8405,7 @@ class _RidePostRequest(BaseModel):
     dest_lat:    float | None = None
     dest_lng:    float | None = None
     fare:        float | None = None
+    ride_type:   str = "airport"
 
 
 class _RideJoinRequest(BaseModel):
@@ -8445,6 +8446,8 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
         dist_km = _haversine_km(body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng)
         fare = round(dist_km * _FARE_PER_KM, 2)
 
+    ride_type = body.ride_type if body.ride_type in ("airport", "standard") else "airport"
+
     ride_id    = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
@@ -8454,19 +8457,19 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)""",
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s)""",
                     (ride_id, user_id, user["name"], origin, destination,
                      body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng, fare,
-                     departure, body.seats, body.notes.strip(), created_at),
+                     departure, body.seats, body.notes.strip(), created_at, ride_type),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?)""",
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?)""",
                     (ride_id, user_id, user["name"], origin, destination,
                      body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng, fare,
-                     departure, body.seats, body.notes.strip(), created_at),
+                     departure, body.seats, body.notes.strip(), created_at, ride_type),
                 )
             conn.commit()
         finally:
@@ -8482,6 +8485,7 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
         "seats":       body.seats,
         "notes":       body.notes.strip(),
         "created_at":  created_at,
+        "ride_type":   ride_type,
     }
 
     # Notify all connected users via Socket.IO
@@ -8526,18 +8530,18 @@ async def api_rides_list(status: str | None = None):
         try:
             cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
                     "origin_lat", "origin_lng", "dest_lat", "dest_lng", "fare",
-                    "departure", "seats", "notes", "status", "created_at"]
+                    "departure", "seats", "notes", "status", "created_at", "ride_type"]
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at"
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport')"
                     f" FROM rides WHERE status IN ({pg_placeholders}) ORDER BY departure ASC LIMIT 200",
                     status_filter,
                 )
                 rows = cur.fetchall()
             else:
                 cur = conn.execute(
-                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at"
+                    "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport')"
                     f" FROM rides WHERE status IN ({sql_placeholders}) ORDER BY departure ASC LIMIT 200",
                     status_filter,
                 )
@@ -8757,25 +8761,6 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
     user = _get_app_user(user_id)
     if user is None or user.get("role") != "driver":
         return JSONResponse({"error": "Only registered drivers can broadcast location."}, status_code=403)
-
-    # Check driver application is approved (verified)
-    verified = False
-    with _db_lock:
-        conn = _get_db()
-        try:
-            if USE_POSTGRES:
-                cur = conn.cursor()
-                cur.execute("SELECT status FROM driver_applications WHERE user_id=%s", (user_id,))
-                row = cur.fetchone()
-            else:
-                cur = conn.execute("SELECT status FROM driver_applications WHERE user_id=?", (user_id,))
-                row = cur.fetchone()
-            verified = row is not None and row[0] == "approved"
-        finally:
-            conn.close()
-
-    if not verified:
-        return JSONResponse({"error": "Driver verification required. Please submit a driver application."}, status_code=403)
 
     ts = time.time()
     with _driver_loc_lock:
