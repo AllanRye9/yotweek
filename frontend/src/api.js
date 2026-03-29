@@ -335,8 +335,8 @@ export const requestMagicLink = (email) =>
 export const verifyMagicLink = (token) =>
   request('POST', '/api/auth/magic_link/verify', { token })
 
-export const driverApply = (vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate) =>
-  request('POST', '/api/auth/driver_apply', { vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate })
+export const driverApply = (vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, subscription_type = 'monthly') =>
+  request('POST', '/api/auth/driver_apply', { vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, subscription_type })
 
 export const getDriverApplication = () => request('GET', '/api/auth/driver_application')
 
@@ -359,6 +359,9 @@ export const postRide = (origin, destination, departure, seats, notes = '', orig
 
 export const calculateFare = (origin_lat, origin_lng, dest_lat, dest_lng) =>
   request('GET', `/api/rides/calculate_fare?origin_lat=${origin_lat}&origin_lng=${origin_lng}&dest_lat=${dest_lat}&dest_lng=${dest_lng}`)
+
+export const calculateSharedFare = (total_fare, total_seats, booked_seats) =>
+  request('GET', `/api/rides/shared_fare?total_fare=${total_fare}&total_seats=${total_seats}&booked_seats=${booked_seats}`)
 
 export const listRides = (status = null) =>
   request('GET', `/api/rides/list${status ? `?status=${encodeURIComponent(status)}` : ''}`)

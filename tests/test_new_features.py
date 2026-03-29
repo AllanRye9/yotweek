@@ -31,6 +31,7 @@ from api.app import (
     api_driver_nearby,
     api_driver_locations,
     api_calculate_fare,
+    api_shared_fare,
     _UserRegisterRequest,
     _UserLoginRequest,
     _AtsRequest,
@@ -106,6 +107,31 @@ def _grant_posting_permission(user_id):
             conn.commit()
         finally:
             conn.close()
+
+
+def _grant_driver_role(user_id):
+    """Directly set role='driver' for a user (simulates admin-approved driver application)."""
+    from api.app import _get_db, _db_lock, USE_POSTGRES
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE app_users SET role='driver' WHERE user_id=%s", (user_id,))
+            else:
+                conn.execute("UPDATE app_users SET role='driver' WHERE user_id=?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _register_driver(name="Driver"):
+    """Register a user and immediately grant them the driver role. Returns (resp, email)."""
+    import json
+    resp, email = _register_user(name, role="passenger")
+    user_id = json.loads(resp.body)["user_id"]
+    _grant_driver_role(user_id)
+    return resp, email
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +391,7 @@ class TestUserMe:
 class TestRidePost:
     def test_post_ride_ok(self):
         import json
-        _, email = _register_user("RideDriver")
+        _, email = _register_driver("RideDriver")
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_ride_post(req, _RidePostRequest(
@@ -387,9 +413,23 @@ class TestRidePost:
         )))
         assert resp.status_code == 401
 
+    def test_post_ride_non_driver_returns_403(self):
+        """Non-driver (passenger) users must be blocked from posting rides."""
+        import json
+        _, email = _register_user("RidePassenger")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_post(req, _RidePostRequest(
+            origin="Airport",
+            destination="City",
+            departure="2030-06-01T09:00",
+            seats=1,
+        )))
+        assert resp.status_code == 403
+
     def test_post_ride_empty_origin(self):
         import json
-        _, email = _register_user("RideNoOrigin")
+        _, email = _register_driver("RideNoOrigin")
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_ride_post(req, _RidePostRequest(
@@ -402,7 +442,7 @@ class TestRidePost:
 
     def test_rides_appear_in_list(self):
         import json
-        _, email = _register_user("RideList")
+        _, email = _register_driver("RideList")
         session = _login_session(email)
         req = _make_request(session)
         run(api_ride_post(req, _RidePostRequest(
@@ -418,7 +458,7 @@ class TestRidePost:
 
     def test_post_ride_with_fare(self):
         import json
-        _, email = _register_user("FareDriver")
+        _, email = _register_driver("FareDriver")
         session = _login_session(email)
         req = _make_request(session)
         resp = run(api_ride_post(req, _RidePostRequest(
@@ -470,10 +510,58 @@ class TestCalculateFare:
         assert body["dist_km"] == 0.0
 
 
+class TestSharedFare:
+    """Tests for the shared-ride fare calculator endpoint."""
+
+    def test_full_vehicle_returns_total_fare(self):
+        import json
+        resp = run(api_shared_fare(total_fare=40.0, total_seats=4, booked_seats=4))
+        body = json.loads(resp.body)
+        assert body["amount_owed"] == 40.0
+        assert body["is_full_vehicle"] is True
+        assert body["per_seat_cost"] == 10.0
+
+    def test_single_seat_shared_cost(self):
+        import json
+        resp = run(api_shared_fare(total_fare=40.0, total_seats=4, booked_seats=1))
+        body = json.loads(resp.body)
+        assert body["amount_owed"] == 10.0
+        assert body["is_full_vehicle"] is False
+        assert body["per_seat_cost"] == 10.0
+
+    def test_two_seats_of_four(self):
+        import json
+        resp = run(api_shared_fare(total_fare=40.0, total_seats=4, booked_seats=2))
+        body = json.loads(resp.body)
+        assert body["amount_owed"] == 20.0
+        assert body["is_full_vehicle"] is False
+
+    def test_invalid_booked_seats_returns_400(self):
+        resp = run(api_shared_fare(total_fare=40.0, total_seats=4, booked_seats=0))
+        assert resp.status_code == 400
+
+    def test_booked_exceeds_total_returns_400(self):
+        resp = run(api_shared_fare(total_fare=40.0, total_seats=2, booked_seats=5))
+        assert resp.status_code == 400
+
+    def test_zero_fare_returns_zero_cost(self):
+        import json
+        resp = run(api_shared_fare(total_fare=0.0, total_seats=3, booked_seats=1))
+        body = json.loads(resp.body)
+        assert body["amount_owed"] == 0.0
+
+    def test_driver_only_seat_is_full_vehicle(self):
+        import json
+        resp = run(api_shared_fare(total_fare=20.0, total_seats=1, booked_seats=1))
+        body = json.loads(resp.body)
+        assert body["is_full_vehicle"] is True
+        assert body["amount_owed"] == 20.0
+
+
 class TestRideCancel:
     def test_cancel_own_ride(self):
         import json
-        _, email = _register_user("CancelOwner")
+        _, email = _register_driver("CancelOwner")
         session = _login_session(email)
         req = _make_request(session)
         r = run(api_ride_post(req, _RidePostRequest(
@@ -486,7 +574,7 @@ class TestRideCancel:
 
     def test_cancel_not_owner_returns_403(self):
         import json
-        _, email1 = _register_user("CancelA")
+        _, email1 = _register_driver("CancelA")
         session1 = _login_session(email1)
         req1 = _make_request(session1)
         r = run(api_ride_post(req1, _RidePostRequest(
@@ -659,7 +747,7 @@ class TestDriverGeolocation:
 class TestRideTake:
     def test_take_own_ride(self):
         import json
-        _, email = _register_user("TakeOwner")
+        _, email = _register_driver("TakeOwner")
         session = _login_session(email)
         req = _make_request(session)
         r = run(api_ride_post(req, _RidePostRequest(
@@ -674,7 +762,7 @@ class TestRideTake:
 
     def test_take_updates_status_to_taken(self):
         import json
-        _, email = _register_user("TakeStatus")
+        _, email = _register_driver("TakeStatus")
         session = _login_session(email)
         req = _make_request(session)
         r = run(api_ride_post(req, _RidePostRequest(
@@ -691,7 +779,7 @@ class TestRideTake:
 
     def test_take_not_owner_returns_403(self):
         import json
-        _, email1 = _register_user("TakeA")
+        _, email1 = _register_driver("TakeA")
         session1 = _login_session(email1)
         req1 = _make_request(session1)
         r = run(api_ride_post(req1, _RidePostRequest(
@@ -720,7 +808,7 @@ class TestRideTake:
 
     def test_cannot_take_cancelled_ride(self):
         import json
-        _, email = _register_user("TakeCancelled")
+        _, email = _register_driver("TakeCancelled")
         session = _login_session(email)
         req = _make_request(session)
         r = run(api_ride_post(req, _RidePostRequest(
@@ -761,7 +849,7 @@ class TestAdminRides:
     def test_admin_rides_stats_are_consistent(self):
         import json
         # Post a ride then take it so stats cover multiple statuses
-        _, email = _register_user("AdminRideStats")
+        _, email = _register_driver("AdminRideStats")
         session_user = _login_session(email)
         req_user = _make_request(session_user)
         r = run(api_ride_post(req_user, _RidePostRequest(
@@ -791,7 +879,7 @@ class TestRidesListFilter:
 
     def test_list_taken_filter(self):
         import json
-        _, email = _register_user("FilterTaken")
+        _, email = _register_driver("FilterTaken")
         session = _login_session(email)
         req = _make_request(session)
         r = run(api_ride_post(req, _RidePostRequest(
@@ -1272,6 +1360,40 @@ class TestDriverApplication:
         user = _get_app_user(user_id)
         assert user["role"] == "passenger"
 
+    def test_driver_apply_with_subscription_type(self):
+        """Subscription type (monthly/yearly) is stored on the application."""
+        from api.app import api_driver_apply, _DriverApplyRequest, api_driver_application_status
+        import json
+        resp, _ = _register_user("SubDriver")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        apply_resp = run(api_driver_apply(req, _DriverApplyRequest(
+            vehicle_make="Honda", vehicle_model="Civic",
+            vehicle_year=2021, vehicle_color="Red", license_plate="XYZ999",
+            subscription_type="yearly",
+        )))
+        assert apply_resp.status_code == 201
+        status_resp = run(api_driver_application_status(_make_request({"app_user_id": user_id})))
+        data = json.loads(status_resp.body)
+        assert data["application"]["subscription_type"] == "yearly"
+
+    def test_driver_apply_invalid_subscription_defaults_to_monthly(self):
+        """An invalid subscription_type value should default to 'monthly'."""
+        from api.app import api_driver_apply, _DriverApplyRequest, api_driver_application_status
+        import json
+        resp, _ = _register_user("BadSubDriver")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        apply_resp = run(api_driver_apply(req, _DriverApplyRequest(
+            vehicle_make="Ford", vehicle_model="Focus",
+            vehicle_year=2019, vehicle_color="Black", license_plate="BAD000",
+            subscription_type="weekly",  # invalid value
+        )))
+        assert apply_resp.status_code == 201
+        status_resp = run(api_driver_application_status(_make_request({"app_user_id": user_id})))
+        data = json.loads(status_resp.body)
+        assert data["application"]["subscription_type"] == "monthly"
+
 
 # ===========================================================================
 # Ride History
@@ -1299,7 +1421,7 @@ class TestRideHistory:
     def test_ride_history_includes_user_rides(self):
         from api.app import api_ride_history, api_ride_post, _RidePostRequest
         import json
-        resp, uid = _register_user("HistHasRides")
+        resp, uid = _register_driver("HistHasRides")
         user_id = json.loads(resp.body)["user_id"]
         session = {"app_user_id": user_id}
 
@@ -1380,7 +1502,7 @@ class TestUserDashboard:
     def test_dashboard_stats_reflect_posted_rides(self):
         import json
         from api.app import api_user_dashboard, api_ride_post, _RidePostRequest
-        resp, _ = _register_user("DashRideUser")
+        resp, _ = _register_driver("DashRideUser")
         user_id = json.loads(resp.body)["user_id"]
         session = {"app_user_id": user_id}
 
@@ -1400,7 +1522,7 @@ class TestUserDashboard:
         """recent_rides should contain at most 5 entries."""
         import json
         from api.app import api_user_dashboard, api_ride_post, _RidePostRequest
-        resp, _ = _register_user("DashLimit")
+        resp, _ = _register_driver("DashLimit")
         user_id = json.loads(resp.body)["user_id"]
         session = {"app_user_id": user_id}
 
@@ -2993,7 +3115,7 @@ class TestPlatformStats:
         import json
         from api.app import api_platform_stats, api_ride_post, _RidePostRequest
         before = json.loads(run(api_platform_stats()).body)["total_rides"]
-        resp, email = _register_user("StatsRideUser")
+        resp, email = _register_driver("StatsRideUser")
         user_id = json.loads(resp.body)["user_id"]
         session = {"app_user_id": user_id}
         req = _make_request(session)
@@ -3045,7 +3167,7 @@ class TestRideBucketSync:
         calls = []
         monkeypatch.setattr(app_mod, "_bucket_write_json",
                             lambda folder, tp, rid, data: calls.append((folder, tp)) or False)
-        resp, _ = _register_user("RideBucket")
+        resp, _ = _register_driver("RideBucket")
         user_id = json.loads(resp.body)["user_id"]
         req = _make_request({"app_user_id": user_id})
         run(app_mod.api_ride_post(req, app_mod._RidePostRequest(
@@ -3057,7 +3179,7 @@ class TestRideBucketSync:
     def test_ride_cancel_writes_to_bucket(self, monkeypatch):
         import json
         from api import app as app_mod
-        resp, _ = _register_user("RideCancelBucket")
+        resp, _ = _register_driver("RideCancelBucket")
         user_id = json.loads(resp.body)["user_id"]
         req = _make_request({"app_user_id": user_id})
         r = run(app_mod.api_ride_post(req, app_mod._RidePostRequest(
@@ -3073,7 +3195,7 @@ class TestRideBucketSync:
     def test_ride_take_writes_to_rides_and_history(self, monkeypatch):
         import json
         from api import app as app_mod
-        resp, _ = _register_user("RideTakeBucket")
+        resp, _ = _register_driver("RideTakeBucket")
         user_id = json.loads(resp.body)["user_id"]
         req = _make_request({"app_user_id": user_id})
         r = run(app_mod.api_ride_post(req, app_mod._RidePostRequest(

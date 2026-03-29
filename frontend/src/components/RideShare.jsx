@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare } from '../api'
+import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare } from '../api'
 import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../sounds'
 import socket from '../socket'
 import RideChat from './RideChat'
@@ -27,6 +27,97 @@ function _buildClientBookingMsg(ride, userName) {
 
 /** Default sections shown when showSections is not specified */
 const DEFAULT_SECTIONS = { form: true, list: true, dashboard: true, driverBroadcast: true }
+
+/**
+ * Inline fare calculator widget for a single ride.
+ * Lets a passenger choose how many seats to book (shared or whole vehicle)
+ * and see the proportional cost.
+ */
+function FareCalculator({ ride }) {
+  const totalSeats = ride.seats || 1
+  const totalFare  = ride.fare  ?? null
+  const [bookedSeats, setBookedSeats]   = useState(1)
+  const [result,      setResult]        = useState(null)
+  const [loading,     setLoading]       = useState(false)
+  const [error,       setError]         = useState('')
+
+  const calc = async (seats) => {
+    if (totalFare == null) { setError('Fare not set for this ride.'); return }
+    setLoading(true)
+    setError('')
+    try {
+      const d = await calculateSharedFare(totalFare, totalSeats, seats)
+      setResult(d)
+    } catch (e) {
+      setError(e.message || 'Calculation failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleChange = (e) => {
+    const v = Math.min(Math.max(1, Number(e.target.value)), totalSeats)
+    setBookedSeats(v)
+    setResult(null)
+  }
+
+  if (totalFare == null) return (
+    <p className="text-xs text-gray-500 italic">Fare not available for this ride.</p>
+  )
+
+  return (
+    <div className="mt-2 rounded-lg border border-indigo-800/50 bg-indigo-950/30 p-3 space-y-2">
+      <p className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">🧮 Fare Calculator</p>
+      <p className="text-xs text-indigo-400/70">
+        Total fare: <strong className="text-indigo-300">${totalFare.toFixed(2)}</strong> for {totalSeats} seat{totalSeats !== 1 ? 's' : ''} · Rate: $1.00/km
+      </p>
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-gray-400 shrink-0">Seats to book:</label>
+        <input type="number" min={1} max={totalSeats} value={bookedSeats} onChange={handleChange}
+          className="w-16 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-xs p-1.5 text-center focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+        <span className="text-xs text-gray-500">of {totalSeats}</span>
+        <button onClick={() => calc(bookedSeats)} disabled={loading}
+          className="ml-auto text-xs px-3 py-1.5 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white font-semibold disabled:opacity-50 transition-colors">
+          {loading ? '…' : 'Calculate'}
+        </button>
+      </div>
+
+      {/* Quick select buttons */}
+      <div className="flex gap-1.5 flex-wrap">
+        {Array.from({ length: totalSeats }, (_, i) => i + 1).map(n => (
+          <button key={n} onClick={() => { setBookedSeats(n); calc(n) }}
+            className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+              bookedSeats === n && result
+                ? 'bg-indigo-700 border-indigo-600 text-white'
+                : 'bg-gray-800 border-gray-700 text-gray-400 hover:bg-gray-700 hover:text-white'
+            }`}>
+            {n === totalSeats ? `${n} 🚐 Whole` : `${n} seat${n > 1 ? 's' : ''}`}
+          </button>
+        ))}
+      </div>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {result && (
+        <div className={`rounded-lg px-3 py-2 border text-xs ${result.is_full_vehicle
+          ? 'bg-amber-900/30 border-amber-700/50'
+          : 'bg-green-900/30 border-green-700/50'}`}>
+          {result.is_full_vehicle ? (
+            <p className="text-amber-300 font-semibold">🚐 Full Vehicle — You pay: <strong>${result.amount_owed.toFixed(2)}</strong></p>
+          ) : (
+            <>
+              <p className="text-green-300 font-semibold">
+                🤝 Shared Ride ({result.booked_seats}/{result.total_seats} seats) — You pay: <strong>${result.amount_owed.toFixed(2)}</strong>
+              </p>
+              <p className="text-green-400/70 mt-0.5">
+                ${result.per_seat_cost.toFixed(2)}/seat · Save ${(result.total_fare - result.amount_owed).toFixed(2)} vs full vehicle
+              </p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections }) {
   const sections = { ...DEFAULT_SECTIONS, ...(showSections || {}) }
@@ -65,6 +156,8 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [userLat, setUserLat] = useState(user?.lat ?? null)
   const [userLng, setUserLng] = useState(user?.lng ?? null)
   const [gettingUserLoc, setGettingUserLoc] = useState(false)
+  // Track which ride has the fare calculator open
+  const [calcOpenRideId, setCalcOpenRideId] = useState(null)
 
   const loadRides = useCallback(async () => {
     setLoading(true)
@@ -351,11 +444,25 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         </div>
       )}
 
-      {/* ── Post a ride ── */}
-      {sections.form && user && (
+      {/* ── Post a ride (verified drivers only) ── */}
+      {sections.form && user && !isDriver && (
+        <div className="rounded-xl border border-blue-800/50 bg-blue-950/30 p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">✈️</span>
+            <div>
+              <p className="text-sm font-semibold text-blue-300">Post Airport Pickup — Drivers Only</p>
+              <p className="text-xs text-blue-400/70 mt-0.5">
+                Register as a verified driver from your profile to post pickup rides and earn on the platform.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {sections.form && isDriver && (
         <div className="rounded-xl border border-gray-700 bg-gray-900/60 p-4 space-y-4">
           <h3 className="font-semibold text-gray-200 flex items-center gap-2">
             <span className="ride-post-icon">✈️</span> Post Airport Pickup
+            <span className="ml-auto text-xs px-2 py-0.5 rounded-full bg-green-900/60 text-green-300 border border-green-700/50">✅ Verified Driver</span>
           </h3>
           <form onSubmit={handlePost} className="space-y-3">
             <div className="flex gap-2">
@@ -390,7 +497,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 <span className="text-green-400 text-sm">💰</span>
                 {fareLoading
                   ? <span className="text-green-300 text-xs">Calculating fare…</span>
-                  : <span className="text-green-300 text-xs font-semibold">Estimated Fare: ${fare?.toFixed(2)}</span>}
+                  : <span className="text-green-300 text-xs font-semibold">Estimated Fare: ${fare?.toFixed(2)} · Rate: $1.00/km</span>}
               </div>
             )}
 
@@ -554,6 +661,13 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                     💬 Book
                   </button>
                 )}
+                {ride.status === 'open' && ride.fare != null && (
+                  <button
+                    onClick={() => setCalcOpenRideId(id => id === ride.ride_id ? null : ride.ride_id)}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-800/50 hover:border-indigo-600 rounded-lg px-2 py-1 transition-colors flex items-center gap-1">
+                    🧮 Fare
+                  </button>
+                )}
                 {user && ride.user_id === user.user_id && ride.status === 'open' && (
                   <>
                     <button onClick={() => handleTake(ride.ride_id)}
@@ -568,6 +682,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 )}
               </div>
             </div>
+            {/* Fare calculator (toggle per ride) */}
+            {calcOpenRideId === ride.ride_id && (
+              <FareCalculator ride={ride} />
+            )}
             <p className="text-xs text-gray-600">Posted {new Date(ride.created_at).toLocaleDateString()}</p>
           </div>
           )

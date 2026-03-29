@@ -196,7 +196,7 @@ function DriverRoleTab({ user }) {
   const [ok,     setOk]      = useState('')
   const [form, setForm] = useState({
     vehicle_make: '', vehicle_model: '', vehicle_year: new Date().getFullYear(),
-    vehicle_color: '', license_plate: '',
+    vehicle_color: '', license_plate: '', subscription_type: 'monthly',
   })
 
   useEffect(() => {
@@ -213,9 +213,15 @@ function DriverRoleTab({ user }) {
         <div className="flex items-center gap-3 bg-green-900/30 border border-green-700 rounded-xl p-4">
           <span className="text-3xl">🏅</span>
           <div>
-            <p className="font-semibold text-green-300">Verified Trusted Driver</p>
-            <p className="text-xs text-green-400">Background Checked &middot; Insurance Valid</p>
+            <p className="font-semibold text-green-300 flex items-center gap-2">
+              Verified Trusted Driver
+              <span className="text-xs px-2 py-0.5 rounded-full bg-green-800 text-green-200 border border-green-600">✅ Verified</span>
+            </p>
+            <p className="text-xs text-green-400">Background Checked · Insurance Valid · Can Post Rides</p>
           </div>
+        </div>
+        <div className="rounded-lg bg-green-950/40 border border-green-800/50 px-3 py-2 text-xs text-green-400">
+          🚗 You can post Airport Pickup rides and use Driver Alerts. Your profile shows a verified badge to passengers.
         </div>
         <p className="text-xs text-gray-500">Your driver role is active. You can post rides and use Driver Alerts.</p>
       </div>
@@ -232,6 +238,9 @@ function DriverRoleTab({ user }) {
         <div className="text-xs text-gray-400 mt-2 space-y-1">
           <p>{app.vehicle_year} {app.vehicle_make} {app.vehicle_model} ({app.vehicle_color})</p>
           <p>Plate: {app.license_plate}</p>
+          {app.subscription_type && (
+            <p>Subscription: <span className="capitalize text-yellow-300">{app.subscription_type}</span></p>
+          )}
         </div>
       </div>
     )
@@ -239,7 +248,7 @@ function DriverRoleTab({ user }) {
 
   if (app?.status === 'rejected') {
     return (
-      <div className="bg-red-900/30 border border-red-700 rounded-xl p-4">
+      <div className="bg-red-900/30 border border-red-700 rounded-xl p-4 space-y-3">
         <p className="text-red-300 font-semibold">Application Rejected</p>
         <p className="text-xs text-red-400 mt-1">Your application was not approved. You may re-apply below.</p>
       </div>
@@ -256,7 +265,7 @@ function DriverRoleTab({ user }) {
       return setError('Vehicle make, model and license plate are required.')
     setSaving(true)
     try {
-      await driverApply(form.vehicle_make.trim(), form.vehicle_model.trim(), parseInt(form.vehicle_year), form.vehicle_color.trim(), form.license_plate.trim())
+      await driverApply(form.vehicle_make.trim(), form.vehicle_model.trim(), parseInt(form.vehicle_year), form.vehicle_color.trim(), form.license_plate.trim(), form.subscription_type)
       setOk('Application submitted! Our team will review it shortly.')
       setApp({ status: 'pending', ...form })
     } catch (err) {
@@ -268,7 +277,13 @@ function DriverRoleTab({ user }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-gray-400">Apply for the Driver role to post shared rides and use Driver Alerts.</p>
+      <div className="rounded-lg bg-blue-950/40 border border-blue-800/50 p-3 text-xs text-blue-300 space-y-1">
+        <p className="font-semibold">🚗 Become a Verified Driver</p>
+        <p className="text-blue-400/80">
+          Register your vehicle and choose a subscription plan. Once approved by our team, your profile
+          will show a <strong>verified badge</strong> and you&apos;ll gain access to post Airport Pickup rides.
+        </p>
+      </div>
       <form onSubmit={handleSubmit} className="space-y-3">
         <div className="grid grid-cols-2 gap-2">
           <input type="text" placeholder="Make (e.g. Toyota)" value={form.vehicle_make} onChange={handleChange('vehicle_make')}
@@ -284,6 +299,29 @@ function DriverRoleTab({ user }) {
         </div>
         <input type="text" placeholder="License Plate" value={form.license_plate} onChange={handleChange('license_plate')}
           className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500" required />
+
+        {/* Subscription plan */}
+        <div className="space-y-1.5">
+          <label className="text-xs text-gray-400 font-medium">Subscription Plan</label>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { value: 'monthly', label: '📅 Monthly', desc: 'Billed monthly' },
+              { value: 'yearly',  label: '📆 Yearly',  desc: 'Best value — save 2 months' },
+            ].map(opt => (
+              <button key={opt.value} type="button"
+                onClick={() => setForm(f => ({ ...f, subscription_type: opt.value }))}
+                className={`rounded-xl border p-3 text-left transition-all ${
+                  form.subscription_type === opt.value
+                    ? 'border-blue-500 bg-blue-900/40 text-blue-300'
+                    : 'border-gray-700 bg-gray-800/60 text-gray-400 hover:border-gray-500 hover:text-gray-300'
+                }`}>
+                <p className="text-xs font-semibold">{opt.label}</p>
+                <p className="text-xs opacity-70 mt-0.5">{opt.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {error && <p className="text-red-400 text-xs bg-red-900/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>}
         {ok    && <p className="text-green-400 text-xs bg-green-900/30 border border-green-800 rounded-lg px-3 py-2">{ok}</p>}
         <button type="submit" disabled={saving}
@@ -502,7 +540,12 @@ function OverviewTab({ user, onLocationUpdate, onUserUpdate }) {
             <input value={name} onChange={e => setName(e.target.value)}
               className="w-full rounded-lg bg-gray-800 border border-blue-600 text-gray-100 text-sm font-semibold p-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-1" />
           ) : (
-            <p className="font-semibold text-white text-base truncate">{user.name}</p>
+            <p className="font-semibold text-white text-base truncate flex items-center gap-2">
+              {user.name}
+              {user.role === 'driver' && (
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-green-900/60 text-green-300 border border-green-700/50 font-normal">✅ Verified</span>
+              )}
+            </p>
           )}
           <p className="text-xs text-gray-400">{user.email}</p>
           <p className="text-xs text-gray-500 mt-0.5 capitalize">{user.role}</p>
@@ -588,9 +631,10 @@ function OverviewTab({ user, onLocationUpdate, onUserUpdate }) {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function UserProfile({ user: initialUser, onLogout, onLocationUpdate, onUserUpdate }) {
-  const [tab,    setTab]    = useState('overview')
-  const [user,   setUser]   = useState(initialUser)
-  const [unread, setUnread] = useState(0)
+  const [tab,      setTab]      = useState('overview')
+  const [user,     setUser]     = useState(initialUser)
+  const [unread,   setUnread]   = useState(0)
+  const [expanded, setExpanded] = useState(true)
 
   useEffect(() => { setUser(initialUser) }, [initialUser])
 
@@ -627,35 +671,61 @@ export default function UserProfile({ user: initialUser, onLogout, onLocationUpd
 
   return (
     <div className="rounded-xl border border-gray-700 bg-gray-900/70 overflow-hidden">
+      {/* ── Header with collapse toggle ── */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-gray-700/60 bg-gray-800/40">
-        <span className="text-xs text-gray-400 font-medium truncate">{user.name}</span>
-        <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-red-400 transition-colors shrink-0">
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="flex items-center gap-2 text-xs text-gray-300 hover:text-white transition-colors min-w-0 flex-1"
+          title={expanded ? 'Collapse profile' : 'Expand profile'}
+        >
+          <span className={`shrink-0 transition-transform duration-300 ${expanded ? 'rotate-0' : '-rotate-90'}`}>▾</span>
+          <span className="font-medium truncate">{user.name}</span>
+          {user.role === 'driver' && (
+            <span className="shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-green-900/60 text-green-300 border border-green-700/50">✅</span>
+          )}
+          {unread > 0 && (
+            <span className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
+              {unread > 9 ? '9+' : unread}
+            </span>
+          )}
+        </button>
+        <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-red-400 transition-colors shrink-0 ml-3">
           Logout
         </button>
       </div>
 
-      <div className="flex overflow-x-auto border-b border-gray-700/60 bg-gray-800/20">
-        {tabsWithBadge.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`shrink-0 px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap relative ${
-              tab === t.id ? 'border-b-2 border-blue-500 text-blue-400' : 'text-gray-500 hover:text-gray-300'
-            }`}>
-            {t.label}
-            {t.badge > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
-                {t.badge > 9 ? '9+' : t.badge}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
+      {/* ── Animated body ── */}
+      <div
+        style={{
+          maxHeight: expanded ? '2000px' : '0px',
+          opacity:   expanded ? 1 : 0,
+          overflow:  'hidden',
+          transition: 'max-height 0.35s ease, opacity 0.25s ease',
+        }}
+      >
+        <div className="flex overflow-x-auto border-b border-gray-700/60 bg-gray-800/20">
+          {tabsWithBadge.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)}
+              className={`shrink-0 px-3 py-2 text-xs font-medium transition-colors whitespace-nowrap relative ${
+                tab === t.id ? 'border-b-2 border-blue-500 text-blue-400' : 'text-gray-500 hover:text-gray-300'
+              }`}>
+              {t.label}
+              {t.badge > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                  {t.badge > 9 ? '9+' : t.badge}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
 
-      <div className="p-4">
-        {tab === 'overview' && <OverviewTab user={user} onLocationUpdate={onLocationUpdate} onUserUpdate={handleUserUpdate} />}
-        {tab === 'history'  && <RideHistoryTab userId={user.user_id} />}
-        {tab === 'stats'    && <StatsTab user={user} />}
-        {tab === 'driver'   && <DriverRoleTab user={user} />}
-        {tab === 'inbox'    && <InboxTab unreadCount={unread} onUnreadChange={setUnread} />}
+        <div className="p-4">
+          {tab === 'overview' && <OverviewTab user={user} onLocationUpdate={onLocationUpdate} onUserUpdate={handleUserUpdate} />}
+          {tab === 'history'  && <RideHistoryTab userId={user.user_id} />}
+          {tab === 'stats'    && <StatsTab user={user} />}
+          {tab === 'driver'   && <DriverRoleTab user={user} />}
+          {tab === 'inbox'    && <InboxTab unreadCount={unread} onUnreadChange={setUnread} />}
+        </div>
       </div>
     </div>
   )

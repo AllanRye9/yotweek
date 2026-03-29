@@ -884,6 +884,13 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
+                for col, coldef in [("subscription_type", "TEXT DEFAULT 'monthly'")]:
+                    try:
+                        cur.execute(f"ALTER TABLE driver_applications ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -1095,6 +1102,11 @@ def init_db():
                 for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL")]:
                     try:
                         conn.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass  # column already exists
+                for col, coldef in [("subscription_type", "TEXT DEFAULT 'monthly'")]:
+                    try:
+                        conn.execute(f"ALTER TABLE driver_applications ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
             conn.commit()
@@ -7064,8 +7076,8 @@ async def api_cv_ats_scan(
 # =========================================================
 
 _APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "50"))
-# Base fare per km for airport pickup rides (env-configurable)
-_FARE_PER_KM = float(os.environ.get("FARE_PER_KM", "1.5"))
+# Base fare per km for airport pickup rides (env-configurable, $1/km as per platform standard)
+_FARE_PER_KM = float(os.environ.get("FARE_PER_KM", "1.0"))
 
 # In-memory driver location store: user_id → {lat, lng, ts, name, user_id, empty}
 _driver_locations: dict[str, dict] = {}
@@ -7146,11 +7158,12 @@ class _MagicLinkRequest(BaseModel):
 
 
 class _DriverApplyRequest(BaseModel):
-    vehicle_make:  str
-    vehicle_model: str
-    vehicle_year:  int
-    vehicle_color: str
-    license_plate: str
+    vehicle_make:      str
+    vehicle_model:     str
+    vehicle_year:      int
+    vehicle_color:     str
+    license_plate:     str
+    subscription_type: str = "monthly"  # "monthly" | "yearly"
 
 
 class _DriverApproveRequest(BaseModel):
@@ -7891,6 +7904,7 @@ async def api_driver_apply(request: Request, body: _DriverApplyRequest):
         return JSONResponse({"error": "Invalid vehicle year."}, status_code=400)
     if not body.license_plate.strip():
         return JSONResponse({"error": "License plate is required."}, status_code=400)
+    subscription_type = body.subscription_type if body.subscription_type in ("monthly", "yearly") else "monthly"
 
     app_id   = str(uuid.uuid4())
     created  = datetime.now(timezone.utc).isoformat()
@@ -7902,22 +7916,25 @@ async def api_driver_apply(request: Request, body: _DriverApplyRequest):
                 cur = conn.cursor()
                 cur.execute(
                     """INSERT INTO driver_applications
-                       (app_id, user_id, vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, status, created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s)
+                       (app_id, user_id, vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, subscription_type, status, created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)
                        ON CONFLICT (user_id) DO UPDATE SET
                          vehicle_make=EXCLUDED.vehicle_make, vehicle_model=EXCLUDED.vehicle_model,
                          vehicle_year=EXCLUDED.vehicle_year, vehicle_color=EXCLUDED.vehicle_color,
-                         license_plate=EXCLUDED.license_plate, status='pending', created_at=EXCLUDED.created_at""",
+                         license_plate=EXCLUDED.license_plate, subscription_type=EXCLUDED.subscription_type,
+                         status='pending', created_at=EXCLUDED.created_at""",
                     (app_id, user_id, body.vehicle_make.strip(), body.vehicle_model.strip(),
-                     body.vehicle_year, body.vehicle_color.strip(), body.license_plate.strip().upper(), created),
+                     body.vehicle_year, body.vehicle_color.strip(), body.license_plate.strip().upper(),
+                     subscription_type, created),
                 )
             else:
                 conn.execute(
                     """INSERT OR REPLACE INTO driver_applications
-                       (app_id, user_id, vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, status, created_at)
-                       VALUES (?,?,?,?,?,?,?,'pending',?)""",
+                       (app_id, user_id, vehicle_make, vehicle_model, vehicle_year, vehicle_color, license_plate, subscription_type, status, created_at)
+                       VALUES (?,?,?,?,?,?,?,?,'pending',?)""",
                     (app_id, user_id, body.vehicle_make.strip(), body.vehicle_model.strip(),
-                     body.vehicle_year, body.vehicle_color.strip(), body.license_plate.strip().upper(), created),
+                     body.vehicle_year, body.vehicle_color.strip(), body.license_plate.strip().upper(),
+                     subscription_type, created),
                 )
             conn.commit()
         finally:
@@ -7932,6 +7949,7 @@ async def api_driver_apply(request: Request, body: _DriverApplyRequest):
         "vehicle_year": body.vehicle_year,
         "vehicle_color": body.vehicle_color.strip(),
         "license_plate": body.license_plate.strip().upper(),
+        "subscription_type": subscription_type,
         "status": "pending",
         "created_at": created,
     })
@@ -7950,17 +7968,17 @@ async def api_driver_application_status(request: Request):
         conn = _get_db()
         try:
             cols = ["app_id", "user_id", "vehicle_make", "vehicle_model", "vehicle_year",
-                    "vehicle_color", "license_plate", "status", "created_at"]
+                    "vehicle_color", "license_plate", "subscription_type", "status", "created_at"]
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,status,created_at FROM driver_applications WHERE user_id=%s",
+                    "SELECT app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,subscription_type,status,created_at FROM driver_applications WHERE user_id=%s",
                     (user_id,),
                 )
                 row = cur.fetchone()
             else:
                 cur = conn.execute(
-                    "SELECT app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,status,created_at FROM driver_applications WHERE user_id=?",
+                    "SELECT app_id,user_id,vehicle_make,vehicle_model,vehicle_year,vehicle_color,license_plate,subscription_type,status,created_at FROM driver_applications WHERE user_id=?",
                     (user_id,),
                 )
                 row = cur.fetchone()
@@ -8395,7 +8413,7 @@ class _RideJoinRequest(BaseModel):
 
 @fastapi_app.post("/api/rides/post")
 async def api_ride_post(request: Request, body: _RidePostRequest):
-    """Post a new airport pickup ride offer."""
+    """Post a new airport pickup ride offer. Only verified drivers may post rides."""
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required to post a ride."}, status_code=401)
@@ -8403,6 +8421,14 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
     user = _get_app_user(user_id)
     if user is None:
         return JSONResponse({"error": "User not found."}, status_code=404)
+
+    # Only verified (approved) drivers may post airport pickup rides
+    if user.get("role") != "driver":
+        return JSONResponse(
+            {"error": "Only verified drivers can post airport pickup rides. "
+                      "Register as a driver from your profile to gain access."},
+            status_code=403,
+        )
 
     origin      = body.origin.strip()
     destination = body.destination.strip()
@@ -8535,6 +8561,42 @@ async def api_calculate_fare(
     dist_km = _haversine_km(origin_lat, origin_lng, dest_lat, dest_lng)
     fare    = round(dist_km * _FARE_PER_KM, 2)
     return JSONResponse({"dist_km": round(dist_km, 2), "fare": fare, "rate_per_km": _FARE_PER_KM})
+
+
+@fastapi_app.get("/api/rides/shared_fare")
+async def api_shared_fare(
+    total_fare: float,
+    total_seats: int,
+    booked_seats: int,
+):
+    """Calculate the cost for a passenger booking *booked_seats* on a ride.
+
+    Rules:
+    - Full vehicle (booked_seats == total_seats): passenger pays total_fare.
+    - Shared ride (booked_seats < total_seats): cost is proportional to
+      booked_seats / total_seats, giving a discount for sharing.
+    - Returns per-seat price and total amount owed.
+    """
+    if total_seats < 1:
+        return JSONResponse({"error": "total_seats must be at least 1."}, status_code=400)
+    if booked_seats < 1 or booked_seats > total_seats:
+        return JSONResponse({"error": "booked_seats must be between 1 and total_seats."}, status_code=400)
+    if total_fare < 0:
+        return JSONResponse({"error": "total_fare must be non-negative."}, status_code=400)
+
+    per_seat_cost   = round(total_fare / total_seats, 2)
+    amount_owed     = round(per_seat_cost * booked_seats, 2)
+    is_full_vehicle = booked_seats == total_seats
+
+    return JSONResponse({
+        "total_fare":      round(total_fare, 2),
+        "total_seats":     total_seats,
+        "booked_seats":    booked_seats,
+        "per_seat_cost":   per_seat_cost,
+        "amount_owed":     amount_owed,
+        "is_full_vehicle": is_full_vehicle,
+        "rate_per_km":     _FARE_PER_KM,
+    })
 
 
 @fastapi_app.delete("/api/rides/{ride_id}")
