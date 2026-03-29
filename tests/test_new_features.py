@@ -22,6 +22,7 @@ from api.app import (
     api_user_login,
     api_user_logout,
     api_user_me,
+    api_change_password,
     api_ride_post,
     api_rides_list,
     api_ride_cancel,
@@ -34,6 +35,7 @@ from api.app import (
     api_shared_fare,
     _UserRegisterRequest,
     _UserLoginRequest,
+    _ChangePasswordRequest,
     _AtsRequest,
     _RidePostRequest,
     _DriverLocationUpdate,
@@ -381,6 +383,71 @@ class TestUserMe:
         assert "app_user_id" not in session
         # Now me should fail
         resp2 = run(api_user_me(req))
+        assert resp2.status_code == 401
+
+
+class TestChangePassword:
+    def test_change_password_ok(self):
+        import json
+        _, email = _register_user("PwChangeOk")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_change_password(req, _ChangePasswordRequest(
+            current_password="password123",
+            new_password="newpassword456",
+        )))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+
+    def test_change_password_wrong_current(self):
+        _, email = _register_user("PwChangeBad")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_change_password(req, _ChangePasswordRequest(
+            current_password="wrongpassword",
+            new_password="newpassword456",
+        )))
+        assert resp.status_code == 401
+
+    def test_change_password_too_short(self):
+        _, email = _register_user("PwChangeShort")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_change_password(req, _ChangePasswordRequest(
+            current_password="password123",
+            new_password="abc",
+        )))
+        assert resp.status_code == 400
+
+    def test_change_password_unauthenticated(self):
+        req = _make_request({})
+        resp = run(api_change_password(req, _ChangePasswordRequest(
+            current_password="password123",
+            new_password="newpassword456",
+        )))
+        assert resp.status_code == 401
+
+    def test_changed_password_works_for_login(self):
+        """After a successful password change, the new password must work for login."""
+        _, email = _register_user("PwChangeLogin")
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_change_password(req, _ChangePasswordRequest(
+            current_password="password123",
+            new_password="supersecret99",
+        )))
+        # Login with new password should succeed
+        new_session = {}
+        new_req = _make_request(new_session)
+        from api.app import _UserLoginRequest as ULR
+        resp = run(api_user_login(new_req, ULR(email=email, password="supersecret99")))
+        assert resp.status_code == 200
+        assert "app_user_id" in new_session
+
+        # Login with old password should fail
+        old_req = _make_request({})
+        resp2 = run(api_user_login(old_req, ULR(email=email, password="password123")))
         assert resp2.status_code == 401
 
 

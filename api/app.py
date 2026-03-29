@@ -7197,6 +7197,11 @@ class _UserProfileDetailsUpdate(BaseModel):
     bio:  str = ""
 
 
+class _ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password:     str
+
+
 @fastapi_app.post("/api/auth/register")
 async def api_user_register(body: _UserRegisterRequest):
     """Register a new platform user (passenger or driver)."""
@@ -7476,6 +7481,45 @@ async def api_user_upload_avatar(request: Request, file: UploadFile = File(...))
             conn.close()
 
     return JSONResponse({"ok": True, "avatar_url": avatar_url})
+
+
+@fastapi_app.put("/api/auth/change_password")
+async def api_change_password(request: Request, body: _ChangePasswordRequest):
+    """Change the current user's password after verifying the current password."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not logged in."}, status_code=401)
+
+    if len(body.new_password) < 6:
+        return JSONResponse({"error": "New password must be at least 6 characters."}, status_code=400)
+
+    new_hash = generate_password_hash(body.new_password)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT password_hash FROM app_users WHERE user_id=%s", (user_id,))
+                row = cur.fetchone()
+                if row is None:
+                    return JSONResponse({"error": "User not found."}, status_code=404)
+                if not check_password_hash(row[0], body.current_password):
+                    return JSONResponse({"error": "Current password is incorrect."}, status_code=401)
+                cur.execute("UPDATE app_users SET password_hash=%s WHERE user_id=%s", (new_hash, user_id))
+            else:
+                cur = conn.execute("SELECT password_hash FROM app_users WHERE user_id=?", (user_id,))
+                row = cur.fetchone()
+                if row is None:
+                    return JSONResponse({"error": "User not found."}, status_code=404)
+                if not check_password_hash(row[0], body.current_password):
+                    return JSONResponse({"error": "Current password is incorrect."}, status_code=401)
+                conn.execute("UPDATE app_users SET password_hash=? WHERE user_id=?", (new_hash, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
 
 
 @fastapi_app.get("/api/avatars/{filename}")

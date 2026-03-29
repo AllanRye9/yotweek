@@ -315,6 +315,9 @@ export const updateUserLocation = (lat, lng, location_name = '') =>
 export const updateProfileDetails = (name, bio) =>
   request('PUT', '/api/auth/profile/details', { name, bio })
 
+export const changePassword = (current_password, new_password) =>
+  request('PUT', '/api/auth/change_password', { current_password, new_password })
+
 export const uploadAvatar = (file) => {
   const fd = new FormData()
   fd.append('file', file, file.name)

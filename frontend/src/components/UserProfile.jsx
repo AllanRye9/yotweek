@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   updateUserLocation, userLogout, getRideHistory, getDriverApplication, driverApply,
   updateProfileDetails, uploadAvatar, getNotifications, markNotificationRead, markAllNotificationsRead,
+  changePassword,
 } from '../api'
 import socket from '../socket'
 import DMInbox from './DMInbox'
@@ -500,6 +501,15 @@ function OverviewTab({ user, onLocationUpdate, onUserUpdate }) {
   const [continuous, setContinuous] = useState(false)
   const watchIdRef = useRef(null)
 
+  // ── Change Password state ──
+  const [pwOpen,      setPwOpen]      = useState(false)
+  const [currentPw,   setCurrentPw]   = useState('')
+  const [newPw,       setNewPw]       = useState('')
+  const [confirmPw,   setConfirmPw]   = useState('')
+  const [pwSaving,    setPwSaving]    = useState(false)
+  const [pwOk,        setPwOk]        = useState(false)
+  const [pwErr,       setPwErr]       = useState('')
+
   useEffect(() => {
     setName(user.name || '')
     setBio(user.bio  || '')
@@ -583,6 +593,28 @@ function OverviewTab({ user, onLocationUpdate, onUserUpdate }) {
       setTimeout(() => setSaveOk(false), 3000)
     } catch (err) {
       setSaveErr(err.message || 'Failed to save profile.')
+    }
+  }
+
+  const handleChangePassword = async () => {
+    setPwErr('')
+    setPwOk(false)
+    if (!currentPw)              { setPwErr('Current password is required.'); return }
+    if (newPw.length < 6)        { setPwErr('New password must be at least 6 characters.'); return }
+    if (newPw !== confirmPw)     { setPwErr('New passwords do not match.'); return }
+    setPwSaving(true)
+    try {
+      await changePassword(currentPw, newPw)
+      setPwOk(true)
+      setCurrentPw('')
+      setNewPw('')
+      setConfirmPw('')
+      setPwOpen(false)
+      setTimeout(() => setPwOk(false), 3000)
+    } catch (err) {
+      setPwErr(err.message || 'Failed to change password.')
+    } finally {
+      setPwSaving(false)
     }
   }
 
@@ -678,6 +710,50 @@ function OverviewTab({ user, onLocationUpdate, onUserUpdate }) {
         )}
         {locOk    && <p className="text-green-400 text-xs">Location updated!</p>}
         {locError && <p className="text-red-400 text-xs">{locError}</p>}
+      </div>
+
+      <div className="border-t border-gray-700/60 pt-3 space-y-2">
+        <button
+          onClick={() => { setPwOpen(o => !o); setPwErr(''); setPwOk(false) }}
+          className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+        >
+          🔑 {pwOpen ? 'Cancel' : 'Change Password'}
+        </button>
+
+        {pwOpen && (
+          <div className="space-y-2">
+            <input
+              type="password"
+              placeholder="Current password"
+              value={currentPw}
+              onChange={e => setCurrentPw(e.target.value)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="password"
+              placeholder="New password (min 6 chars)"
+              value={newPw}
+              onChange={e => setNewPw(e.target.value)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="password"
+              placeholder="Confirm new password"
+              value={confirmPw}
+              onChange={e => setConfirmPw(e.target.value)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleChangePassword}
+              disabled={pwSaving}
+              className="w-full py-1.5 rounded-lg text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {pwSaving ? 'Saving…' : 'Update Password'}
+            </button>
+            {pwErr && <p className="text-red-400 text-xs">{pwErr}</p>}
+          </div>
+        )}
+        {pwOk && <p className="text-green-400 text-xs">Password updated successfully!</p>}
       </div>
 
       <p className="text-xs text-gray-600">Member since {new Date(user.created_at).toLocaleDateString()}</p>
