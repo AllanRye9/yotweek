@@ -854,9 +854,23 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_applications (
+                        id SERIAL PRIMARY KEY,
+                        app_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT UNIQUE NOT NULL,
+                        full_name TEXT NOT NULL,
+                        email TEXT NOT NULL,
+                        phone TEXT NOT NULL DEFAULT '',
+                        agency_name TEXT NOT NULL DEFAULT '',
+                        license_number TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1059,9 +1073,21 @@ def init_db():
                         ts REAL NOT NULL,
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS agent_applications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        app_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT UNIQUE NOT NULL,
+                        full_name TEXT NOT NULL,
+                        email TEXT NOT NULL,
+                        phone TEXT NOT NULL DEFAULT '',
+                        agency_name TEXT NOT NULL DEFAULT '',
+                        license_number TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0")]:
                     try:
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -7069,14 +7095,14 @@ def _get_app_user(user_id: str) -> dict | None:
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at FROM app_users WHERE user_id=%s", (user_id,))
+                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties FROM app_users WHERE user_id=%s", (user_id,))
                 row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at FROM app_users WHERE user_id=?", (user_id,))
+                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties FROM app_users WHERE user_id=?", (user_id,))
                 row = cur.fetchone()
             if row is None:
                 return None
-            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at"]
+            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties"]
             return dict(zip(keys, row))
         finally:
             conn.close()
@@ -7129,6 +7155,22 @@ class _DriverApplyRequest(BaseModel):
 
 class _DriverApproveRequest(BaseModel):
     approved: bool
+
+
+class _AgentApplyRequest(BaseModel):
+    full_name:      str
+    email:         str
+    phone:         str = ""
+    agency_name:   str = ""
+    license_number: str
+
+
+class _AgentApproveRequest(BaseModel):
+    approved: bool
+
+
+class _StorePublicKeyRequest(BaseModel):
+    public_key: str
 
 
 class _UserLocationUpdate(BaseModel):
@@ -8042,6 +8084,256 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             "user_id": target_user_id,
             "status": new_status,
             "reviewed_at": reviewed_at,
+        })
+
+    return JSONResponse({"ok": True, "status": new_status})
+
+
+# ── Public key (E2E encryption) ────────────────────────────────────────────────
+
+@fastapi_app.put("/api/auth/public_key")
+async def api_store_public_key(request: Request, body: _StorePublicKeyRequest):
+    """Store the authenticated user's public key for E2E encryption."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    pk = body.public_key.strip()
+    if not pk:
+        return JSONResponse({"error": "public_key is required."}, status_code=400)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            _execute(
+                conn,
+                "UPDATE app_users SET public_key=? WHERE user_id=?"
+                if not USE_POSTGRES else
+                "UPDATE app_users SET public_key=%s WHERE user_id=%s",
+                (pk, user_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/users/{user_id}/public_key")
+async def api_get_user_public_key(request: Request, user_id: str):
+    """Return the public key for a given user (requires auth)."""
+    caller = request.session.get("app_user_id")
+    if not caller:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT public_key FROM app_users WHERE user_id=?"
+                if not USE_POSTGRES else
+                "SELECT public_key FROM app_users WHERE user_id=%s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+    if row is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    pk = row["public_key"] if USE_POSTGRES else row[0]
+    return JSONResponse({"user_id": user_id, "public_key": pk})
+
+
+# ── Agent registration ─────────────────────────────────────────────────────────
+
+@fastapi_app.post("/api/agent_applications")
+async def api_agent_apply(request: Request, body: _AgentApplyRequest):
+    """Submit an agent registration application."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    full_name      = body.full_name.strip()
+    email          = body.email.strip().lower()
+    license_number = body.license_number.strip()
+
+    if not full_name:
+        return JSONResponse({"error": "Full name is required."}, status_code=400)
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return JSONResponse({"error": "A valid email address is required."}, status_code=400)
+    if not license_number:
+        return JSONResponse({"error": "License or identification number is required."}, status_code=400)
+
+    app_id  = str(uuid.uuid4())
+    created = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO agent_applications
+                       (app_id, user_id, full_name, email, phone, agency_name, license_number, status, created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s)
+                       ON CONFLICT (user_id) DO UPDATE SET
+                         full_name=EXCLUDED.full_name, email=EXCLUDED.email,
+                         phone=EXCLUDED.phone, agency_name=EXCLUDED.agency_name,
+                         license_number=EXCLUDED.license_number,
+                         status='pending', created_at=EXCLUDED.created_at""",
+                    (app_id, user_id, full_name, email,
+                     body.phone.strip(), body.agency_name.strip(), license_number, created),
+                )
+            else:
+                conn.execute(
+                    """INSERT OR REPLACE INTO agent_applications
+                       (app_id, user_id, full_name, email, phone, agency_name, license_number, status, created_at)
+                       VALUES (?,?,?,?,?,?,?,'pending',?)""",
+                    (app_id, user_id, full_name, email,
+                     body.phone.strip(), body.agency_name.strip(), license_number, created),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    _bucket_write_json("agent_reg/pending", "agent_reg", app_id, {
+        "app_id":          app_id,
+        "user_id":         user_id,
+        "full_name":       full_name,
+        "email":           email,
+        "phone":           body.phone.strip(),
+        "agency_name":     body.agency_name.strip(),
+        "license_number":  license_number,
+        "status":          "pending",
+        "created_at":      created,
+    })
+
+    return JSONResponse({"ok": True, "app_id": app_id}, status_code=201)
+
+
+@fastapi_app.get("/api/agent_applications/status")
+async def api_agent_application_status(request: Request):
+    """Return the current user's agent application status."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["app_id", "user_id", "full_name", "email", "phone",
+                    "agency_name", "license_number", "status", "created_at"]
+            cur = _execute(
+                conn,
+                "SELECT app_id,user_id,full_name,email,phone,agency_name,license_number,status,created_at FROM agent_applications WHERE user_id=?"
+                if not USE_POSTGRES else
+                "SELECT app_id,user_id,full_name,email,phone,agency_name,license_number,status,created_at FROM agent_applications WHERE user_id=%s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"application": None})
+    return JSONResponse({"application": dict(zip(cols, row))})
+
+
+@fastapi_app.get("/api/admin/agent_applications")
+async def api_admin_agent_applications(request: Request):
+    """Return all agent applications (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["app_id", "user_id", "full_name", "email", "phone",
+                    "agency_name", "license_number", "status", "created_at"]
+            cur = _execute(
+                conn,
+                "SELECT app_id,user_id,full_name,email,phone,agency_name,license_number,status,created_at FROM agent_applications ORDER BY created_at DESC",
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    return JSONResponse({"applications": [dict(zip(cols, r)) for r in rows]})
+
+
+@fastapi_app.post("/api/admin/agent_applications/{app_id}/approve")
+async def api_admin_agent_approve(request: Request, app_id: str, body: _AgentApproveRequest):
+    """Approve or reject an agent application (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    new_status  = "approved" if body.approved else "rejected"
+    reviewed_at = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT user_id,full_name FROM agent_applications WHERE app_id=?"
+                if not USE_POSTGRES else
+                "SELECT user_id,full_name FROM agent_applications WHERE app_id=%s",
+                (app_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return JSONResponse({"error": "Application not found."}, status_code=404)
+            target_user_id = row["user_id"] if USE_POSTGRES else row[0]
+            applicant_name = row["full_name"] if USE_POSTGRES else row[1]
+
+            _execute(
+                conn,
+                "UPDATE agent_applications SET status=? WHERE app_id=?"
+                if not USE_POSTGRES else
+                "UPDATE agent_applications SET status=%s WHERE app_id=%s",
+                (new_status, app_id),
+            )
+
+            if body.approved:
+                _execute(
+                    conn,
+                    "UPDATE app_users SET can_post_properties=1 WHERE user_id=?"
+                    if not USE_POSTGRES else
+                    "UPDATE app_users SET can_post_properties=1 WHERE user_id=%s",
+                    (target_user_id,),
+                )
+            else:
+                _execute(
+                    conn,
+                    "UPDATE app_users SET can_post_properties=0 WHERE user_id=?"
+                    if not USE_POSTGRES else
+                    "UPDATE app_users SET can_post_properties=0 WHERE user_id=%s",
+                    (target_user_id,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    # Send notification to applicant
+    if body.approved:
+        _create_notification(
+            target_user_id,
+            "agent_approved",
+            "Agent Application Approved",
+            "Congratulations! Your agent registration has been approved. You can now post properties.",
+        )
+        _bucket_write_json("agent_reg/verified", "agent_reg", app_id, {
+            "app_id": app_id, "user_id": target_user_id,
+            "applicant_name": applicant_name,
+            "status": "approved", "reviewed_at": reviewed_at,
+        })
+    else:
+        _create_notification(
+            target_user_id,
+            "agent_rejected",
+            "Agent Application Rejected",
+            "Your agent registration application was not approved. Please contact support for more information.",
+        )
+        _bucket_write_json("agent_reg/pending", "agent_reg", app_id, {
+            "app_id": app_id, "user_id": target_user_id,
+            "status": "rejected", "reviewed_at": reviewed_at,
         })
 
     return JSONResponse({"ok": True, "status": new_status})
@@ -9184,13 +9476,32 @@ async def api_get_property(property_id: str):
 
 @fastapi_app.post("/api/properties")
 async def api_create_property(request: Request, body: _PropertyCreateRequest):
-    """Create a new property listing (authenticated users only)."""
+    """Create a new property listing (approved agents only)."""
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
+    # Check that the user has agent posting permission
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT can_post_properties FROM app_users WHERE user_id=?"
+                if not USE_POSTGRES else
+                "SELECT can_post_properties FROM app_users WHERE user_id=%s",
+                (user_id,),
+            )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+    can_post = (row["can_post_properties"] if USE_POSTGRES else (row[0] if row else 0)) or 0
+    if not can_post:
+        return JSONResponse({"error": "Only approved agents can post properties."}, status_code=403)
     title = body.title.strip()[:200]
     if not title:
         return JSONResponse({"error": "Title is required."}, status_code=400)
+    if body.lat is None or body.lng is None:
+        return JSONResponse({"error": "Property location (lat/lng) is required."}, status_code=400)
     if body.status not in _VALID_PROPERTY_STATUSES:
         return JSONResponse({"error": f"Invalid status. Must be one of: {', '.join(sorted(_VALID_PROPERTY_STATUSES))}"}, status_code=400)
     agent_ids = list(dict.fromkeys(body.agent_ids))[:4]  # deduplicate, max 4
@@ -9843,7 +10154,7 @@ async def api_dm_send(request: Request, body: _DMSendRequest):
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
-    content = body.content.strip()[:1000]
+    content = body.content.strip()[:4000]  # 4000 chars to accommodate E2E encrypted payloads (base64)
     if not content:
         return JSONResponse({"error": "Message cannot be empty."}, status_code=400)
     conv = _get_dm_conversation(body.conv_id)

@@ -19,6 +19,7 @@ import {
   driverApply, getDriverApplication,
 } from '../api'
 import socket from '../socket'
+import AgentRegistration from '../components/AgentRegistration'
 
 // ─── Dashboard tabs ────────────────────────────────────────────────────────────
 
@@ -517,9 +518,21 @@ export default function UserDashboard() {
 
             {tab === 'properties' && (
               <div className="card">
-                <PropertyManager
-                  userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
-                />
+                {appUser?.can_post_properties ? (
+                  <PropertyManager
+                    userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
+                  />
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-blue-900/20 border border-blue-800 rounded-xl p-4 text-sm text-blue-300">
+                      <p className="font-semibold mb-1">🔒 Agent Access Required</p>
+                      <p className="text-blue-400/80">
+                        Only registered and approved agents can post properties. Register as an agent below to get started.
+                      </p>
+                    </div>
+                    <AgentRegistration />
+                  </div>
+                )}
               </div>
             )}
 

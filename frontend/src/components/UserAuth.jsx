@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { userRegister, userLogin } from '../api'
+import { userRegister, userLogin, storePublicKey } from '../api'
+import { generateKeyPair, getStoredPublicKeyJwk } from '../crypto'
 
 // ─── Password-strength helper ───────────────────────────────────────────────
 
@@ -81,6 +82,17 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
         user = await userLogin(email.trim(), password, rememberMe)
       } else {
         user = await userLogin(email.trim(), password, rememberMe)
+      }
+      // Ensure this device has an E2E key pair and the public key is on the server
+      try {
+        let pkJwk = getStoredPublicKeyJwk()
+        if (!pkJwk) {
+          const { publicKeyJwk } = await generateKeyPair()
+          pkJwk = JSON.stringify(publicKeyJwk)
+        }
+        await storePublicKey(pkJwk)
+      } catch (_) {
+        // Non-fatal: encryption setup can be retried later
       }
       onSuccess?.(user)
     } catch (err) {

@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import socket from '../socket'
-import { dmMarkRead } from '../api'
+import { dmMarkRead, getUserPublicKey } from '../api'
+import { getSharedSecret, encryptMessage, decryptMessage, isEncryptedPayload } from '../crypto'
 
 /**
  * DMChat — Direct-message chat panel between two users.
  *
  * Features:
+ *  - End-to-end encrypted messages (ECDH + AES-GCM via Web Crypto)
  *  - Left (incoming) / Right (outgoing) message alignment
  *  - Reply-to-message support with inline preview
  *  - Typing indicators
@@ -20,7 +22,8 @@ import { dmMarkRead } from '../api'
  *  onClose     - callback to close this panel
  */
 
-const MAX_LEN = 1000
+// E2E-encrypted payloads are base64-encoded and larger than plaintext; 4000 chars accommodates them
+const MAX_LEN = 4000
 
 export default function DMChat({ conv, currentUser, onClose }) {
   const [messages,    setMessages]    = useState([])
@@ -32,10 +35,36 @@ export default function DMChat({ conv, currentUser, onClose }) {
   const inputRef                      = useRef(null)
   const typingTimer                   = useRef(null)
   const isTyping                      = useRef(false)
+  const sharedKeyRef                  = useRef(null)   // AES-GCM CryptoKey for E2E encryption
 
   const convId     = conv?.conv_id
   const myId       = currentUser?.user_id
   const otherUser  = conv?.other_user
+
+  // ── Derive E2E shared secret when conversation opens ────────────────────────
+
+  useEffect(() => {
+    if (!otherUser?.user_id) return
+    getUserPublicKey(otherUser.user_id)
+      .then(async (res) => {
+        if (res?.public_key) {
+          sharedKeyRef.current = await getSharedSecret(res.public_key)
+        }
+      })
+      .catch(() => { /* no-op: encryption unavailable for this peer */ })
+  }, [otherUser?.user_id])
+
+  // ── Helper to decrypt a message in-place ────────────────────────────────────
+
+  const decryptMsg = useCallback(async (msg) => {
+    if (!sharedKeyRef.current || !isEncryptedPayload(msg.content)) return msg
+    try {
+      const plain = await decryptMessage(sharedKeyRef.current, msg.content)
+      return { ...msg, content: plain, _encrypted: true }
+    } catch (_) {
+      return { ...msg, content: '🔒 (encrypted)', _encrypted: true }
+    }
+  }, [])
 
   // ── Socket setup ────────────────────────────────────────────────────────────
 
@@ -43,27 +72,34 @@ export default function DMChat({ conv, currentUser, onClose }) {
     if (!convId || !myId) return
     socket.emit('dm_join', { conv_id: convId })
 
-    const onJoined = (payload) => {
+    const onJoined = async (payload) => {
       setJoined(true)
       if (payload?.history?.length) {
-        setMessages(payload.history.map(m => ({
-          ...m,
-          // Upgrade status for messages sent by others to 'delivered'
-          status: m.sender_id !== myId && m.status === 'sent' ? 'delivered' : m.status,
-        })))
+        const decrypted = await Promise.all(
+          payload.history.map(async (m) => {
+            const base = {
+              ...m,
+              status: m.sender_id !== myId && m.status === 'sent' ? 'delivered' : m.status,
+            }
+            return decryptMsg(base)
+          })
+        )
+        setMessages(decrypted)
       }
       // Mark as read
       dmMarkRead(convId).catch(() => {})
     }
 
-    const onMessage = (msg) => {
+    const onMessage = async (msg) => {
       if (msg.conv_id !== convId) return
+      const incoming = msg.sender_id !== myId
+      const base = { ...msg, status: incoming ? 'delivered' : msg.status || 'sent' }
+      const decrypted = await decryptMsg(base)
       setMessages(prev => {
-        if (prev.some(m => m.msg_id === msg.msg_id)) return prev
-        const incoming = msg.sender_id !== myId
-        return [...prev, { ...msg, status: incoming ? 'delivered' : msg.status || 'sent' }]
+        if (prev.some(m => m.msg_id === decrypted.msg_id)) return prev
+        return [...prev, decrypted]
       })
-      if (msg.sender_id !== myId) {
+      if (incoming) {
         // Notify sender that message was delivered → emit dm_read
         socket.emit('dm_read', { conv_id: convId, reader_id: myId })
         dmMarkRead(convId).catch(() => {})
@@ -127,7 +163,7 @@ export default function DMChat({ conv, currentUser, onClose }) {
 
   // ── Send ─────────────────────────────────────────────────────────────────────
 
-  const handleSend = useCallback((e) => {
+  const handleSend = useCallback(async (e) => {
     e?.preventDefault()
     const trimmed = text.trim()
     if (!trimmed || !convId || !myId) return
@@ -136,16 +172,27 @@ export default function DMChat({ conv, currentUser, onClose }) {
     clearTimeout(typingTimer.current)
     socket.emit('dm_stop_typing', { conv_id: convId, sender_id: myId })
 
+    // Encrypt if we have a shared key, otherwise send plaintext
+    let payload = trimmed
+    let isE2E   = false
+    if (sharedKeyRef.current) {
+      try {
+        payload = await encryptMessage(sharedKeyRef.current, trimmed)
+        isE2E   = true
+      } catch (_) { /* fall back to plaintext */ }
+    }
+
     const msgId = `${Date.now()}-${Math.random()}`
     const localMsg = {
       msg_id:      msgId,
       conv_id:     convId,
       sender_id:   myId,
-      content:     trimmed,
+      content:     trimmed,   // show plaintext locally
       status:      'sent',
       reply_to_id: replyTo?.msg_id || null,
       ts:          Date.now() / 1000,
       _reply_preview: replyTo,
+      _encrypted:  isE2E,
     }
     setMessages(prev => [...prev, localMsg])
 
@@ -153,7 +200,7 @@ export default function DMChat({ conv, currentUser, onClose }) {
       id:          msgId,
       conv_id:     convId,
       sender_id:   myId,
-      content:     trimmed,
+      content:     payload,   // encrypted (or plaintext) goes to server
       reply_to_id: replyTo?.msg_id || null,
     })
 
@@ -192,8 +239,9 @@ export default function DMChat({ conv, currentUser, onClose }) {
           </div>
           <div>
             <p className="text-sm font-semibold text-white">{otherUser?.name || 'User'}</p>
-            <p className="text-xs text-gray-500">
-              {joined ? (isTypingOther ? 'typing…' : 'Active') : 'Connecting…'}
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              {sharedKeyRef.current && <span title="End-to-end encrypted">🔒</span>}
+              {joined ? (isTypingOther ? 'typing…' : (sharedKeyRef.current ? 'Encrypted' : 'Active')) : 'Connecting…'}
             </p>
           </div>
         </div>
@@ -269,6 +317,7 @@ export default function DMChat({ conv, currentUser, onClose }) {
                 >
                   {msg.content}
                   <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${isMine ? 'text-blue-200/70' : 'text-gray-400'}`}>
+                    {msg._encrypted && <span className="text-xs" title="End-to-end encrypted">🔒</span>}
                     <span className="text-xs">{formatTime(msg.ts)}</span>
                     {isMine && <StatusIcon status={msg.status} />}
                   </div>

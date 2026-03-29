@@ -448,3 +448,25 @@ export const listAgents = (status = null) =>
 
 export const getUnifiedMapNearby = (lat, lng, radius_km = 25, mode = 'drivers') =>
   request('GET', `/api/unified_map/nearby?lat=${lat}&lng=${lng}&radius_km=${radius_km}&mode=${encodeURIComponent(mode)}`)
+
+// ── E2E Encryption – public key ───────────────────────────────────────────────
+
+export const storePublicKey = (public_key) =>
+  request('PUT', '/api/auth/public_key', { public_key })
+
+export const getUserPublicKey = (userId) =>
+  request('GET', `/api/users/${encodeURIComponent(userId)}/public_key`)
+
+// ── Agent Applications ────────────────────────────────────────────────────────
+
+export const submitAgentApplication = (data) =>
+  request('POST', '/api/agent_applications', data)
+
+export const getAgentApplicationStatus = () =>
+  request('GET', '/api/agent_applications/status')
+
+export const getAdminAgentApplications = () =>
+  request('GET', '/api/admin/agent_applications')
+
+export const adminApproveAgentApplication = (appId, approved) =>
+  request('POST', `/api/admin/agent_applications/${encodeURIComponent(appId)}/approve`, { approved })
