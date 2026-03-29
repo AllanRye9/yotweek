@@ -508,7 +508,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
             : null
           return (
           <div key={ride.ride_id}
-            className={`ride-card rounded-xl border p-4 space-y-2 transition-all ${
+            className={`ride-card ride-card-enter rounded-xl border p-4 space-y-2 transition-all ${
               ride.status === 'taken'     ? 'border-amber-700/60 bg-amber-900/10'
             : ride.status === 'cancelled' ? 'border-red-800/40 bg-red-900/10 opacity-60'
             : 'border-gray-700 bg-gray-800/60 hover:border-gray-600'}`}>

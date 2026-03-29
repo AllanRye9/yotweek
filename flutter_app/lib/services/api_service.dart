@@ -436,4 +436,15 @@ class ApiService {
     final data = (await _parseResponse(res)) as Map<String, dynamic>;
     return List<Map<String, dynamic>>.from(data['drivers'] as List? ?? []);
   }
+
+  // ── Real Estate Properties ────────────────────────────────────────────────
+
+  /// List properties, optionally filtered by [status] ('active', 'sold', 'rented').
+  Future<List<Map<String, dynamic>>> listProperties({String? status}) async {
+    final params = <String, String>{};
+    if (status != null && status.isNotEmpty) params['status'] = status;
+    final res = await http.get(_uri('/api/properties', params));
+    final data = (await _parseResponse(res)) as Map<String, dynamic>;
+    return List<Map<String, dynamic>>.from(data['properties'] as List? ?? []);
+  }
 }

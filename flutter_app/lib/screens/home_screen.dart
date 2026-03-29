@@ -9,6 +9,7 @@ import 'cv_generator_screen.dart';
 import 'doc_converter_screen.dart';
 import 'reviews_screen.dart';
 import 'ride_share_screen.dart';
+import 'properties_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -26,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _TabInfo(icon: Icons.description, label: 'CV'),
     _TabInfo(icon: Icons.transform, label: 'Convert'),
     _TabInfo(icon: Icons.directions_car, label: 'Rides'),
+    _TabInfo(icon: Icons.home_work_outlined, label: 'Properties'),
     _TabInfo(icon: Icons.star_outline, label: 'Reviews'),
   ];
 
@@ -137,6 +139,8 @@ class _HomeScreenState extends State<HomeScreen> {
       case 4:
         return const RideShareScreen();
       case 5:
+        return const PropertiesScreen();
+      case 6:
         return const ReviewsScreen();
       default:
         return const SizedBox.shrink();

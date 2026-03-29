@@ -135,13 +135,13 @@ function PropertyCard({ property, isSelected, onClick }) {
   return (
     <div
       onClick={onClick}
+      className="prop-card-enter prop-card-hover"
       style={{
         background: isSelected ? '#1e3a5f' : '#1f2937',
         border: `1.5px solid ${isSelected ? '#3b82f6' : '#374151'}`,
         borderRadius: 12,
         overflow: 'hidden',
         cursor: 'pointer',
-        transition: 'all 0.18s',
         boxShadow: isSelected ? '0 0 0 2px #3b82f644' : '0 2px 8px rgba(0,0,0,0.3)',
       }}
     >
@@ -375,6 +375,8 @@ export default function PropertiesPage() {
   const [selectedId, setSelectedId]     = useState(null)
   const [previewProp, setPreviewProp]   = useState(null)
   const [userLocation, setUserLocation] = useState(null)
+  // Mobile panel tab: 'map' | 'list' | 'agents'
+  const [mobileTab, setMobileTab]       = useState('map')
 
   // Load user
   useEffect(() => {
@@ -529,15 +531,39 @@ export default function PropertiesPage() {
       </div>
 
       {/* ── 3-column layout ── */}
-      <div style={{ flex: 1, display: 'flex', minHeight: 0, height: 'calc(100vh - 110px)' }}>
+      <div className="prop-page-layout" style={{ flex: 1, display: 'flex', minHeight: 0, height: 'calc(100vh - 110px)' }}>
+
+        {/* ── Mobile tab bar (visible only on small screens) ── */}
+        <div className="prop-mobile-tabs" role="tablist">
+          {[
+            { id: 'list',   icon: '📋', label: 'Properties' },
+            { id: 'map',    icon: '🗺️', label: 'Map' },
+            { id: 'agents', icon: '👤', label: 'Agents' },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={mobileTab === tab.id}
+              className={`prop-mobile-tab-btn${mobileTab === tab.id ? ' active' : ''}`}
+              onClick={() => setMobileTab(tab.id)}
+            >
+              <span>{tab.icon}</span>
+              <span>{tab.label}</span>
+            </button>
+          ))}
+        </div>
+
         {/* ── Left: Available Properties ── */}
-        <aside style={{
-          width: 280, flexShrink: 0,
-          borderRight: '1px solid #1f2937',
-          overflowY: 'auto',
-          background: '#111827',
-          display: 'flex', flexDirection: 'column',
-        }}>
+        <aside
+          className={`prop-left-sidebar${mobileTab !== 'list' ? ' prop-panel-hidden-mobile' : ''}`}
+          style={{
+            width: 280, flexShrink: 0,
+            borderRight: '1px solid #1f2937',
+            overflowY: 'auto',
+            background: '#111827',
+            display: 'flex', flexDirection: 'column',
+          }}
+        >
           <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
             <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📋 Available Properties</div>
           </div>
@@ -566,7 +592,10 @@ export default function PropertiesPage() {
         </aside>
 
         {/* ── Center: Map ── */}
-        <main style={{ flex: 1, position: 'relative', minWidth: 0, height: '100%' }}>
+        <main
+          className={`prop-center-col${mobileTab !== 'map' ? ' prop-panel-hidden-mobile' : ''}`}
+          style={{ flex: 1, position: 'relative', minWidth: 0, height: '100%' }}
+        >
           <PropertyMap
             properties={properties}
             selectedId={selectedId}
@@ -581,13 +610,16 @@ export default function PropertiesPage() {
         </main>
 
         {/* ── Right: Nearest Agents ── */}
-        <aside style={{
-          width: 280, flexShrink: 0,
-          borderLeft: '1px solid #1f2937',
-          overflowY: 'auto',
-          background: '#111827',
-          display: 'flex', flexDirection: 'column',
-        }}>
+        <aside
+          className={`prop-right-sidebar${mobileTab !== 'agents' ? ' prop-panel-hidden-mobile' : ''}`}
+          style={{
+            width: 280, flexShrink: 0,
+            borderLeft: '1px solid #1f2937',
+            overflowY: 'auto',
+            background: '#111827',
+            display: 'flex', flexDirection: 'column',
+          }}
+        >
           <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
             <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📊 Nearest Agents</div>
           </div>

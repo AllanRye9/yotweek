@@ -1330,3 +1330,166 @@ html:not(.theme-dark) .bg-gradient-to-b {
     width: 280px !important;
   }
 }
+
+/* ── Properties Page — responsive layout ────────────────────────────────────── */
+
+/* On mobile: stack columns + show tab bar */
+@media (max-width: 767px) {
+  .prop-page-layout {
+    flex-direction: column !important;
+    height: auto !important;
+  }
+  .prop-left-sidebar,
+  .prop-right-sidebar {
+    width: 100% !important;
+    position: static !important;
+    height: auto !important;
+    border-right: none !important;
+    border-left: none !important;
+    border-bottom: 1px solid var(--border-color, #1f2937) !important;
+    max-height: 360px;
+    overflow-y: auto;
+  }
+  .prop-center-col {
+    min-height: 300px !important;
+    height: 60vw !important;
+    max-height: 420px !important;
+  }
+  /* mobile tab bar for panel switching */
+  .prop-mobile-tabs {
+    display: flex !important;
+  }
+  .prop-panel-hidden-mobile {
+    display: none !important;
+  }
+}
+
+@media (min-width: 768px) {
+  .prop-mobile-tabs {
+    display: none !important;
+  }
+}
+
+/* On tablet: hide right agents sidebar */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .prop-right-sidebar {
+    display: none !important;
+  }
+  .prop-left-sidebar {
+    width: 240px !important;
+  }
+}
+
+/* ── Animated card entrance ──────────────────────────────────────────────────── */
+
+@keyframes card-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.prop-card-enter {
+  animation: card-slide-in 0.28s ease-out both;
+}
+
+/* stagger children */
+.prop-card-enter:nth-child(1)  { animation-delay: 0.00s; }
+.prop-card-enter:nth-child(2)  { animation-delay: 0.04s; }
+.prop-card-enter:nth-child(3)  { animation-delay: 0.08s; }
+.prop-card-enter:nth-child(4)  { animation-delay: 0.12s; }
+.prop-card-enter:nth-child(5)  { animation-delay: 0.16s; }
+.prop-card-enter:nth-child(6)  { animation-delay: 0.20s; }
+.prop-card-enter:nth-child(7)  { animation-delay: 0.24s; }
+.prop-card-enter:nth-child(8)  { animation-delay: 0.28s; }
+.prop-card-enter:nth-child(n+9){ animation-delay: 0.32s; }
+
+/* Hover lift effect on property cards */
+.prop-card-hover {
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+.prop-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Ride card animated entrance ─────────────────────────────────────────────── */
+
+@keyframes ride-card-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.ride-card-enter {
+  animation: ride-card-slide-in 0.3s ease-out both;
+}
+.ride-card-enter:nth-child(1)  { animation-delay: 0.00s; }
+.ride-card-enter:nth-child(2)  { animation-delay: 0.05s; }
+.ride-card-enter:nth-child(3)  { animation-delay: 0.10s; }
+.ride-card-enter:nth-child(4)  { animation-delay: 0.15s; }
+.ride-card-enter:nth-child(5)  { animation-delay: 0.20s; }
+.ride-card-enter:nth-child(n+6){ animation-delay: 0.25s; }
+
+/* ── Mobile property tab bar ─────────────────────────────────────────────────── */
+
+.prop-mobile-tabs {
+  display: none;
+  position: sticky;
+  top: 56px; /* navbar height */
+  z-index: 10;
+  background: var(--bg-surface, #111827);
+  border-bottom: 1px solid var(--border-color, #1f2937);
+}
+
+.prop-mobile-tab-btn {
+  flex: 1;
+  padding: 10px 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary, #9ca3af);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s, border-bottom-color 0.15s;
+  border-bottom: 2px solid transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.prop-mobile-tab-btn.active {
+  color: var(--accent, #dc2626);
+  border-bottom-color: var(--accent, #dc2626);
+}
+
+/* ── Section entrance fade for page load ────────────────────────────────────── */
+
+@keyframes section-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.section-fade-in {
+  animation: section-fade-in 0.35s ease-out both;
+}
+
+/* Reduced-motion: disable all new animations */
+@media (prefers-reduced-motion: reduce) {
+  .prop-card-enter,
+  .ride-card-enter,
+  .section-fade-in {
+    animation: none !important;
+  }
+  .prop-card-hover {
+    transition: none !important;
+  }
+}
