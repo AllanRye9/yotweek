@@ -10974,12 +10974,32 @@ async def on_dm_read(sid, data):
 
 @sio.on("prop_conv_join")
 async def on_prop_conv_join(sid, data):
-    """Subscribe caller to a property conversation room and send recent history."""
+    """Subscribe caller to a property conversation room and send recent history.
+
+    Only the two participants of the conversation (buyer and agent) are allowed
+    to join.  Any other socket is silently rejected to preserve message privacy.
+    """
     if not isinstance(data, dict):
         return
     conv_id = data.get("conv_id")
     if not conv_id:
         return
+
+    # Resolve the authenticated user for this socket connection
+    with _socket_user_lock:
+        user_id = _sid_to_user.get(sid)
+
+    # Load the conversation record to verify participation
+    conv = _get_property_conversation(conv_id)
+    if not conv:
+        await sio.emit("prop_conv_error", {"conv_id": conv_id, "error": "Conversation not found."}, room=sid)
+        return
+
+    # Enforce privacy: only the buyer (user_id) or the agent (agent_id) may join
+    if not user_id or user_id not in (conv["user_id"], conv["agent_id"]):
+        await sio.emit("prop_conv_error", {"conv_id": conv_id, "error": "Access denied."}, room=sid)
+        return
+
     room = f"prop_conv_{conv_id}"
     sio.enter_room(sid, room)
 

@@ -1493,3 +1493,61 @@ html:not(.theme-dark) .bg-gradient-to-b {
     transition: none !important;
   }
 }
+
+/* ── Quick action tile entrance animation ───────────────────────────────────── */
+
+@keyframes quick-tile-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1); }
+}
+.quick-action-tile {
+  animation: quick-tile-in 0.25s ease-out both;
+}
+.quick-action-tile:nth-child(1) { animation-delay: 0.04s; }
+.quick-action-tile:nth-child(2) { animation-delay: 0.08s; }
+.quick-action-tile:nth-child(3) { animation-delay: 0.12s; }
+.quick-action-tile:nth-child(4) { animation-delay: 0.16s; }
+.quick-action-tile:nth-child(5) { animation-delay: 0.20s; }
+.quick-action-tile:nth-child(6) { animation-delay: 0.24s; }
+
+/* ── Agent profile expand animation ────────────────────────────────────────── */
+
+@keyframes agent-profile-expand {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Mobile nav pill scroll smoothing ──────────────────────────────────────── */
+
+.mobile-tab-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.mobile-tab-scroll > * {
+  scroll-snap-align: start;
+}
+
+/* ── Mobile: stack agents panel below property content ─────────────────────── */
+
+@media (max-width: 767px) {
+  .property-layout {
+    flex-direction: column !important;
+  }
+  .property-agents-panel {
+    flex: unset !important;
+    min-width: unset !important;
+    width: 100% !important;
+  }
+  .property-agents-panel > div {
+    position: static !important;
+  }
+}
+
+/* ── Reduced-motion overrides ────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-action-tile,
+  .agent-profile-expand {
+    animation: none !important;
+  }
+}

@@ -244,11 +244,13 @@ function ImageGallery({ images, title }) {
 // ─── Agent Card ───────────────────────────────────────────────────────────────
 
 function AgentCard({ agent, onContact, contacting }) {
+  const [expanded, setExpanded] = useState(false)
   const avColor = AVAIL_COLOR[agent.availability_status] ?? '#6b7280'
   return (
     <div style={{
       background: '#1f2937', border: '1px solid #374151', borderRadius: 12,
       padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
+      transition: 'box-shadow 0.2s',
     }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         {/* Avatar */}
@@ -280,26 +282,81 @@ function AgentCard({ agent, onContact, contacting }) {
           )}
           {agent.bio && (
             <p style={{ color: '#9ca3af', fontSize: '0.77rem', margin: '4px 0 0', lineHeight: 1.5,
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+              display: '-webkit-box', WebkitLineClamp: expanded ? 'none' : 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
               {agent.bio}
             </p>
           )}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={() => onContact(agent)}
-        disabled={contacting === agent.agent_id}
-        style={{
-          background: contacting === agent.agent_id ? '#374151' : '#10b981',
-          color: '#fff', border: 'none', borderRadius: 8,
-          padding: '8px 0', fontSize: '0.82rem', fontWeight: 600,
-          cursor: contacting === agent.agent_id ? 'wait' : 'pointer',
-          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-        }}
-      >
-        {contacting === agent.agent_id ? '…' : '💬 Contact Agent'}
-      </button>
+
+      {/* Expanded profile details */}
+      {expanded && (
+        <div style={{
+          background: '#111827', borderRadius: 8, padding: '10px 12px',
+          display: 'flex', flexDirection: 'column', gap: 6,
+          animation: 'agent-profile-expand 0.2s ease-out',
+        }}>
+          <p style={{ color: '#6b7280', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>
+            Agent Profile
+          </p>
+          {agent.like_count != null && agent.like_count > 0 && (
+            <div style={{ color: '#9ca3af', fontSize: '0.78rem' }}>
+              ❤️ <span style={{ color: '#f3f4f6' }}>{agent.like_count}</span> recommendation{agent.like_count !== 1 ? 's' : ''}
+            </div>
+          )}
+          {agent.created_at && (
+            <div style={{ color: '#9ca3af', fontSize: '0.78rem' }}>
+              📅 Member since{' '}
+              <span style={{ color: '#d1d5db' }}>
+                {new Date(agent.created_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short' })}
+              </span>
+            </div>
+          )}
+          {agent.review_count > 0 && (
+            <div style={{ color: '#9ca3af', fontSize: '0.78rem' }}>
+              ⭐ Avg rating{' '}
+              <span style={{ color: '#f59e0b', fontWeight: 700 }}>{(agent.avg_rating ?? 0).toFixed(1)}</span>
+              {' '}/ 5
+            </div>
+          )}
+          <p style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 4, margin: 0 }}>
+            To get in touch, use the message button below.
+          </p>
+        </div>
+      )}
+
+      {/* Action row */}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          type="button"
+          onClick={() => setExpanded(e => !e)}
+          style={{
+            background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 8,
+            padding: '8px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexShrink: 0,
+            transition: 'background 0.15s',
+          }}
+          aria-expanded={expanded}
+          aria-label={expanded ? 'Hide profile' : 'View profile'}
+        >
+          {expanded ? '▲ Less' : '👤 Profile'}
+        </button>
+        <button
+          type="button"
+          onClick={() => onContact(agent)}
+          disabled={contacting === agent.agent_id}
+          style={{
+            background: contacting === agent.agent_id ? '#374151' : '#10b981',
+            color: '#fff', border: 'none', borderRadius: 8,
+            padding: '8px 0', fontSize: '0.82rem', fontWeight: 600,
+            cursor: contacting === agent.agent_id ? 'wait' : 'pointer',
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            transition: 'background 0.15s',
+          }}
+        >
+          {contacting === agent.agent_id ? '…' : '💬 Message Agent'}
+        </button>
+      </div>
     </div>
   )
 }
@@ -468,7 +525,7 @@ export default function PropertyDetailPage() {
         ) : (
         /* ── Authenticated: full property details ── */
         <div style={{ padding: '0 24px 40px', maxWidth: 1100, margin: '0 auto', width: '100%' }}>
-          <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          <div className="property-layout" style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
 
             {/* ── LEFT: property details ── */}
             <div style={{ flex: '1 1 0', minWidth: 280 }}>
@@ -513,7 +570,7 @@ export default function PropertyDetailPage() {
             </div>
 
             {/* ── RIGHT: agent list ── */}
-            <div style={{ flex: '0 0 300px', minWidth: 260 }}>
+            <div className="property-agents-panel" style={{ flex: '0 0 300px', minWidth: 260 }}>
               <div style={{
                 background: '#111827', border: '1px solid #374151', borderRadius: 14,
                 padding: '18px 16px', position: 'sticky', top: 80,

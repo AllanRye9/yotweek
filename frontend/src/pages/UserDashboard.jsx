@@ -52,7 +52,7 @@ function StatCard({ icon, value, label, color = 'text-white' }) {
 
 // ─── Welcome / overview panel ───────────────────────────────────────────────────
 
-function OverviewPanel({ user, dashStats, onSelectTab }) {
+function OverviewPanel({ user, dashStats, onSelectTab, onNavigate }) {
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
   const roleLabel = user?.role === 'driver' ? '🚗 Verified Driver' : '🧍 Passenger'
@@ -91,18 +91,19 @@ function OverviewPanel({ user, dashStats, onSelectTab }) {
       {/* Quick action tiles */}
       <div>
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[
-            { id: 'download',   icon: '⬇️', title: 'Download Video',   desc: '1,000+ sites' },
-            { id: 'cv',         icon: '📄', title: 'Build a CV',        desc: 'PDF with ATS scan' },
-            { id: 'convert',    icon: '🔄', title: 'Convert Docs',      desc: 'PDF, Word & more' },
-            { id: 'rides',      icon: '🚗', title: 'Share a Ride',       desc: 'Post or find rides' },
-            { id: 'properties', icon: '🏢', title: 'Properties',         desc: 'Map & agent finder' },
+            { icon: '⬇️', title: 'Download Video',   desc: '1,000+ sites',           action: () => onSelectTab('download') },
+            { icon: '📄', title: 'Build a CV',        desc: 'PDF with ATS scan',      action: () => onSelectTab('cv') },
+            { icon: '🔄', title: 'Convert Docs',      desc: 'PDF, Word & more',       action: () => onSelectTab('convert') },
+            { icon: '🚗', title: 'Share a Ride',       desc: 'Post or find rides',    action: () => onSelectTab('rides') },
+            { icon: '🏢', title: 'Properties',         desc: 'Map & agent finder',    action: () => onSelectTab('properties') },
+            { icon: '✈️', title: 'Airport Pickup',    desc: 'Book a driver now',      action: () => onNavigate ? onNavigate('/rides') : onSelectTab('rides') },
           ].map(tile => (
             <button
-              key={tile.id}
-              onClick={() => onSelectTab(tile.id)}
-              className="group bg-gray-800/60 hover:bg-gray-700/80 border border-gray-700 hover:border-gray-500 rounded-xl p-4 text-left transition-all duration-200"
+              key={tile.title}
+              onClick={tile.action}
+              className="group bg-gray-800/60 hover:bg-gray-700/80 border border-gray-700 hover:border-gray-500 rounded-xl p-4 text-left transition-all duration-200 quick-action-tile"
             >
               <span className="text-2xl">{tile.icon}</span>
               <p className="text-sm font-semibold text-white mt-2 group-hover:text-blue-300 transition-colors">{tile.title}</p>
@@ -513,7 +514,7 @@ export default function UserDashboard() {
           {/* Tab panels */}
           <div ref={tabPanelRef}>
             {tab === 'overview' && (
-              <OverviewPanel user={appUser} dashStats={dashStats} onSelectTab={handleSelectTab} />
+              <OverviewPanel user={appUser} dashStats={dashStats} onSelectTab={handleSelectTab} onNavigate={navigate} />
             )}
 
             {tab === 'properties' && (

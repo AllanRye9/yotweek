@@ -151,6 +151,14 @@ function ChatView({ conv, appUser, onConvUpdated }) {
       }
     }
 
+    const handleConvError = (data) => {
+      if (data.conv_id === convId) {
+        // Access denied or conversation not found via socket — REST layer
+        // already enforces the same check, so this is informational only.
+        console.warn('prop_conv_error', data.error)
+      }
+    }
+
     const handleTyping = (data) => {
       if (data.conv_id === convId && data.sender_id !== appUser?.user_id) {
         setTyping(true)
@@ -165,6 +173,7 @@ function ChatView({ conv, appUser, onConvUpdated }) {
 
     socket.on('property_message',        handleMsg)
     socket.on('prop_conv_joined',        handleHistory)
+    socket.on('prop_conv_error',         handleConvError)
     socket.on('prop_conv_typing',        handleTyping)
     socket.on('prop_conv_stop_typing',   handleStopTyping)
 
@@ -172,6 +181,7 @@ function ChatView({ conv, appUser, onConvUpdated }) {
       socket.emit('prop_conv_leave', { conv_id: convId })
       socket.off('property_message',       handleMsg)
       socket.off('prop_conv_joined',       handleHistory)
+      socket.off('prop_conv_error',        handleConvError)
       socket.off('prop_conv_typing',       handleTyping)
       socket.off('prop_conv_stop_typing',  handleStopTyping)
       clearTimeout(typingTimer.current)
