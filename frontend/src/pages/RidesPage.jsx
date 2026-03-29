@@ -43,7 +43,7 @@ export default function RidesPage() {
   const openRides = rides.filter(r => r.status === 'open')
 
   return (
-    <div style={{ height: '100vh', background: '#030712', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ height: '100vh', background: 'var(--bg-page)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Auth modal */}
       {showAuthModal && !appUser && (
         <UserAuth
@@ -95,10 +95,10 @@ export default function RidesPage() {
       </nav>
 
       {/* ── Page header ── */}
-      <div style={{ padding: '8px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+      <div style={{ padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
         <div>
-          <h1 style={{ color: '#f3f4f6', fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>🚗 Ride Share</h1>
-          <p style={{ color: '#6b7280', fontSize: '0.75rem', margin: '1px 0 0' }}>
+          <h1 style={{ color: 'var(--text-primary)', fontSize: '1.2rem', fontWeight: 800, margin: 0 }}>🚗 Ride Share</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', margin: '1px 0 0' }}>
             Find drivers, book rides, and get real-time alerts.
           </p>
         </div>
@@ -141,14 +141,14 @@ export default function RidesPage() {
           {/* ── Left: Inbox & Chat (fixed) ── */}
           <aside className="rides-left-sidebar" style={{
             width: 280, flexShrink: 0,
-            borderRight: '1px solid #1f2937',
-            background: '#111827',
+            borderRight: '1px solid var(--border-color)',
+            background: 'var(--bg-surface)',
             height: '100%',
             overflowY: 'auto',
             display: 'flex', flexDirection: 'column',
           }}>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid #1f2937', flexShrink: 0 }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.82rem', fontWeight: 700 }}>💬 Inbox</div>
+            <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
+              <div style={{ color: 'var(--text-primary)', fontSize: '0.82rem', fontWeight: 700 }}>💬 Inbox</div>
             </div>
             <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
               <DMInbox currentUser={appUser} />
@@ -159,12 +159,12 @@ export default function RidesPage() {
           <main className="rides-center-col" style={{
             flexBasis: '25%', flexShrink: 0,
             overflowY: 'auto',
-            background: '#030712',
+            background: 'var(--bg-page)',
             display: 'flex', flexDirection: 'column',
-            borderRight: '1px solid #1f2937',
+            borderRight: '1px solid var(--border-color)',
           }}>
             {/* Compact tab bar with icons */}
-            <div style={{ display: 'flex', borderBottom: '1px solid #1f2937', flexShrink: 0 }}>
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
               {[
                 { key: 'post',      icon: '🚗', label: 'Post Ride' },
                 { key: 'broadcast', icon: '📡', label: 'Broadcast' },
@@ -176,10 +176,10 @@ export default function RidesPage() {
                   style={{
                     flex: 1,
                     padding: '8px 4px',
-                    background: centerTab === tab.key ? '#1f2937' : 'transparent',
+                    background: centerTab === tab.key ? 'var(--bg-input)' : 'transparent',
                     border: 'none',
                     borderBottom: centerTab === tab.key ? '2px solid #3b82f6' : '2px solid transparent',
-                    color: centerTab === tab.key ? '#f3f4f6' : '#6b7280',
+                    color: centerTab === tab.key ? 'var(--text-primary)' : 'var(--text-secondary)',
                     cursor: 'pointer',
                     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
                     transition: 'all 0.15s',
@@ -226,7 +226,7 @@ export default function RidesPage() {
           <aside className="rides-right-sidebar" style={{
             flexGrow: 1,
             overflowY: 'auto',
-            background: '#111827',
+            background: 'var(--bg-surface)',
             display: 'flex', flexDirection: 'column',
             position: 'relative',
           }}>
@@ -271,9 +271,9 @@ export default function RidesPage() {
               )}
             </div>
 
-            <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid #1f2937', flexShrink: 0, paddingRight: 180 }}>
-              <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>🗺️ All Rides</div>
-              <div style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 2 }}>
+            <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid var(--border-color)', flexShrink: 0, paddingRight: 180 }}>
+              <div style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 700 }}>🗺️ All Rides</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', marginTop: 2 }}>
                 {rides.filter(r => r.status === 'open').length} open · fares shown per person for shared rides
               </div>
             </div>

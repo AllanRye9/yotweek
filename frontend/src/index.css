@@ -168,6 +168,12 @@ html:not(.theme-dark) [class*="bg-gray-8"] {
   border-color: var(--border-color) !important;
 }
 
+html:not(.theme-dark) .bg-gray-700,
+html:not(.theme-dark) [class*="bg-gray-7"] {
+  background-color: var(--bg-input) !important;
+  border-color: var(--border-color) !important;
+}
+
 html:not(.theme-dark) .bg-gray-950,
 html:not(.theme-dark) [class*="bg-gray-950"] {
   background-color: var(--bg-page) !important;
@@ -175,12 +181,15 @@ html:not(.theme-dark) [class*="bg-gray-950"] {
 
 html:not(.theme-dark) .text-gray-100,
 html:not(.theme-dark) .text-white { color: var(--text-primary) !important; }
+html:not(.theme-dark) .text-gray-300 { color: var(--text-primary) !important; }
 html:not(.theme-dark) .text-gray-400,
 html:not(.theme-dark) .text-gray-500 { color: var(--text-secondary) !important; }
-html:not(.theme-dark) .text-gray-600 { color: var(--text-muted) !important; }
+html:not(.theme-dark) .text-gray-600,
+html:not(.theme-dark) .text-gray-700 { color: var(--text-muted) !important; }
 
 html:not(.theme-dark) .border-gray-800,
-html:not(.theme-dark) .border-gray-700 { border-color: var(--border-color) !important; }
+html:not(.theme-dark) .border-gray-700,
+html:not(.theme-dark) .border-gray-600 { border-color: var(--border-color) !important; }
 
 html:not(.theme-dark) .input {
   background-color: var(--bg-input) !important;
@@ -245,40 +254,115 @@ html:not(.theme-dark) .bg-gradient-to-b {
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold text-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    font-weight: 600;
+    font-size: 0.875rem;
+    transition: all 0.2s;
+    outline: none;
+    cursor: pointer;
   }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-primary {
-    @apply btn bg-red-600 hover:bg-red-500 text-white focus:ring-red-500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem;
+    transition: all 0.2s; outline: none; cursor: pointer;
+    background-color: var(--accent);
+    color: var(--accent-text);
+    border: none;
   }
+  .btn-primary:hover { background-color: var(--accent-hover); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-secondary {
-    @apply btn bg-gray-700 hover:bg-gray-600 text-white focus:ring-gray-500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem;
+    transition: all 0.2s; outline: none; cursor: pointer;
+    background-color: var(--bg-input);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
   }
+  .btn-secondary:hover { filter: brightness(1.1); }
   .btn-ghost {
-    @apply btn bg-transparent hover:bg-gray-800 text-gray-300 hover:text-white focus:ring-gray-500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem;
+    transition: all 0.2s; outline: none; cursor: pointer;
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: none;
   }
+  .btn-ghost:hover { background-color: var(--bg-input); color: var(--text-primary); }
   .btn-danger {
-    @apply btn bg-red-700 hover:bg-red-600 text-white focus:ring-red-500;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.5rem 1rem; border-radius: 0.5rem; font-weight: 600; font-size: 0.875rem;
+    transition: all 0.2s; outline: none; cursor: pointer;
+    background-color: #dc2626; color: #fff; border: none;
   }
+  .btn-danger:hover { background-color: #b91c1c; }
   .btn-sm {
-    @apply px-3 py-1.5 text-xs rounded;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    border-radius: 0.375rem;
   }
   .input {
-    @apply w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-2.5 text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200;
+    width: 100%;
+    background-color: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    padding: 0.625rem 1rem;
+    color: var(--text-primary);
+    transition: all 0.2s;
     /* Use 16px on mobile so iOS doesn't zoom the viewport when an input is focused */
     font-size: max(16px, 0.875rem);
   }
+  .input::placeholder { color: var(--text-muted); }
+  .input:focus {
+    outline: none;
+    ring: 2px;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+  }
   .card {
-    @apply bg-gray-900 border border-gray-800 rounded-xl;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 0.75rem;
     padding: 19px;
+    color: var(--text-primary);
   }
   .tab-btn {
-    @apply px-4 py-2 text-sm font-medium rounded-lg transition-all duration-200 focus:outline-none;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+    outline: none;
   }
   .tab-btn-active {
-    @apply tab-btn bg-red-600 text-white;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+    outline: none;
+    background-color: var(--accent);
+    color: var(--accent-text);
   }
   .tab-btn-inactive {
-    @apply tab-btn bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.5rem;
+    transition: all 0.2s;
+    outline: none;
+    background-color: var(--bg-input);
+    color: var(--text-secondary);
+  }
+  .tab-btn-inactive:hover {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
   }
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold;
@@ -305,14 +389,53 @@ html:not(.theme-dark) .bg-gradient-to-b {
     @apply h-full bg-gradient-to-r from-red-600 to-red-400 rounded-full transition-all duration-500;
   }
   .sidebar-link {
-    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 text-gray-400 hover:bg-gray-800 hover:text-white;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    color: var(--text-secondary);
+  }
+  .sidebar-link:hover {
+    background-color: var(--bg-input);
+    color: var(--text-primary);
   }
   .sidebar-link-active {
-    @apply sidebar-link bg-gray-800 text-white;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 1rem;
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    background-color: var(--bg-input);
+    color: var(--text-primary);
   }
   /* Download-complete popup card */
   .popup-card {
-    @apply bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl p-6;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 1rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    padding: 1.5rem;
+  }
+  /* Page shell — full-page background wrapper */
+  .page-shell {
+    min-height: 100vh;
+    background-color: var(--bg-page);
+    color: var(--text-primary);
+    display: flex;
+    flex-direction: column;
+  }
+  /* Page surface panel */
+  .surface-panel {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
   }
   /* Advanced download-progress popup card */
   .dl-popup-card {

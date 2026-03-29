@@ -24,7 +24,7 @@ L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, 
 
 const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b' }
 const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented' }
-const AVAIL_COLOR  = { available: '#22c55e', busy: '#f59e0b', offline: '#6b7280' }
+const AVAIL_COLOR  = { available: '#22c55e', busy: '#f59e0b', offline: 'var(--text-secondary)' }
 const AVAIL_LABEL  = { available: 'Available', busy: 'Busy', offline: 'Offline' }
 
 function formatPrice(price) {
@@ -61,7 +61,7 @@ function PropertyMiniMap({ lat, lng, title }) {
   return (
     <div
       ref={mapRef}
-      style={{ width: '100%', height: 200, borderRadius: 10, overflow: 'hidden', border: '1px solid #374151', marginTop: 12 }}
+      style={{ width: '100%', height: 200, borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border-color)', marginTop: 12 }}
     />
   )
 }
@@ -107,7 +107,7 @@ function PropertySignInMapPreview({ lat, lng, title, onSignIn, onSignUp }) {
       {/* Non-interactive map */}
       <div
         ref={mapRef}
-        style={{ width: '100%', height: 380, background: '#1a2233' }}
+        style={{ width: '100%', height: 380, background: 'var(--bg-surface)' }}
       />
       {/* Semi-transparent overlay with sign-in CTA */}
       <div style={{
@@ -129,10 +129,10 @@ function PropertySignInMapPreview({ lat, lng, title, onSignIn, onSignUp }) {
           pointerEvents: 'auto',
           boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
         }}>
-          <p style={{ color: '#f3f4f6', fontWeight: 700, fontSize: '1rem', margin: '0 0 6px' }}>
+          <p style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '1rem', margin: '0 0 6px' }}>
             📍 {title ?? 'Property Location'}
           </p>
-          <p style={{ color: '#9ca3af', fontSize: '0.84rem', margin: '0 0 16px', lineHeight: 1.5 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.84rem', margin: '0 0 16px', lineHeight: 1.5 }}>
             Sign in to view property details, contact the agent, and see availability.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
@@ -152,8 +152,8 @@ function PropertySignInMapPreview({ lat, lng, title, onSignIn, onSignUp }) {
               type="button"
               onClick={onSignUp}
               style={{
-                background: 'transparent', color: '#e5e7eb',
-                border: '1px solid #374151',
+                background: 'transparent', color: 'var(--text-primary)',
+                border: '1px solid var(--border-color)',
                 borderRadius: 8, padding: '9px 22px',
                 fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer',
                 minWidth: 100,
@@ -175,7 +175,7 @@ function ImageGallery({ images, title }) {
   if (!images || images.length === 0) {
     return (
       <div style={{
-        background: '#374151', borderRadius: 12, height: 280,
+        background: 'var(--bg-input)', borderRadius: 12, height: 280,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: '4rem',
       }}>🏠</div>
@@ -245,17 +245,17 @@ function ImageGallery({ images, title }) {
 
 function AgentCard({ agent, onContact, contacting }) {
   const [expanded, setExpanded] = useState(false)
-  const avColor = AVAIL_COLOR[agent.availability_status] ?? '#6b7280'
+  const avColor = AVAIL_COLOR[agent.availability_status] ?? 'var(--text-secondary)'
   return (
     <div style={{
-      background: '#1f2937', border: '1px solid #374151', borderRadius: 12,
+      background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 12,
       padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: 10,
       transition: 'box-shadow 0.2s',
     }}>
       <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
         {/* Avatar */}
         <div style={{
-          width: 48, height: 48, borderRadius: '50%', background: '#374151',
+          width: 48, height: 48, borderRadius: '50%', background: 'var(--bg-input)',
           fontSize: '1.6rem', display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
         }}>
@@ -263,7 +263,7 @@ function AgentCard({ agent, onContact, contacting }) {
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: '0.9rem' }}>{agent.name}</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.9rem' }}>{agent.name}</span>
             <span title={AVAIL_LABEL[agent.availability_status]} style={{
               display: 'inline-block', width: 8, height: 8, borderRadius: '50%',
               background: avColor, flexShrink: 0,
@@ -275,13 +275,13 @@ function AgentCard({ agent, onContact, contacting }) {
           {agent.avg_rating != null && (
             <div style={{ color: '#f59e0b', fontSize: '0.78rem', marginTop: 2 }}>
               {_stars(agent.avg_rating)}
-              <span style={{ color: '#9ca3af', marginLeft: 4 }}>
+              <span style={{ color: 'var(--text-secondary)', marginLeft: 4 }}>
                 ({agent.review_count ?? 0} review{(agent.review_count ?? 0) !== 1 ? 's' : ''})
               </span>
             </div>
           )}
           {agent.bio && (
-            <p style={{ color: '#9ca3af', fontSize: '0.77rem', margin: '4px 0 0', lineHeight: 1.5,
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.77rem', margin: '4px 0 0', lineHeight: 1.5,
               display: '-webkit-box', WebkitLineClamp: expanded ? 'none' : 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
               {agent.bio}
             </p>
@@ -292,34 +292,34 @@ function AgentCard({ agent, onContact, contacting }) {
       {/* Expanded profile details */}
       {expanded && (
         <div style={{
-          background: '#111827', borderRadius: 8, padding: '10px 12px',
+          background: 'var(--bg-surface)', borderRadius: 8, padding: '10px 12px',
           display: 'flex', flexDirection: 'column', gap: 6,
           animation: 'agent-profile-expand 0.2s ease-out',
         }}>
-          <p style={{ color: '#6b7280', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>
             Agent Profile
           </p>
           {agent.like_count != null && agent.like_count > 0 && (
-            <div style={{ color: '#9ca3af', fontSize: '0.78rem' }}>
-              ❤️ <span style={{ color: '#f3f4f6' }}>{agent.like_count}</span> recommendation{agent.like_count !== 1 ? 's' : ''}
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
+              ❤️ <span style={{ color: 'var(--text-primary)' }}>{agent.like_count}</span> recommendation{agent.like_count !== 1 ? 's' : ''}
             </div>
           )}
           {agent.created_at && (
-            <div style={{ color: '#9ca3af', fontSize: '0.78rem' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
               📅 Member since{' '}
-              <span style={{ color: '#d1d5db' }}>
+              <span style={{ color: 'var(--text-primary)' }}>
                 {new Date(agent.created_at).toLocaleDateString('en-GB', { year: 'numeric', month: 'short' })}
               </span>
             </div>
           )}
           {agent.review_count > 0 && (
-            <div style={{ color: '#9ca3af', fontSize: '0.78rem' }}>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>
               ⭐ Avg rating{' '}
               <span style={{ color: '#f59e0b', fontWeight: 700 }}>{(agent.avg_rating ?? 0).toFixed(1)}</span>
               {' '}/ 5
             </div>
           )}
-          <p style={{ color: '#6b7280', fontSize: '0.72rem', marginTop: 4, margin: 0 }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', marginTop: 4, margin: 0 }}>
             To get in touch, use the message button below.
           </p>
         </div>
@@ -331,7 +331,7 @@ function AgentCard({ agent, onContact, contacting }) {
           type="button"
           onClick={() => setExpanded(e => !e)}
           style={{
-            background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 8,
+            background: 'var(--bg-input)', color: 'var(--text-primary)', border: 'none', borderRadius: 8,
             padding: '8px 12px', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexShrink: 0,
             transition: 'background 0.15s',
@@ -346,7 +346,7 @@ function AgentCard({ agent, onContact, contacting }) {
           onClick={() => onContact(agent)}
           disabled={contacting === agent.agent_id}
           style={{
-            background: contacting === agent.agent_id ? '#374151' : '#10b981',
+            background: contacting === agent.agent_id ? 'var(--bg-input)' : '#10b981',
             color: '#fff', border: 'none', borderRadius: 8,
             padding: '8px 0', fontSize: '0.82rem', fontWeight: 600,
             cursor: contacting === agent.agent_id ? 'wait' : 'pointer',
@@ -422,7 +422,7 @@ export default function PropertyDetailPage() {
     }
   }
 
-  const statusColor = STATUS_COLOR[property?.status] ?? '#6b7280'
+  const statusColor = STATUS_COLOR[property?.status] ?? 'var(--text-secondary)'
 
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
@@ -435,7 +435,7 @@ export default function PropertyDetailPage() {
 
       {/* ── Navbar ── */}
       <header style={{
-        background: '#111827', borderBottom: '1px solid #1f2937',
+        background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)',
         padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         gap: 12, position: 'sticky', top: 0, zIndex: 100,
       }}>
@@ -444,9 +444,9 @@ export default function PropertyDetailPage() {
             🏠 YOT
           </Link>
           <nav style={{ display: 'flex', gap: 12 }}>
-            <Link to="/" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
-            <Link to="/properties" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Properties</Link>
-            <Link to="/property-inbox" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Inbox</Link>
+            <Link to="/" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
+            <Link to="/properties" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Properties</Link>
+            <Link to="/property-inbox" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Inbox</Link>
           </nav>
         </div>
         <div ref={profileRef} style={{ position: 'relative' }}>
@@ -456,8 +456,8 @@ export default function PropertyDetailPage() {
                 type="button"
                 onClick={() => setProfileOpen(o => !o)}
                 style={{
-                  background: '#1f2937', border: '1px solid #374151', borderRadius: 8,
-                  padding: '6px 12px', color: '#d1d5db', fontSize: '0.82rem', cursor: 'pointer',
+                  background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 8,
+                  padding: '6px 12px', color: 'var(--text-primary)', fontSize: '0.82rem', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
@@ -486,10 +486,10 @@ export default function PropertyDetailPage() {
       </header>
 
       {/* ── Breadcrumb ── */}
-      <div style={{ padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: '#6b7280' }}>
+      <div style={{ padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
         <Link to="/properties" style={{ color: '#3b82f6', textDecoration: 'none' }}>Properties</Link>
         <span>›</span>
-        <span style={{ color: '#9ca3af' }}>{property?.title ?? '…'}</span>
+        <span style={{ color: 'var(--text-secondary)' }}>{property?.title ?? '…'}</span>
       </div>
 
       {propLoading ? (
@@ -507,11 +507,11 @@ export default function PropertyDetailPage() {
         !appUser && !userLoading ? (
           <div style={{ padding: '0 24px 40px', maxWidth: 700, margin: '0 auto', width: '100%' }}>
             <div style={{ marginBottom: 12 }}>
-              <h1 style={{ color: '#f3f4f6', fontSize: '1.3rem', fontWeight: 800, margin: '0 0 6px' }}>
+              <h1 style={{ color: 'var(--text-primary)', fontSize: '1.3rem', fontWeight: 800, margin: '0 0 6px' }}>
                 {property.title}
               </h1>
               {property.address && (
-                <p style={{ color: '#9ca3af', fontSize: '0.85rem', margin: 0 }}>📍 {property.address}</p>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: 0 }}>📍 {property.address}</p>
               )}
             </div>
             <PropertySignInMapPreview
@@ -533,7 +533,7 @@ export default function PropertyDetailPage() {
 
               <div style={{ marginTop: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-                  <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0, flex: 1 }}>
+                  <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 800, margin: 0, flex: 1 }}>
                     {property.title}
                   </h1>
                   <span style={{
@@ -550,16 +550,16 @@ export default function PropertyDetailPage() {
                     {formatPrice(property.price)}
                   </span>
                   {property.address && (
-                    <span style={{ color: '#9ca3af', fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
                       📍 {property.address}
                     </span>
                   )}
                 </div>
 
                 {property.description && (
-                  <div style={{ background: '#1f2937', border: '1px solid #374151', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
-                    <h2 style={{ color: '#f3f4f6', fontSize: '0.95rem', fontWeight: 700, margin: '0 0 8px' }}>Description</h2>
-                    <p style={{ color: '#d1d5db', fontSize: '0.88rem', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line' }}>
+                  <div style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
+                    <h2 style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 700, margin: '0 0 8px' }}>Description</h2>
+                    <p style={{ color: 'var(--text-primary)', fontSize: '0.88rem', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line' }}>
                       {property.description}
                     </p>
                   </div>
@@ -572,13 +572,13 @@ export default function PropertyDetailPage() {
             {/* ── RIGHT: agent list ── */}
             <div className="property-agents-panel" style={{ flex: '0 0 300px', minWidth: 260 }}>
               <div style={{
-                background: '#111827', border: '1px solid #374151', borderRadius: 14,
+                background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 14,
                 padding: '18px 16px', position: 'sticky', top: 80,
               }}>
-                <h2 style={{ color: '#f3f4f6', fontSize: '1rem', fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <h2 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 700, margin: '0 0 14px', display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span>👨‍💼</span> Listed Agents
                   {property.agents && property.agents.length > 0 && (
-                    <span style={{ color: '#6b7280', fontSize: '0.8rem', fontWeight: 400 }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 400 }}>
                       ({property.agents.length})
                     </span>
                   )}
@@ -596,7 +596,7 @@ export default function PropertyDetailPage() {
                     ))}
                   </div>
                 ) : (
-                  <div style={{ color: '#6b7280', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textAlign: 'center', padding: '20px 0' }}>
                     No agents assigned to this property.
                   </div>
                 )}

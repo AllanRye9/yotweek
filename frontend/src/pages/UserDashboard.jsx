@@ -41,7 +41,7 @@ const TABS = [
 
 function StatCard({ icon, value, label, color = 'text-white' }) {
   return (
-    <div className="bg-gray-800/60 border border-gray-700/60 rounded-xl p-4 flex flex-col gap-1">
+    <div className="themed-card rounded-xl p-4 flex flex-col gap-1">
       <span className="text-2xl">{icon}</span>
       <span className={`text-2xl font-bold tabular-nums ${color}`}>{value ?? '—'}</span>
       <span className="text-xs text-gray-400">{label}</span>

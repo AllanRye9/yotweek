@@ -43,8 +43,8 @@ function ConvListItem({ conv, isSelected, onClick }) {
       type="button"
       onClick={onClick}
       style={{
-        width: '100%', background: isSelected ? '#1e3a5f' : 'transparent',
-        border: 'none', borderBottom: '1px solid #1f2937',
+        width: '100%', background: isSelected ? 'rgba(59,130,246,0.10)' : 'transparent',
+        border: 'none', borderBottom: '1px solid var(--border-color)',
         padding: '12px 14px', cursor: 'pointer',
         textAlign: 'left', display: 'flex', gap: 10, alignItems: 'flex-start',
         transition: 'background 0.15s',
@@ -52,7 +52,7 @@ function ConvListItem({ conv, isSelected, onClick }) {
     >
       {/* Property icon */}
       <div style={{
-        width: 44, height: 44, borderRadius: 10, background: '#374151',
+        width: 44, height: 44, borderRadius: 10, background: 'var(--bg-input)',
         flexShrink: 0, overflow: 'hidden',
         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem',
       }}>
@@ -63,23 +63,23 @@ function ConvListItem({ conv, isSelected, onClick }) {
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 4 }}>
           <span style={{
-            color: '#f3f4f6', fontSize: '0.85rem', fontWeight: isSelected ? 700 : 600,
+            color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: isSelected ? 700 : 600,
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
             {conv.property?.title ?? 'Property'}
           </span>
           {conv.last_message && (
-            <span style={{ color: '#6b7280', fontSize: '0.7rem', flexShrink: 0 }}>
+            <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', flexShrink: 0 }}>
               {formatTime(conv.last_message.ts)}
             </span>
           )}
         </div>
-        <div style={{ color: '#9ca3af', fontSize: '0.75rem', marginTop: 1 }}>
+        <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginTop: 1 }}>
           {conv.role === 'user' ? `Agent: ${conv.agent?.name}` : `Buyer: ${conv.other_user?.name}`}
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 2 }}>
           <span style={{
-            color: '#6b7280', fontSize: '0.75rem',
+            color: 'var(--text-secondary)', fontSize: '0.75rem',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '85%',
           }}>
             {conv.last_message?.content ?? 'Start a conversation'}
@@ -227,11 +227,11 @@ function ChatView({ conv, appUser, onConvUpdated }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Chat header */}
       <div style={{
-        padding: '14px 18px', borderBottom: '1px solid #374151',
-        background: '#111827', display: 'flex', alignItems: 'center', gap: 10,
+        padding: '14px 18px', borderBottom: '1px solid var(--border-color)',
+        background: 'var(--bg-surface)', display: 'flex', alignItems: 'center', gap: 10,
       }}>
         <div style={{
-          width: 44, height: 44, borderRadius: 10, background: '#374151',
+          width: 44, height: 44, borderRadius: 10, background: 'var(--bg-input)',
           flexShrink: 0, overflow: 'hidden',
           display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem',
         }}>
@@ -240,10 +240,10 @@ function ChatView({ conv, appUser, onConvUpdated }) {
           ) : '🏠'}
         </div>
         <div>
-          <div style={{ color: '#f3f4f6', fontWeight: 700, fontSize: '0.9rem' }}>
+          <div style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.9rem' }}>
             {conv?.property?.title ?? 'Property'}
           </div>
-          <div style={{ color: '#6b7280', fontSize: '0.75rem' }}>
+          <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem' }}>
             {isUser
               ? `Talking to: ${conv?.agent?.name ?? 'Agent'}`
               : `Talking to: ${conv?.other_user?.name ?? 'Buyer'}`}
@@ -261,14 +261,14 @@ function ChatView({ conv, appUser, onConvUpdated }) {
       <div style={{
         flex: 1, overflowY: 'auto', padding: '16px 18px',
         display: 'flex', flexDirection: 'column', gap: 10,
-        background: '#0d1117',
+        background: 'var(--bg-page)',
       }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
             <div className="spinner w-8 h-8" />
           </div>
         ) : messages.length === 0 ? (
-          <div style={{ textAlign: 'center', color: '#4b5563', padding: 40 }}>
+          <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 40 }}>
             <div style={{ fontSize: '2rem', marginBottom: 8 }}>💬</div>
             Send a message to start the conversation
           </div>
@@ -284,15 +284,15 @@ function ChatView({ conv, appUser, onConvUpdated }) {
             >
               <div style={{
                 maxWidth: '72%',
-                background: isMe ? '#1d4ed8' : '#1f2937',
-                color: '#f3f4f6',
+                background: isMe ? '#1d4ed8' : 'var(--bg-input)',
+                color: 'var(--text-primary)',
                 borderRadius: isMe ? '14px 14px 4px 14px' : '14px 14px 14px 4px',
                 padding: '9px 13px',
                 fontSize: '0.87rem',
                 lineHeight: 1.5,
               }}>
                 {msg.content}
-                <div style={{ color: isMe ? '#93c5fd' : '#6b7280', fontSize: '0.68rem', marginTop: 4, textAlign: 'right' }}>
+                <div style={{ color: isMe ? '#93c5fd' : 'var(--text-secondary)', fontSize: '0.68rem', marginTop: 4, textAlign: 'right' }}>
                   {formatTime(msg.ts)}
                 </div>
               </div>
@@ -303,14 +303,14 @@ function ChatView({ conv, appUser, onConvUpdated }) {
         {typing && (
           <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
             <div style={{
-              background: '#1f2937', borderRadius: '14px 14px 14px 4px',
+              background: 'var(--bg-input)', borderRadius: '14px 14px 14px 4px',
               padding: '10px 14px', display: 'flex', gap: 4, alignItems: 'center',
             }}>
               {[0, 1, 2].map(i => (
                 <span
                   key={i}
                   style={{
-                    width: 7, height: 7, borderRadius: '50%', background: '#6b7280',
+                    width: 7, height: 7, borderRadius: '50%', background: 'var(--text-secondary)',
                     animation: 'typing-dot 1.2s infinite',
                     animationDelay: `${i * 0.2}s`,
                   }}
@@ -325,8 +325,8 @@ function ChatView({ conv, appUser, onConvUpdated }) {
 
       {/* Input */}
       <div style={{
-        padding: '12px 16px', borderTop: '1px solid #374151',
-        background: '#111827', display: 'flex', gap: 8, alignItems: 'flex-end',
+        padding: '12px 16px', borderTop: '1px solid var(--border-color)',
+        background: 'var(--bg-surface)', display: 'flex', gap: 8, alignItems: 'flex-end',
       }}>
         <textarea
           value={input}
@@ -335,8 +335,8 @@ function ChatView({ conv, appUser, onConvUpdated }) {
           placeholder="Type a message…"
           rows={1}
           style={{
-            flex: 1, background: '#1f2937', color: '#f3f4f6',
-            border: '1px solid #374151', borderRadius: 10,
+            flex: 1, background: 'var(--bg-input)', color: 'var(--text-primary)',
+            border: '1px solid var(--border-color)', borderRadius: 10,
             padding: '9px 12px', fontSize: '0.88rem', resize: 'none',
             outline: 'none', lineHeight: 1.5,
           }}
@@ -346,7 +346,7 @@ function ChatView({ conv, appUser, onConvUpdated }) {
           onClick={handleSend}
           disabled={!input.trim() || sending}
           style={{
-            background: input.trim() ? '#3b82f6' : '#374151',
+            background: input.trim() ? '#3b82f6' : 'var(--bg-input)',
             color: '#fff', border: 'none', borderRadius: 10,
             width: 40, height: 40, fontSize: '1.1rem', cursor: input.trim() ? 'pointer' : 'not-allowed',
             display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
@@ -441,7 +441,7 @@ export default function PropertyInboxPage() {
 
       {/* ── Navbar ── */}
       <header style={{
-        background: '#111827', borderBottom: '1px solid #1f2937',
+        background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)',
         padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         gap: 12, position: 'sticky', top: 0, zIndex: 100,
       }}>
@@ -450,8 +450,8 @@ export default function PropertyInboxPage() {
             🏠 YOT
           </Link>
           <nav style={{ display: 'flex', gap: 12 }}>
-            <Link to="/" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
-            <Link to="/properties" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Properties</Link>
+            <Link to="/" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
+            <Link to="/properties" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Properties</Link>
             <Link to="/property-inbox" style={{ color: '#3b82f6', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>Inbox</Link>
           </nav>
         </div>
@@ -462,8 +462,8 @@ export default function PropertyInboxPage() {
                 type="button"
                 onClick={() => setProfileOpen(o => !o)}
                 style={{
-                  background: '#1f2937', border: '1px solid #374151', borderRadius: 8,
-                  padding: '6px 12px', color: '#d1d5db', fontSize: '0.82rem', cursor: 'pointer',
+                  background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 8,
+                  padding: '6px 12px', color: 'var(--text-primary)', fontSize: '0.82rem', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
@@ -495,8 +495,8 @@ export default function PropertyInboxPage() {
       {!appUser && !userLoading ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: 40 }}>
           <div style={{ fontSize: '3rem', marginBottom: 16 }}>💬</div>
-          <h2 style={{ color: '#f3f4f6', fontSize: '1.2rem', marginBottom: 8 }}>Property Inbox</h2>
-          <p style={{ color: '#6b7280', marginBottom: 20 }}>Sign in to view your conversations with agents</p>
+          <h2 style={{ color: 'var(--text-primary)', fontSize: '1.2rem', marginBottom: 8 }}>Property Inbox</h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 20 }}>Sign in to view your conversations with agents</p>
           <button
             type="button"
             onClick={() => setShowAuthModal(true)}
@@ -512,16 +512,16 @@ export default function PropertyInboxPage() {
           {/* Left: conversation list */}
           <div style={{
             width: 300, flexShrink: 0,
-            borderRight: '1px solid #1f2937',
-            background: '#111827',
+            borderRight: '1px solid var(--border-color)',
+            background: 'var(--bg-surface)',
             display: 'flex', flexDirection: 'column',
             overflowY: 'auto',
           }}>
-            <div style={{ padding: '14px 16px', borderBottom: '1px solid #1f2937' }}>
-              <h2 style={{ color: '#f3f4f6', fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
+            <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border-color)' }}>
+              <h2 style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
                 Property Inbox
                 {conversations.length > 0 && (
-                  <span style={{ color: '#6b7280', fontWeight: 400, marginLeft: 6, fontSize: '0.82rem' }}>
+                  <span style={{ color: 'var(--text-secondary)', fontWeight: 400, marginLeft: 6, fontSize: '0.82rem' }}>
                     {conversations.length}
                   </span>
                 )}
@@ -533,7 +533,7 @@ export default function PropertyInboxPage() {
                 <div className="spinner w-7 h-7" />
               </div>
             ) : conversations.length === 0 ? (
-              <div style={{ padding: '40px 16px', textAlign: 'center', color: '#4b5563' }}>
+              <div style={{ padding: '40px 16px', textAlign: 'center', color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: '2rem', marginBottom: 8 }}>📭</div>
                 <p style={{ fontSize: '0.85rem' }}>No conversations yet.</p>
                 <Link to="/properties" style={{ color: '#3b82f6', fontSize: '0.82rem' }}>Browse Properties →</Link>
@@ -561,7 +561,7 @@ export default function PropertyInboxPage() {
                 onConvUpdated={loadConversations}
               />
             ) : (
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#4b5563' }}>
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
                 <div style={{ fontSize: '3rem', marginBottom: 12 }}>💬</div>
                 <p style={{ fontSize: '0.9rem' }}>Select a conversation to start chatting</p>
                 <Link to="/properties" style={{ color: '#3b82f6', fontSize: '0.85rem', marginTop: 8 }}>

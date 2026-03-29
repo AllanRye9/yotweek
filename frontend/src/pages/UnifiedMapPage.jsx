@@ -25,10 +25,10 @@ import socket from '../socket'
 
 const PAGE_SIZE = 4
 
-const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b', empty: '#6b7280', occupied: '#ef4444', soon_empty: '#22c55e' }
+const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b', empty: 'var(--text-secondary)', occupied: '#ef4444', soon_empty: '#22c55e' }
 const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented', empty: 'Empty', occupied: 'Occupied', soon_empty: 'Soon Empty' }
 
-const AVAIL_COLOR = { available: '#22c55e', busy: '#f59e0b', offline: '#6b7280' }
+const AVAIL_COLOR = { available: '#22c55e', busy: '#f59e0b', offline: 'var(--text-secondary)' }
 const AVAIL_LABEL = { available: 'Available', busy: 'Busy', offline: 'Offline' }
 
 function _haversineKm(lat1, lng1, lat2, lng2) {
@@ -63,7 +63,7 @@ function DriverCard({ item, isSelected, onClick }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-semibold text-white text-sm truncate">{item.name || 'Driver'}</span>
-            <span className={`text-xs px-1.5 py-0.5 rounded-full`} style={{ background: item.empty !== false ? '#16a34a33' : '#6b728033', color: item.empty !== false ? '#86efac' : '#9ca3af' }}>
+            <span className={`text-xs px-1.5 py-0.5 rounded-full`} style={{ background: item.empty !== false ? '#16a34a33' : '#6b728033', color: item.empty !== false ? '#86efac' : 'var(--text-secondary)' }}>
               {item.empty !== false ? 'Available' : 'Occupied'}
             </span>
           </div>
@@ -82,7 +82,7 @@ function DriverCard({ item, isSelected, onClick }) {
 }
 
 function PropertyCard({ item, isSelected, onClick }) {
-  const color = STATUS_COLOR[item.status] ?? '#6b7280'
+  const color = STATUS_COLOR[item.status] ?? 'var(--text-secondary)'
   const label = STATUS_LABEL[item.status] ?? item.status
   return (
     <button
@@ -133,7 +133,7 @@ function DetailPanel({ item, mode, onClose, onContact }) {
               <h3 className="font-bold text-white text-lg leading-tight">{isProperty ? (item.title || item.address) : (item.name || 'Driver')}</h3>
               {isProperty ? (
                 <div className="text-sm mt-0.5">
-                  <span className="px-2 py-0.5 rounded-full text-xs" style={{ background: (STATUS_COLOR[item.status] ?? '#6b7280') + '33', color: STATUS_COLOR[item.status] ?? '#6b7280' }}>
+                  <span className="px-2 py-0.5 rounded-full text-xs" style={{ background: (STATUS_COLOR[item.status] ?? 'var(--text-secondary)') + '33', color: STATUS_COLOR[item.status] ?? 'var(--text-secondary)' }}>
                     {STATUS_LABEL[item.status] ?? item.status}
                   </span>
                 </div>
@@ -161,7 +161,7 @@ function DetailPanel({ item, mode, onClose, onContact }) {
               {item.seats != null && <p className="flex gap-2"><span>💺</span><span>{item.seats} seat{item.seats !== 1 ? 's' : ''} available</span></p>}
               <p className="flex gap-2">
                 <span>🟢</span>
-                <span style={{ color: item.empty !== false ? '#86efac' : '#9ca3af' }}>
+                <span style={{ color: item.empty !== false ? '#86efac' : 'var(--text-secondary)' }}>
                   {item.empty !== false ? 'Available for rides' : 'Currently occupied'}
                 </span>
               </p>
@@ -357,7 +357,7 @@ export default function UnifiedMapPage() {
       </nav>
 
       {/* Page header */}
-      <div className="bg-gradient-to-b from-gray-900 to-gray-950 border-b border-gray-800 py-4 px-4">
+      <div className="bg-gradient-to-b from-gray-900 to-gray-950 py-4 px-4">
         <div className="max-w-3xl mx-auto flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">

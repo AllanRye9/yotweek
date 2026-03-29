@@ -29,7 +29,7 @@ const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b' }
 const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented' }
 const STATUS_BG    = { active: '#22c55e22', sold: '#ef444422', rented: '#f59e0b22' }
 
-const AVAIL_COLOR = { available: '#22c55e', busy: '#f59e0b', offline: '#6b7280' }
+const AVAIL_COLOR = { available: '#22c55e', busy: '#f59e0b', offline: 'var(--text-secondary)' }
 const AVAIL_LABEL = { available: 'Available', busy: 'Busy', offline: 'Offline' }
 
 function _haversineKm(lat1, lng1, lat2, lng2) {
@@ -46,7 +46,7 @@ function formatPrice(price) {
 }
 
 function _buildMarkerIcon(property, isSelected) {
-  const color  = STATUS_COLOR[property.status] ?? '#6b7280'
+  const color  = STATUS_COLOR[property.status] ?? 'var(--text-secondary)'
   const border = isSelected ? `stroke="#facc15" stroke-width="2.5"` : `stroke="#fff" stroke-width="1.5"`
   const price  = formatPrice(property.price)
   // Pill-shaped price tag
@@ -131,22 +131,22 @@ function PropertyMap({ properties, selectedId, onSelectProperty, userLocation })
 
 function PropertyCard({ property, isSelected, onClick }) {
   const navigate = useNavigate()
-  const color = STATUS_COLOR[property.status] ?? '#6b7280'
+  const color = STATUS_COLOR[property.status] ?? 'var(--text-secondary)'
   return (
     <div
       onClick={onClick}
       className="prop-card-enter prop-card-hover"
       style={{
-        background: isSelected ? '#1e3a5f' : '#1f2937',
-        border: `1.5px solid ${isSelected ? '#3b82f6' : '#374151'}`,
+        background: isSelected ? 'rgba(59,130,246,0.13)' : 'var(--bg-card)',
+        border: `1.5px solid ${isSelected ? '#3b82f6' : 'var(--border-color)'}`,
         borderRadius: 12,
         overflow: 'hidden',
         cursor: 'pointer',
-        boxShadow: isSelected ? '0 0 0 2px #3b82f644' : '0 2px 8px rgba(0,0,0,0.3)',
+        boxShadow: isSelected ? '0 0 0 2px rgba(59,130,246,0.25)' : '0 1px 4px rgba(0,0,0,0.08)',
       }}
     >
       {/* Cover image */}
-      <div style={{ position: 'relative', height: 160, background: '#374151', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: 160, background: 'var(--bg-input)', overflow: 'hidden' }}>
         {property.cover_image ? (
           <img
             src={property.cover_image}
@@ -175,7 +175,7 @@ function PropertyCard({ property, isSelected, onClick }) {
         <span style={{
           position: 'absolute', bottom: 8, left: 8,
           background: 'rgba(0,0,0,0.7)',
-          color: '#f3f4f6',
+          color: 'var(--text-primary)',
           borderRadius: 8,
           padding: '3px 10px',
           fontSize: '0.85rem',
@@ -186,16 +186,16 @@ function PropertyCard({ property, isSelected, onClick }) {
       </div>
 
       <div style={{ padding: '12px 14px 14px' }}>
-        <h3 style={{ color: '#f3f4f6', fontSize: '0.95rem', fontWeight: 700, margin: '0 0 4px', lineHeight: 1.3 }}>
+        <h3 style={{ color: 'var(--text-primary)', fontSize: '0.95rem', fontWeight: 700, margin: '0 0 4px', lineHeight: 1.3 }}>
           {property.title}
         </h3>
         {property.address && (
-          <p style={{ color: '#9ca3af', fontSize: '0.78rem', margin: '0 0 8px' }}>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '0 0 8px' }}>
             📍 {property.address}
           </p>
         )}
         {property.description && (
-          <p style={{ color: '#d1d5db', fontSize: '0.8rem', margin: '0 0 10px', lineHeight: 1.5,
+          <p style={{ color: 'var(--text-primary)', fontSize: '0.8rem', margin: '0 0 10px', lineHeight: 1.5,
             display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
             {property.description}
           </p>
@@ -220,11 +220,11 @@ function PropertyCard({ property, isSelected, onClick }) {
 
 function PropertyPreviewCard({ property, onClose, onViewDetail }) {
   if (!property) return null
-  const color = STATUS_COLOR[property.status] ?? '#6b7280'
+  const color = STATUS_COLOR[property.status] ?? 'var(--text-secondary)'
   return (
     <div style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-      background: '#1f2937', border: '1.5px solid #374151', borderRadius: 12,
+      background: 'var(--bg-input)', border: '1.5px solid var(--border-color)', borderRadius: 12,
       boxShadow: '0 8px 30px rgba(0,0,0,0.6)', zIndex: 900,
       width: 'min(360px, calc(100% - 32px))',
       padding: '14px 16px',
@@ -234,8 +234,8 @@ function PropertyPreviewCard({ property, onClose, onViewDetail }) {
         onClick={onClose}
         style={{
           position: 'absolute', top: 10, right: 12,
-          background: '#374151', border: 'none', borderRadius: '50%',
-          width: 26, height: 26, color: '#9ca3af', cursor: 'pointer',
+          background: 'var(--bg-input)', border: 'none', borderRadius: '50%',
+          width: 26, height: 26, color: 'var(--text-secondary)', cursor: 'pointer',
           fontSize: '0.85rem', fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}
@@ -250,7 +250,7 @@ function PropertyPreviewCard({ property, onClose, onViewDetail }) {
         )}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-            <span style={{ color: '#f3f4f6', fontWeight: 700, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {property.title}
             </span>
           </div>
@@ -258,7 +258,7 @@ function PropertyPreviewCard({ property, onClose, onViewDetail }) {
             {formatPrice(property.price)}
           </div>
           {property.address && (
-            <div style={{ color: '#9ca3af', fontSize: '0.75rem', marginBottom: 8 }}>📍 {property.address}</div>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: 8 }}>📍 {property.address}</div>
           )}
           <button
             type="button"
@@ -307,7 +307,7 @@ function NearestAgentsPanel({ userLocation }) {
 
   return (
     <div>
-      <h3 style={{ color: '#d1d5db', fontSize: '0.9rem', fontWeight: 700, margin: '0 0 10px' }}>
+      <h3 style={{ color: 'var(--text-primary)', fontSize: '0.9rem', fontWeight: 700, margin: '0 0 10px' }}>
         🧑‍💼 Nearest Agents
       </h3>
       {loading ? (
@@ -315,18 +315,18 @@ function NearestAgentsPanel({ userLocation }) {
           <div className="spinner w-6 h-6" />
         </div>
       ) : sorted.length === 0 ? (
-        <div style={{ color: '#4b5563', fontSize: '0.78rem', textAlign: 'center', padding: '16px 0' }}>
+        <div style={{ color: 'var(--text-muted)', fontSize: '0.78rem', textAlign: 'center', padding: '16px 0' }}>
           No agents available.
         </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {sorted.slice(0, 6).map(a => (
             <div key={a.agent_id ?? a.id} style={{
-              background: '#1f2937', border: '1px solid #374151', borderRadius: 10,
+              background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 10,
               padding: '10px 12px', display: 'flex', alignItems: 'center', gap: 10,
             }}>
               <div style={{
-                width: 38, height: 38, borderRadius: '50%', background: '#374151',
+                width: 38, height: 38, borderRadius: '50%', background: 'var(--bg-input)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '1.3rem', flexShrink: 0, position: 'relative',
               }}>
@@ -334,19 +334,19 @@ function NearestAgentsPanel({ userLocation }) {
                 <span style={{
                   position: 'absolute', bottom: 0, right: 0,
                   width: 10, height: 10, borderRadius: '50%',
-                  background: AVAIL_COLOR[a.availability_status] ?? '#6b7280',
-                  border: '2px solid #1f2937',
+                  background: AVAIL_COLOR[a.availability_status] ?? 'var(--text-secondary)',
+                  border: '2px solid var(--border-color)',
                 }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: '#f3f4f6', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ color: 'var(--text-primary)', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {a.name}
                 </div>
-                <div style={{ color: AVAIL_COLOR[a.availability_status] ?? '#6b7280', fontSize: '0.72rem', fontWeight: 600 }}>
+                <div style={{ color: AVAIL_COLOR[a.availability_status] ?? 'var(--text-secondary)', fontSize: '0.72rem', fontWeight: 600 }}>
                   {AVAIL_LABEL[a.availability_status] ?? a.availability_status}
                 </div>
                 {a._dist != null && (
-                  <div style={{ color: '#6b7280', fontSize: '0.7rem' }}>📍 {a._dist.toFixed(1)} km</div>
+                  <div style={{ color: 'var(--text-secondary)', fontSize: '0.7rem' }}>📍 {a._dist.toFixed(1)} km</div>
                 )}
               </div>
             </div>
@@ -432,7 +432,7 @@ export default function PropertiesPage() {
   }, [])
 
   return (
-    <div style={{ minHeight: '100vh', background: '#030712', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ minHeight: '100vh', background: 'var(--bg-page)', display: 'flex', flexDirection: 'column' }}>
       {showAuthModal && !appUser && (
         <UserAuth
           onSuccess={u => { setAppUser(u); setShowAuthModal(false) }}
@@ -442,8 +442,8 @@ export default function PropertiesPage() {
 
       {/* ── Navbar ── */}
       <header style={{
-        background: '#111827',
-        borderBottom: '1px solid #1f2937',
+        background: 'var(--bg-surface)',
+        borderBottom: '1px solid var(--border-color)',
         padding: '12px 20px',
         display: 'flex',
         alignItems: 'center',
@@ -458,9 +458,9 @@ export default function PropertiesPage() {
             🏠 YOT
           </Link>
           <nav style={{ display: 'flex', gap: 12 }}>
-            <Link to="/" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
+            <Link to="/" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
             <Link to="/properties" style={{ color: '#3b82f6', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>Properties</Link>
-            <Link to="/property-inbox" style={{ color: '#9ca3af', fontSize: '0.85rem', textDecoration: 'none' }}>Inbox</Link>
+            <Link to="/property-inbox" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Inbox</Link>
           </nav>
         </div>
         <div ref={profileRef} style={{ position: 'relative' }}>
@@ -470,8 +470,8 @@ export default function PropertiesPage() {
                 type="button"
                 onClick={() => setProfileOpen(o => !o)}
                 style={{
-                  background: '#1f2937', border: '1px solid #374151', borderRadius: 8,
-                  padding: '6px 12px', color: '#d1d5db', fontSize: '0.82rem', cursor: 'pointer',
+                  background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 8,
+                  padding: '6px 12px', color: 'var(--text-primary)', fontSize: '0.82rem', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', gap: 6,
                 }}
               >
@@ -505,10 +505,10 @@ export default function PropertiesPage() {
       </header>
 
       {/* ── Page header ── */}
-      <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12, borderBottom: '1px solid #1f2937' }}>
+      <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h1 style={{ color: '#f3f4f6', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>🏠 Property Discovery</h1>
-          <p style={{ color: '#6b7280', fontSize: '0.82rem', margin: '2px 0 0' }}>
+          <h1 style={{ color: 'var(--text-primary)', fontSize: '1.4rem', fontWeight: 800, margin: 0 }}>🏠 Property Discovery</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', margin: '2px 0 0' }}>
             {properties.length} propert{properties.length !== 1 ? 'ies' : 'y'} found
           </p>
         </div>
@@ -518,7 +518,7 @@ export default function PropertiesPage() {
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
             style={{
-              background: '#1f2937', color: '#d1d5db', border: '1px solid #374151',
+              background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)',
               borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', cursor: 'pointer',
             }}
           >
@@ -558,14 +558,14 @@ export default function PropertiesPage() {
           className={`prop-left-sidebar${mobileTab !== 'list' ? ' prop-panel-hidden-mobile' : ''}`}
           style={{
             width: 280, flexShrink: 0,
-            borderRight: '1px solid #1f2937',
+            borderRight: '1px solid var(--border-color)',
             overflowY: 'auto',
-            background: '#111827',
+            background: 'var(--bg-surface)',
             display: 'flex', flexDirection: 'column',
           }}
         >
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-            <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📋 Available Properties</div>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 700 }}>📋 Available Properties</div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>
             {loading ? (
@@ -573,7 +573,7 @@ export default function PropertiesPage() {
                 <div className="spinner w-7 h-7" />
               </div>
             ) : properties.length === 0 ? (
-              <div style={{ color: '#4b5563', textAlign: 'center', padding: '24px 8px', fontSize: '0.82rem' }}>
+              <div style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 8px', fontSize: '0.82rem' }}>
                 No properties found.
               </div>
             ) : (
@@ -614,14 +614,14 @@ export default function PropertiesPage() {
           className={`prop-right-sidebar${mobileTab !== 'agents' ? ' prop-panel-hidden-mobile' : ''}`}
           style={{
             width: 280, flexShrink: 0,
-            borderLeft: '1px solid #1f2937',
+            borderLeft: '1px solid var(--border-color)',
             overflowY: 'auto',
-            background: '#111827',
+            background: 'var(--bg-surface)',
             display: 'flex', flexDirection: 'column',
           }}
         >
-          <div style={{ padding: '12px 14px', borderBottom: '1px solid #1f2937' }}>
-            <div style={{ color: '#d1d5db', fontSize: '0.85rem', fontWeight: 700 }}>📊 Nearest Agents</div>
+          <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border-color)' }}>
+            <div style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 700 }}>📊 Nearest Agents</div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 10px' }}>
             <NearestAgentsPanel userLocation={userLocation} />

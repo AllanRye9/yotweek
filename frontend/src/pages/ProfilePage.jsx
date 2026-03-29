@@ -52,7 +52,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="profile-page min-h-screen" style={{ background: '#030712', display: 'flex', flexDirection: 'column' }}>
+    <div className="profile-page min-h-screen" style={{ background: 'var(--bg-page)', display: 'flex', flexDirection: 'column' }}>
       {/* Auth modal */}
       {showAuth && !appUser && (
         <UserAuth
