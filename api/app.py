@@ -868,9 +868,59 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS broadcasts (
+                        id SERIAL PRIMARY KEY,
+                        broadcast_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        poster_name TEXT NOT NULL,
+                        seats INTEGER NOT NULL DEFAULT 1,
+                        waiting_time TEXT NOT NULL,
+                        start_destination TEXT NOT NULL,
+                        end_destination TEXT NOT NULL,
+                        start_lat REAL,
+                        start_lng REAL,
+                        end_lat REAL,
+                        end_lng REAL,
+                        fare REAL,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS bookings (
+                        id SERIAL PRIMARY KEY,
+                        booking_id TEXT UNIQUE NOT NULL,
+                        broadcast_id TEXT NOT NULL,
+                        passenger_id TEXT NOT NULL,
+                        passenger_name TEXT NOT NULL,
+                        seats INTEGER NOT NULL DEFAULT 1,
+                        amount REAL NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS receipts (
+                        id SERIAL PRIMARY KEY,
+                        receipt_id TEXT UNIQUE NOT NULL,
+                        booking_id TEXT NOT NULL,
+                        broadcast_id TEXT NOT NULL,
+                        passenger_id TEXT NOT NULL,
+                        passenger_name TEXT NOT NULL,
+                        driver_id TEXT NOT NULL,
+                        driver_name TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        transaction_id TEXT NOT NULL,
+                        start_destination TEXT NOT NULL,
+                        end_destination TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1092,9 +1142,53 @@ def init_db():
                         status TEXT NOT NULL DEFAULT 'pending',
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS broadcasts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        broadcast_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        poster_name TEXT NOT NULL,
+                        seats INTEGER NOT NULL DEFAULT 1,
+                        waiting_time TEXT NOT NULL,
+                        start_destination TEXT NOT NULL,
+                        end_destination TEXT NOT NULL,
+                        start_lat REAL,
+                        start_lng REAL,
+                        end_lat REAL,
+                        end_lng REAL,
+                        fare REAL,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TEXT NOT NULL,
+                        expires_at TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS bookings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        booking_id TEXT UNIQUE NOT NULL,
+                        broadcast_id TEXT NOT NULL,
+                        passenger_id TEXT NOT NULL,
+                        passenger_name TEXT NOT NULL,
+                        seats INTEGER NOT NULL DEFAULT 1,
+                        amount REAL NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS receipts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        receipt_id TEXT UNIQUE NOT NULL,
+                        booking_id TEXT NOT NULL,
+                        broadcast_id TEXT NOT NULL,
+                        passenger_id TEXT NOT NULL,
+                        passenger_name TEXT NOT NULL,
+                        driver_id TEXT NOT NULL,
+                        driver_name TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        transaction_id TEXT NOT NULL,
+                        start_destination TEXT NOT NULL,
+                        end_destination TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''")]:
                     try:
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -7107,14 +7201,14 @@ def _get_app_user(user_id: str) -> dict | None:
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties FROM app_users WHERE user_id=%s", (user_id,))
+                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone FROM app_users WHERE user_id=%s", (user_id,))
                 row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties FROM app_users WHERE user_id=?", (user_id,))
+                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone FROM app_users WHERE user_id=?", (user_id,))
                 row = cur.fetchone()
             if row is None:
                 return None
-            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties"]
+            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties", "phone"]
             return dict(zip(keys, row))
         finally:
             conn.close()
@@ -11354,6 +11448,732 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
 async def internal_error(request: Request, exc):
     logger.error(f"Internal error: {exc}")
     return JSONResponse({"error": "Internal server error"}, status_code=500)
+
+# =========================================================
+# BROADCAST MODULE
+# =========================================================
+
+_VALID_WAITING_TIMES = ("Leave now", "15 min", "30 min", "1 hour")
+
+class _BroadcastPostRequest(BaseModel):
+    seats: int
+    waiting_time: str
+    start_destination: str
+    end_destination: str
+    start_lat: float | None = None
+    start_lng: float | None = None
+    end_lat: float | None = None
+    end_lng: float | None = None
+    fare: float | None = None
+
+
+class _BroadcastUpdateRequest(BaseModel):
+    seats: int | None = None
+    waiting_time: str | None = None
+    fare: float | None = None
+
+
+class _BookingPayRequest(BaseModel):
+    pass  # future: payment gateway token
+
+
+@fastapi_app.post("/api/broadcasts")
+async def api_broadcast_post(request: Request, body: _BroadcastPostRequest):
+    """Post a new ride broadcast. Any logged-in user may broadcast."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required to post a broadcast."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    if body.seats < 1 or body.seats > 8:
+        return JSONResponse({"error": "Seats must be between 1 and 8."}, status_code=400)
+
+    if body.waiting_time not in _VALID_WAITING_TIMES:
+        return JSONResponse(
+            {"error": f"waiting_time must be one of: {', '.join(_VALID_WAITING_TIMES)}."},
+            status_code=400,
+        )
+
+    start = body.start_destination.strip()
+    end = body.end_destination.strip()
+    if not start or not end:
+        return JSONResponse({"error": "start_destination and end_destination are required."}, status_code=400)
+
+    # Auto-calculate fare from distance if coordinates provided and fare not given
+    fare = body.fare
+    if fare is None and body.start_lat is not None and body.end_lat is not None:
+        dist_km = _haversine_km(body.start_lat, body.start_lng, body.end_lat, body.end_lng)
+        fare = round(dist_km * _FARE_PER_KM, 2)
+
+    # Calculate expiry based on waiting_time
+    _waiting_time_minutes = {"Leave now": 0, "15 min": 15, "30 min": 30, "1 hour": 60}
+    minutes = _waiting_time_minutes[body.waiting_time]
+    now = datetime.now(timezone.utc)
+    expires_at = (now + timedelta(minutes=minutes)).isoformat() if minutes > 0 else now.isoformat()
+    created_at = now.isoformat()
+    broadcast_id = str(uuid.uuid4())
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO broadcasts (broadcast_id,user_id,poster_name,seats,waiting_time,
+                       start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,
+                       status,created_at,expires_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active',%s,%s)""",
+                    (broadcast_id, user_id, user["name"], body.seats, body.waiting_time,
+                     start, end, body.start_lat, body.start_lng, body.end_lat, body.end_lng,
+                     fare, created_at, expires_at),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO broadcasts (broadcast_id,user_id,poster_name,seats,waiting_time,
+                       start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,
+                       status,created_at,expires_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'active',?,?)""",
+                    (broadcast_id, user_id, user["name"], body.seats, body.waiting_time,
+                     start, end, body.start_lat, body.start_lng, body.end_lat, body.end_lng,
+                     fare, created_at, expires_at),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    broadcast_data = {
+        "broadcast_id": broadcast_id,
+        "user_id": user_id,
+        "poster_name": user["name"],
+        "seats": body.seats,
+        "waiting_time": body.waiting_time,
+        "start_destination": start,
+        "end_destination": end,
+        "start_lat": body.start_lat,
+        "start_lng": body.start_lng,
+        "end_lat": body.end_lat,
+        "end_lng": body.end_lng,
+        "fare": fare,
+        "per_seat_cost": round(fare / body.seats, 2) if fare is not None else None,
+        "status": "active",
+        "created_at": created_at,
+        "expires_at": expires_at,
+    }
+
+    _bucket_write_json("broadcasts", "broadcast", broadcast_id, broadcast_data)
+
+    return JSONResponse({"ok": True, "broadcast_id": broadcast_id}, status_code=201)
+
+
+@fastapi_app.get("/api/broadcasts")
+async def api_broadcasts_list(request: Request, status: str | None = None, mine: bool = False):
+    """List broadcasts. Optionally filter by status (active/expired/filled) or own broadcasts."""
+    user_id = request.session.get("app_user_id")
+
+    _valid_statuses = ("active", "expired", "filled")
+    if status and status not in _valid_statuses:
+        return JSONResponse({"error": f"status must be one of: {', '.join(_valid_statuses)}."},
+                            status_code=400)
+
+    # Auto-expire broadcasts whose expires_at is in the past
+    _expire_stale_broadcasts()
+
+    cols = ["broadcast_id", "user_id", "poster_name", "seats", "waiting_time",
+            "start_destination", "end_destination", "start_lat", "start_lng",
+            "end_lat", "end_lng", "fare", "status", "created_at", "expires_at"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if mine and user_id:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    if status:
+                        cur.execute(
+                            "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE user_id=%s AND status=%s ORDER BY created_at DESC",
+                            (user_id, status),
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE user_id=%s ORDER BY created_at DESC",
+                            (user_id,),
+                        )
+                else:
+                    if status:
+                        cur = conn.execute(
+                            "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE user_id=? AND status=? ORDER BY created_at DESC",
+                            (user_id, status),
+                        )
+                    else:
+                        cur = conn.execute(
+                            "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE user_id=? ORDER BY created_at DESC",
+                            (user_id,),
+                        )
+            else:
+                filter_status = status or "active"
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE status=%s ORDER BY created_at DESC LIMIT 200",
+                        (filter_status,),
+                    )
+                else:
+                    cur = conn.execute(
+                        "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE status=? ORDER BY created_at DESC LIMIT 200",
+                        (filter_status,),
+                    )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    broadcasts = []
+    for row in rows:
+        b = dict(zip(cols, row))
+        if b["fare"] is not None and b["seats"] and b["seats"] > 0:
+            b["per_seat_cost"] = round(b["fare"] / b["seats"], 2)
+        else:
+            b["per_seat_cost"] = None
+        broadcasts.append(b)
+
+    return JSONResponse({"broadcasts": broadcasts})
+
+
+@fastapi_app.get("/api/broadcasts/{broadcast_id}")
+async def api_broadcast_get(broadcast_id: str):
+    """Get a single broadcast by ID."""
+    cols = ["broadcast_id", "user_id", "poster_name", "seats", "waiting_time",
+            "start_destination", "end_destination", "start_lat", "start_lng",
+            "end_lat", "end_lng", "fare", "status", "created_at", "expires_at"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE broadcast_id=%s",
+                    (broadcast_id,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT broadcast_id,user_id,poster_name,seats,waiting_time,start_destination,end_destination,start_lat,start_lng,end_lat,end_lng,fare,status,created_at,expires_at FROM broadcasts WHERE broadcast_id=?",
+                    (broadcast_id,),
+                )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"error": "Broadcast not found."}, status_code=404)
+
+    b = dict(zip(cols, row))
+    if b["fare"] is not None and b["seats"] and b["seats"] > 0:
+        b["per_seat_cost"] = round(b["fare"] / b["seats"], 2)
+    else:
+        b["per_seat_cost"] = None
+    return JSONResponse({"broadcast": b})
+
+
+@fastapi_app.put("/api/broadcasts/{broadcast_id}")
+async def api_broadcast_update(request: Request, broadcast_id: str, body: _BroadcastUpdateRequest):
+    """Update a broadcast (owner only). Can update seats, waiting_time, or fare."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, status FROM broadcasts WHERE broadcast_id=%s", (broadcast_id,))
+            else:
+                cur = conn.execute("SELECT user_id, status FROM broadcasts WHERE broadcast_id=?", (broadcast_id,))
+            row = cur.fetchone()
+            if row is None:
+                conn.close()
+                return JSONResponse({"error": "Broadcast not found."}, status_code=404)
+            owner_id, current_status = row
+            if owner_id != user_id:
+                conn.close()
+                return JSONResponse({"error": "Not the broadcast owner."}, status_code=403)
+            if current_status not in ("active",):
+                conn.close()
+                return JSONResponse({"error": "Only active broadcasts can be updated."}, status_code=400)
+
+            updates = {}
+            if body.seats is not None:
+                if body.seats < 1 or body.seats > 8:
+                    conn.close()
+                    return JSONResponse({"error": "Seats must be between 1 and 8."}, status_code=400)
+                updates["seats"] = body.seats
+            if body.waiting_time is not None:
+                if body.waiting_time not in _VALID_WAITING_TIMES:
+                    conn.close()
+                    return JSONResponse(
+                        {"error": f"waiting_time must be one of: {', '.join(_VALID_WAITING_TIMES)}."},
+                        status_code=400,
+                    )
+                updates["waiting_time"] = body.waiting_time
+                # Recalculate expires_at
+                _waiting_time_minutes = {"Leave now": 0, "15 min": 15, "30 min": 30, "1 hour": 60}
+                minutes = _waiting_time_minutes[body.waiting_time]
+                now = datetime.now(timezone.utc)
+                updates["expires_at"] = (now + timedelta(minutes=minutes)).isoformat() if minutes > 0 else now.isoformat()
+            if body.fare is not None:
+                updates["fare"] = round(body.fare, 2)
+
+            if not updates:
+                conn.close()
+                return JSONResponse({"ok": True})
+
+            if USE_POSTGRES:
+                set_clause = ", ".join(f"{k}=%s" for k in updates)
+                cur.execute(f"UPDATE broadcasts SET {set_clause} WHERE broadcast_id=%s",
+                            (*updates.values(), broadcast_id))
+            else:
+                set_clause = ", ".join(f"{k}=?" for k in updates)
+                conn.execute(f"UPDATE broadcasts SET {set_clause} WHERE broadcast_id=?",
+                             (*updates.values(), broadcast_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.delete("/api/broadcasts/{broadcast_id}")
+async def api_broadcast_delete(request: Request, broadcast_id: str):
+    """Cancel (delete) a broadcast. Only the owner can cancel it."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM broadcasts WHERE broadcast_id=%s", (broadcast_id,))
+            else:
+                cur = conn.execute("SELECT user_id FROM broadcasts WHERE broadcast_id=?", (broadcast_id,))
+            row = cur.fetchone()
+            if row is None:
+                conn.close()
+                return JSONResponse({"error": "Broadcast not found."}, status_code=404)
+            if row[0] != user_id:
+                conn.close()
+                return JSONResponse({"error": "Not the broadcast owner."}, status_code=403)
+
+            if USE_POSTGRES:
+                cur.execute("UPDATE broadcasts SET status='expired' WHERE broadcast_id=%s", (broadcast_id,))
+            else:
+                conn.execute("UPDATE broadcasts SET status='expired' WHERE broadcast_id=?", (broadcast_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
+# ── Booking & Payment ──────────────────────────────────────────────────────────
+
+@fastapi_app.post("/api/broadcasts/{broadcast_id}/book")
+async def api_broadcast_book(request: Request, broadcast_id: str):
+    """Book a seat on a broadcast ride. Returns booking_id and fare details."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    cols = ["broadcast_id", "user_id", "poster_name", "seats", "fare", "status",
+            "start_destination", "end_destination"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT broadcast_id,user_id,poster_name,seats,fare,status,start_destination,end_destination FROM broadcasts WHERE broadcast_id=%s",
+                    (broadcast_id,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT broadcast_id,user_id,poster_name,seats,fare,status,start_destination,end_destination FROM broadcasts WHERE broadcast_id=?",
+                    (broadcast_id,),
+                )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"error": "Broadcast not found."}, status_code=404)
+
+    bcast = dict(zip(cols, row))
+    if bcast["status"] != "active":
+        return JSONResponse({"error": "This broadcast is no longer active."}, status_code=400)
+    if bcast["user_id"] == user_id:
+        return JSONResponse({"error": "You cannot book your own broadcast."}, status_code=400)
+
+    # Calculate per-seat cost based on current bookings
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT COUNT(*) FROM bookings WHERE broadcast_id=%s AND status IN ('pending','paid')",
+                    (broadcast_id,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT COUNT(*) FROM bookings WHERE broadcast_id=? AND status IN ('pending','paid')",
+                    (broadcast_id,),
+                )
+            booked_count = (cur.fetchone() or [0])[0]
+        finally:
+            conn.close()
+
+    total_seats = bcast["seats"]
+    if booked_count >= total_seats:
+        return JSONResponse({"error": "No seats available on this broadcast."}, status_code=400)
+
+    fare = bcast["fare"] or 0.0
+    # Per-seat cost: total fare ÷ total seats (shared cost model)
+    if total_seats <= 0:
+        return JSONResponse({"error": "This broadcast has no available seats."}, status_code=400)
+    per_seat_cost = round(fare / total_seats, 2)
+    # Dynamic adjustment if not all seats fill: total/current_bookers+1
+    current_passengers = booked_count + 1
+    dynamic_cost = round(fare / current_passengers, 2)
+
+    booking_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO bookings (booking_id,broadcast_id,passenger_id,passenger_name,seats,amount,status,created_at)
+                       VALUES (%s,%s,%s,%s,1,%s,'pending',%s)""",
+                    (booking_id, broadcast_id, user_id, user["name"], per_seat_cost, created_at),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO bookings (booking_id,broadcast_id,passenger_id,passenger_name,seats,amount,status,created_at)
+                       VALUES (?,?,?,?,1,?,'pending',?)""",
+                    (booking_id, broadcast_id, user_id, user["name"], per_seat_cost, created_at),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({
+        "ok": True,
+        "booking_id": booking_id,
+        "per_seat_cost": per_seat_cost,
+        "dynamic_cost": dynamic_cost,
+        "total_fare": round(fare, 2),
+        "total_seats": total_seats,
+        "message": (
+            f"If all seats fill, your cost is ${per_seat_cost:.2f}. "
+            f"If only {current_passengers} seat(s) fill, your cost adjusts to ${dynamic_cost:.2f}. "
+            "You will be notified before departure."
+        ),
+    }, status_code=201)
+
+
+@fastapi_app.post("/api/bookings/{booking_id}/pay")
+async def api_booking_pay(request: Request, booking_id: str):
+    """Process payment for a booking and generate a receipt."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    booking_cols = ["booking_id", "broadcast_id", "passenger_id", "passenger_name", "amount", "status"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT booking_id,broadcast_id,passenger_id,passenger_name,amount,status FROM bookings WHERE booking_id=%s",
+                    (booking_id,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT booking_id,broadcast_id,passenger_id,passenger_name,amount,status FROM bookings WHERE booking_id=?",
+                    (booking_id,),
+                )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"error": "Booking not found."}, status_code=404)
+
+    booking = dict(zip(booking_cols, row))
+    if booking["passenger_id"] != user_id:
+        return JSONResponse({"error": "Not your booking."}, status_code=403)
+    if booking["status"] != "pending":
+        return JSONResponse({"error": "Booking is not in pending state."}, status_code=400)
+
+    # Fetch broadcast details for receipt
+    bcast_cols = ["broadcast_id", "user_id", "poster_name", "start_destination", "end_destination"]
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT broadcast_id,user_id,poster_name,start_destination,end_destination FROM broadcasts WHERE broadcast_id=%s",
+                    (booking["broadcast_id"],),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT broadcast_id,user_id,poster_name,start_destination,end_destination FROM broadcasts WHERE broadcast_id=?",
+                    (booking["broadcast_id"],),
+                )
+            brow = cur.fetchone()
+        finally:
+            conn.close()
+
+    if brow is None:
+        return JSONResponse({"error": "Associated broadcast not found."}, status_code=404)
+
+    bcast = dict(zip(bcast_cols, brow))
+
+    # Mark booking as paid
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE bookings SET status='paid' WHERE booking_id=%s", (booking_id,))
+            else:
+                conn.execute("UPDATE bookings SET status='paid' WHERE booking_id=?", (booking_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    # Generate receipt
+    receipt_id = str(uuid.uuid4())
+    transaction_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """INSERT INTO receipts (receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    (receipt_id, booking_id, booking["broadcast_id"],
+                     user_id, booking["passenger_name"],
+                     bcast["user_id"], bcast["poster_name"],
+                     booking["amount"], transaction_id,
+                     bcast["start_destination"], bcast["end_destination"], created_at),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO receipts (receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (receipt_id, booking_id, booking["broadcast_id"],
+                     user_id, booking["passenger_name"],
+                     bcast["user_id"], bcast["poster_name"],
+                     booking["amount"], transaction_id,
+                     bcast["start_destination"], bcast["end_destination"], created_at),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    receipt_data = {
+        "receipt_id": receipt_id,
+        "booking_id": booking_id,
+        "broadcast_id": booking["broadcast_id"],
+        "passenger_id": user_id,
+        "passenger_name": booking["passenger_name"],
+        "driver_id": bcast["user_id"],
+        "driver_name": bcast["poster_name"],
+        "amount": booking["amount"],
+        "transaction_id": transaction_id,
+        "start_destination": bcast["start_destination"],
+        "end_destination": bcast["end_destination"],
+        "created_at": created_at,
+    }
+
+    _bucket_write_json("receipts", "receipt", receipt_id, receipt_data)
+
+    return JSONResponse({"ok": True, "receipt_id": receipt_id, "receipt": receipt_data}, status_code=201)
+
+
+@fastapi_app.get("/api/receipts")
+async def api_get_receipts(request: Request):
+    """Get all receipts for the logged-in user (as passenger or driver)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    cols = ["receipt_id", "booking_id", "broadcast_id", "passenger_id", "passenger_name",
+            "driver_id", "driver_name", "amount", "transaction_id",
+            "start_destination", "end_destination", "created_at"]
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at FROM receipts WHERE passenger_id=%s OR driver_id=%s ORDER BY created_at DESC",
+                    (user_id, user_id),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at FROM receipts WHERE passenger_id=? OR driver_id=? ORDER BY created_at DESC",
+                    (user_id, user_id),
+                )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    receipts = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({"receipts": receipts})
+
+
+# ── Phone profile update ───────────────────────────────────────────────────────
+
+class _UserPhoneUpdate(BaseModel):
+    phone: str
+
+
+@fastapi_app.put("/api/auth/profile/phone")
+async def api_user_update_phone(request: Request, body: _UserPhoneUpdate):
+    """Update the logged-in user's phone / WhatsApp number."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    phone = body.phone.strip()
+    if not phone:
+        return JSONResponse({"error": "Phone number cannot be empty."}, status_code=400)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE app_users SET phone=%s WHERE user_id=%s", (phone, user_id))
+            else:
+                conn.execute("UPDATE app_users SET phone=? WHERE user_id=?", (phone, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
+# ── Auto-populated contact template ───────────────────────────────────────────
+
+@fastapi_app.get("/api/broadcasts/{broadcast_id}/contact_template")
+async def api_broadcast_contact_template(request: Request, broadcast_id: str):
+    """Return a pre-filled message template for contacting the broadcast poster.
+
+    Requires the requesting user to have a phone number and location set.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    missing = []
+    if not user.get("phone"):
+        missing.append("phone number")
+    if user.get("location_lat") is None:
+        missing.append("current location")
+    if missing:
+        return JSONResponse(
+            {"error": f"Please complete your {' and '.join(missing)} in your profile before contacting a driver."},
+            status_code=400,
+        )
+
+    cols = ["broadcast_id", "poster_name", "start_destination", "end_destination"]
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT broadcast_id,poster_name,start_destination,end_destination FROM broadcasts WHERE broadcast_id=%s",
+                    (broadcast_id,),
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT broadcast_id,poster_name,start_destination,end_destination FROM broadcasts WHERE broadcast_id=?",
+                    (broadcast_id,),
+                )
+            row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"error": "Broadcast not found."}, status_code=404)
+
+    bcast = dict(zip(cols, row))
+    location_str = user.get("location_name") or f"{user['location_lat']:.4f},{user['location_lng']:.4f}"
+
+    message = (
+        f"Hi {bcast['poster_name']}, I need an airport pickup from "
+        f"{bcast['start_destination']} to {bcast['end_destination']}. "
+        f"Please find my details below:\n"
+        f"Name: {user['name']}\n"
+        f"Contact: {user['phone']}\n"
+        f"Current Location: {location_str}\n"
+        f"Are you available?"
+    )
+
+    return JSONResponse({
+        "template": message,
+        "name": user["name"],
+        "phone": user["phone"],
+        "location": location_str,
+    })
+
+
+def _expire_stale_broadcasts():
+    """Mark broadcasts as 'expired' if their expires_at timestamp has passed."""
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "UPDATE broadcasts SET status='expired' WHERE status='active' AND expires_at <= %s",
+                    (now,),
+                )
+            else:
+                conn.execute(
+                    "UPDATE broadcasts SET status='expired' WHERE status='active' AND expires_at <= ?",
+                    (now,),
+                )
+            conn.commit()
+        finally:
+            conn.close()
 
 # =========================================================
 # ENTRY POINT

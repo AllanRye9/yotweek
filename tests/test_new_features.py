@@ -3815,3 +3815,506 @@ class TestAgentApplications:
             full_name="Bucket Test Agent", email="bucket@x.com", license_number="LIC-B"
         )))
         assert "agent_reg/pending" in calls
+
+
+# ---------------------------------------------------------------------------
+# Broadcast API
+# ---------------------------------------------------------------------------
+
+class TestBroadcastPost:
+    def test_requires_login(self):
+        """POST /api/broadcasts without login → 401."""
+        from api.app import api_broadcast_post, _BroadcastPostRequest
+        req = _make_request({})
+        resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="15 min",
+            start_destination="Airport", end_destination="City Centre",
+        )))
+        assert resp.status_code == 401
+
+    def test_invalid_seats(self):
+        """POST /api/broadcasts with seats > 8 → 400."""
+        import json
+        from api.app import api_broadcast_post, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastSeats")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=10, waiting_time="15 min",
+            start_destination="A", end_destination="B",
+        )))
+        assert resp.status_code == 400
+
+    def test_invalid_waiting_time(self):
+        """POST /api/broadcasts with invalid waiting_time → 400."""
+        from api.app import api_broadcast_post, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastWT")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="2 hours",
+            start_destination="A", end_destination="B",
+        )))
+        assert resp.status_code == 400
+
+    def test_post_ok(self):
+        """POST /api/broadcasts with valid data → 201 with broadcast_id."""
+        import json
+        from api.app import api_broadcast_post, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastOK")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=3, waiting_time="30 min",
+            start_destination="Airport Terminal 1", end_destination="Downtown Hotel",
+        )))
+        assert resp.status_code == 201
+        data = json.loads(resp.body)
+        assert data["ok"] is True
+        assert "broadcast_id" in data
+
+    def test_fare_auto_calculated(self):
+        """POST /api/broadcasts with coordinates auto-calculates fare."""
+        import json
+        from api.app import api_broadcast_post, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastFare")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="Start", end_destination="End",
+            start_lat=0.0, start_lng=0.0, end_lat=0.0, end_lng=1.0,
+        )))
+        assert resp.status_code == 201
+        bid = json.loads(resp.body)["broadcast_id"]
+        from api.app import api_broadcast_get
+        get_resp = run(api_broadcast_get(bid))
+        b = json.loads(get_resp.body)["broadcast"]
+        assert b["fare"] is not None
+        assert b["fare"] > 0
+
+    def test_bucket_write_on_post(self, monkeypatch):
+        """POST /api/broadcasts writes to broadcasts/ bucket folder."""
+        import json
+        from api import app as app_mod
+        resp_data, email = _register_user(name="BcastBucket")
+        session = _login_session(email)
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        req = _make_request(session)
+        run(app_mod.api_broadcast_post(req, app_mod._BroadcastPostRequest(
+            seats=1, waiting_time="Leave now",
+            start_destination="X", end_destination="Y",
+        )))
+        assert "broadcasts" in calls
+
+
+class TestBroadcastList:
+    def test_list_active(self):
+        """GET /api/broadcasts returns active broadcasts."""
+        import json
+        from api.app import api_broadcast_post, api_broadcasts_list, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastList")
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="30 min",
+            start_destination="From Here", end_destination="To There",
+        )))
+        list_req = _make_request({})
+        resp = run(api_broadcasts_list(list_req, status=None, mine=False))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert "broadcasts" in data
+        assert isinstance(data["broadcasts"], list)
+
+    def test_list_mine(self):
+        """GET /api/broadcasts?mine=true returns only own broadcasts."""
+        import json
+        from api.app import api_broadcast_post, api_broadcasts_list, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastMine")
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=4, waiting_time="1 hour",
+            start_destination="My Start", end_destination="My End",
+        )))
+        resp = run(api_broadcasts_list(req, status=None, mine=True))
+        data = json.loads(resp.body)
+        assert len(data["broadcasts"]) >= 1
+        import json as j
+        user_id = j.loads(resp_data.body)["user_id"]
+        assert all(b["user_id"] == user_id for b in data["broadcasts"])
+
+    def test_get_broadcast_by_id(self):
+        """GET /api/broadcasts/{id} returns a specific broadcast."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_get, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastGetById")
+        session = _login_session(email)
+        req = _make_request(session)
+        post_resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="Alpha", end_destination="Beta",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+        get_resp = run(api_broadcast_get(bid))
+        assert get_resp.status_code == 200
+        b = json.loads(get_resp.body)["broadcast"]
+        assert b["broadcast_id"] == bid
+        assert b["start_destination"] == "Alpha"
+
+    def test_get_broadcast_not_found(self):
+        """GET /api/broadcasts/{nonexistent_id} → 404."""
+        from api.app import api_broadcast_get
+        resp = run(api_broadcast_get("nonexistent-broadcast-xyz"))
+        assert resp.status_code == 404
+
+    def test_per_seat_cost_in_list(self):
+        """Broadcast list entries include per_seat_cost when fare is set."""
+        import json
+        from api.app import api_broadcast_post, api_broadcasts_list, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastPerSeat")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=4, waiting_time="1 hour",
+            start_destination="S", end_destination="E",
+            fare=40.0,
+        )))
+        resp = run(api_broadcasts_list(req, status=None, mine=True))
+        data = json.loads(resp.body)
+        b = next((x for x in data["broadcasts"] if x.get("fare") == 40.0), None)
+        assert b is not None
+        assert b["per_seat_cost"] == 10.0
+
+
+class TestBroadcastUpdate:
+    def test_update_requires_login(self):
+        """PUT /api/broadcasts/{id} without login → 401."""
+        from api.app import api_broadcast_update, _BroadcastUpdateRequest
+        req = _make_request({})
+        resp = run(api_broadcast_update(req, "any-id", _BroadcastUpdateRequest(seats=2)))
+        assert resp.status_code == 401
+
+    def test_update_not_owner(self):
+        """PUT /api/broadcasts/{id} by non-owner → 403."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_update, _BroadcastPostRequest, _BroadcastUpdateRequest
+        resp_data, email = _register_user(name="BcastOwner")
+        session = _login_session(email)
+        req = _make_request(session)
+        post_resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="A", end_destination="B",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        other_resp, other_email = _register_user(name="BcastOther")
+        other_session = _login_session(other_email)
+        other_req = _make_request(other_session)
+        resp = run(api_broadcast_update(other_req, bid, _BroadcastUpdateRequest(seats=3)))
+        assert resp.status_code == 403
+
+    def test_update_seats_ok(self):
+        """PUT /api/broadcasts/{id} by owner updates seats."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_update, api_broadcast_get, _BroadcastPostRequest, _BroadcastUpdateRequest
+        resp_data, email = _register_user(name="BcastUpdSeats")
+        session = _login_session(email)
+        req = _make_request(session)
+        post_resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="A", end_destination="B",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+        upd_resp = run(api_broadcast_update(req, bid, _BroadcastUpdateRequest(seats=5)))
+        assert upd_resp.status_code == 200
+        get_resp = run(api_broadcast_get(bid))
+        assert json.loads(get_resp.body)["broadcast"]["seats"] == 5
+
+
+class TestBroadcastDelete:
+    def test_delete_requires_login(self):
+        """DELETE /api/broadcasts/{id} without login → 401."""
+        from api.app import api_broadcast_delete
+        req = _make_request({})
+        resp = run(api_broadcast_delete(req, "any-id"))
+        assert resp.status_code == 401
+
+    def test_delete_not_owner(self):
+        """DELETE /api/broadcasts/{id} by non-owner → 403."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_delete, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastDelOwn")
+        session = _login_session(email)
+        req = _make_request(session)
+        post_resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="A", end_destination="B",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        other_resp, other_email = _register_user(name="BcastDelOther")
+        other_session = _login_session(other_email)
+        other_req = _make_request(other_session)
+        resp = run(api_broadcast_delete(other_req, bid))
+        assert resp.status_code == 403
+
+    def test_delete_ok(self):
+        """DELETE /api/broadcasts/{id} by owner marks as expired."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_delete, api_broadcast_get, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BcastDelOK")
+        session = _login_session(email)
+        req = _make_request(session)
+        post_resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="A", end_destination="B",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+        del_resp = run(api_broadcast_delete(req, bid))
+        assert del_resp.status_code == 200
+        get_resp = run(api_broadcast_get(bid))
+        assert json.loads(get_resp.body)["broadcast"]["status"] == "expired"
+
+
+class TestBookingAndReceipt:
+    def test_book_requires_login(self):
+        """POST /api/broadcasts/{id}/book without login → 401."""
+        from api.app import api_broadcast_book
+        req = _make_request({})
+        resp = run(api_broadcast_book(req, "any-id"))
+        assert resp.status_code == 401
+
+    def test_book_not_found(self):
+        """POST /api/broadcasts/{id}/book with nonexistent id → 404."""
+        from api.app import api_broadcast_book
+        resp_data, email = _register_user(name="BookNotFound")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_broadcast_book(req, "nonexistent-xyz"))
+        assert resp.status_code == 404
+
+    def test_book_own_broadcast(self):
+        """Booking your own broadcast → 400."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_book, _BroadcastPostRequest
+        resp_data, email = _register_user(name="BookOwn")
+        session = _login_session(email)
+        req = _make_request(session)
+        post_resp = run(api_broadcast_post(req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="A", end_destination="B",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+        resp = run(api_broadcast_book(req, bid))
+        assert resp.status_code == 400
+
+    def test_book_ok(self):
+        """POST /api/broadcasts/{id}/book → 201 with booking_id and fare info."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_book, _BroadcastPostRequest
+        poster_resp, poster_email = _register_user(name="BookPoster")
+        poster_session = _login_session(poster_email)
+        poster_req = _make_request(poster_session)
+        post_resp = run(api_broadcast_post(poster_req, _BroadcastPostRequest(
+            seats=4, waiting_time="1 hour",
+            start_destination="Airport", end_destination="Hotel",
+            fare=40.0,
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        passenger_resp, passenger_email = _register_user(name="BookPassenger")
+        passenger_session = _login_session(passenger_email)
+        passenger_req = _make_request(passenger_session)
+        resp = run(api_broadcast_book(passenger_req, bid))
+        assert resp.status_code == 201
+        data = json.loads(resp.body)
+        assert data["ok"] is True
+        assert "booking_id" in data
+        assert data["per_seat_cost"] == 10.0  # 40 / 4 seats
+
+    def test_pay_ok_generates_receipt(self):
+        """POST /api/bookings/{id}/pay → 201 with receipt_id."""
+        import json
+        from api.app import (api_broadcast_post, api_broadcast_book, api_booking_pay,
+                              api_get_receipts, _BroadcastPostRequest)
+        poster_resp, poster_email = _register_user(name="PayPoster")
+        poster_session = _login_session(poster_email)
+        poster_req = _make_request(poster_session)
+        post_resp = run(api_broadcast_post(poster_req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="From", end_destination="To",
+            fare=20.0,
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        pass_resp, pass_email = _register_user(name="PayPassenger")
+        pass_session = _login_session(pass_email)
+        pass_req = _make_request(pass_session)
+        book_resp = run(api_broadcast_book(pass_req, bid))
+        booking_id = json.loads(book_resp.body)["booking_id"]
+
+        pay_resp = run(api_booking_pay(pass_req, booking_id))
+        assert pay_resp.status_code == 201
+        pay_data = json.loads(pay_resp.body)
+        assert pay_data["ok"] is True
+        assert "receipt_id" in pay_data
+
+        receipts_resp = run(api_get_receipts(pass_req))
+        receipts = json.loads(receipts_resp.body)["receipts"]
+        assert any(r["receipt_id"] == pay_data["receipt_id"] for r in receipts)
+
+    def test_pay_wrong_user(self):
+        """POST /api/bookings/{id}/pay by non-passenger → 403."""
+        import json
+        from api.app import (api_broadcast_post, api_broadcast_book, api_booking_pay,
+                              _BroadcastPostRequest)
+        poster_resp, poster_email = _register_user(name="PayWrongPoster")
+        poster_session = _login_session(poster_email)
+        poster_req = _make_request(poster_session)
+        post_resp = run(api_broadcast_post(poster_req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="From", end_destination="To",
+            fare=20.0,
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        pass_resp, pass_email = _register_user(name="PayWrongPass")
+        pass_session = _login_session(pass_email)
+        pass_req = _make_request(pass_session)
+        book_resp = run(api_broadcast_book(pass_req, bid))
+        booking_id = json.loads(book_resp.body)["booking_id"]
+
+        # Different user tries to pay
+        other_resp, other_email = _register_user(name="PayWrongOther")
+        other_session = _login_session(other_email)
+        other_req = _make_request(other_session)
+        pay_resp = run(api_booking_pay(other_req, booking_id))
+        assert pay_resp.status_code == 403
+
+    def test_receipts_requires_login(self):
+        """GET /api/receipts without login → 401."""
+        from api.app import api_get_receipts
+        req = _make_request({})
+        resp = run(api_get_receipts(req))
+        assert resp.status_code == 401
+
+    def test_receipt_bucket_write(self, monkeypatch):
+        """Payment generates a receipt written to receipts/ bucket folder."""
+        import json
+        from api import app as app_mod
+        poster_resp, poster_email = _register_user(name="ReceiptBucketPoster")
+        poster_session = _login_session(poster_email)
+        poster_req = _make_request(poster_session)
+        post_resp = run(app_mod.api_broadcast_post(poster_req, app_mod._BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="From", end_destination="To",
+            fare=20.0,
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        pass_resp, pass_email = _register_user(name="ReceiptBucketPass")
+        pass_session = _login_session(pass_email)
+        pass_req = _make_request(pass_session)
+        book_resp = run(app_mod.api_broadcast_book(pass_req, bid))
+        booking_id = json.loads(book_resp.body)["booking_id"]
+
+        calls = []
+        monkeypatch.setattr(app_mod, "_bucket_write_json",
+                            lambda folder, tp, rid, data: calls.append(folder) or False)
+        run(app_mod.api_booking_pay(pass_req, booking_id))
+        assert "receipts" in calls
+
+
+class TestPhoneProfile:
+    def test_update_phone_requires_login(self):
+        """PUT /api/auth/profile/phone without login → 401."""
+        from api.app import api_user_update_phone, _UserPhoneUpdate
+        req = _make_request({})
+        resp = run(api_user_update_phone(req, _UserPhoneUpdate(phone="+1234567890")))
+        assert resp.status_code == 401
+
+    def test_update_phone_empty(self):
+        """PUT /api/auth/profile/phone with empty phone → 400."""
+        from api.app import api_user_update_phone, _UserPhoneUpdate
+        resp_data, email = _register_user(name="PhoneEmpty")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_user_update_phone(req, _UserPhoneUpdate(phone="")))
+        assert resp.status_code == 400
+
+    def test_update_phone_ok(self):
+        """PUT /api/auth/profile/phone with valid number → 200 and persists."""
+        import json
+        from api.app import api_user_update_phone, _UserPhoneUpdate, _get_app_user
+        resp_data, email = _register_user(name="PhoneOK")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_user_update_phone(req, _UserPhoneUpdate(phone="+44 7700 900123")))
+        assert resp.status_code == 200
+        user = _get_app_user(user_id)
+        assert user["phone"] == "+44 7700 900123"
+
+
+class TestContactTemplate:
+    def test_template_requires_login(self):
+        """GET /api/broadcasts/{id}/contact_template without login → 401."""
+        from api.app import api_broadcast_contact_template
+        req = _make_request({})
+        resp = run(api_broadcast_contact_template(req, "any-id"))
+        assert resp.status_code == 401
+
+    def test_template_missing_phone(self):
+        """Contact template returns 400 when user has no phone set."""
+        import json
+        from api.app import api_broadcast_post, api_broadcast_contact_template, _BroadcastPostRequest
+        poster_resp, poster_email = _register_user(name="TmplPoster")
+        poster_session = _login_session(poster_email)
+        poster_req = _make_request(poster_session)
+        post_resp = run(api_broadcast_post(poster_req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="Airport", end_destination="Hotel",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        # Passenger has no phone
+        pass_resp, pass_email = _register_user(name="TmplPassNoPhone")
+        pass_session = _login_session(pass_email)
+        pass_req = _make_request(pass_session)
+        resp = run(api_broadcast_contact_template(pass_req, bid))
+        assert resp.status_code == 400
+        assert "phone" in json.loads(resp.body)["error"].lower()
+
+    def test_template_ok(self):
+        """Contact template returns pre-filled message with user details."""
+        import json
+        from api.app import (api_broadcast_post, api_broadcast_contact_template,
+                              api_user_update_phone, api_user_update_profile,
+                              _BroadcastPostRequest, _UserPhoneUpdate, _UserLocationUpdate)
+        poster_resp, poster_email = _register_user(name="TmplPoster2")
+        poster_session = _login_session(poster_email)
+        poster_req = _make_request(poster_session)
+        post_resp = run(api_broadcast_post(poster_req, _BroadcastPostRequest(
+            seats=2, waiting_time="1 hour",
+            start_destination="Heathrow", end_destination="Paddington",
+        )))
+        bid = json.loads(post_resp.body)["broadcast_id"]
+
+        pass_resp, pass_email = _register_user(name="TmplPassOK")
+        pass_session = _login_session(pass_email)
+        pass_req = _make_request(pass_session)
+        # Set phone and location
+        run(api_user_update_phone(pass_req, _UserPhoneUpdate(phone="+1 555 999 0000")))
+        run(api_user_update_profile(pass_req, _UserLocationUpdate(lat=51.5, lng=-0.1, location_name="London")))
+        resp = run(api_broadcast_contact_template(pass_req, bid))
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        assert "template" in data
+        assert "+1 555 999 0000" in data["template"]
+        assert "Heathrow" in data["template"]
+        assert "Paddington" in data["template"]
