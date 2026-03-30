@@ -382,6 +382,8 @@ export const cancelRide = (rideId) => request('DELETE', `/api/rides/${encodeURIC
 
 export const takeRide = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/take`, {})
 
+export const alertRideClients = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/alert_clients`, {})
+
 export const getAdminRides = () => request('GET', '/api/admin/rides')
 
 // ── Driver Geolocation ────────────────────────────────────────────────────────

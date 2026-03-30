@@ -50,6 +50,7 @@ from api.app import (
     _DriverApproveRequest,
     api_get_ride_chat,
     api_ride_chat_inbox,
+    api_ride_alert_clients,
 )
 
 
@@ -886,6 +887,68 @@ class TestRideTake:
         run(api_ride_cancel(req, ride_id))
         resp = run(api_ride_take(req, ride_id))
         assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Alert clients endpoint
+# ---------------------------------------------------------------------------
+
+class TestRideAlertClients:
+    """Tests for POST /api/rides/{ride_id}/alert_clients"""
+
+    def test_alert_clients_not_logged_in_returns_401(self):
+        req = _make_request({})
+        resp = run(api_ride_alert_clients(req, "some-ride-id"))
+        assert resp.status_code == 401
+
+    def test_alert_clients_non_driver_returns_403(self):
+        import json
+        _, email = _register_user("AlertPassenger")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_alert_clients(req, "some-ride-id"))
+        assert resp.status_code == 403
+
+    def test_alert_clients_nonexistent_ride_returns_404(self):
+        import json
+        _, email = _register_driver("AlertDriverNoRide")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_alert_clients(req, "nonexistent-ride-xyz"))
+        assert resp.status_code == 404
+
+    def test_alert_clients_wrong_owner_returns_403(self):
+        import json
+        _, email1 = _register_driver("AlertOwner")
+        session1 = _login_session(email1)
+        req1 = _make_request(session1)
+        r = run(api_ride_post(req1, _RidePostRequest(
+            origin="AlertSrc", destination="AlertDst",
+            departure="2032-01-01T10:00", seats=1,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+
+        _, email2 = _register_driver("AlertOtherDriver")
+        session2 = _login_session(email2)
+        req2 = _make_request(session2)
+        resp = run(api_ride_alert_clients(req2, ride_id))
+        assert resp.status_code == 403
+
+    def test_alert_clients_no_passengers_returns_ok_with_zero(self):
+        import json
+        _, email = _register_driver("AlertDriverEmpty")
+        session = _login_session(email)
+        req = _make_request(session)
+        r = run(api_ride_post(req, _RidePostRequest(
+            origin="AlertSrcEmpty", destination="AlertDstEmpty",
+            departure="2032-02-01T10:00", seats=2,
+        )))
+        ride_id = json.loads(r.body)["ride_id"]
+        resp = run(api_ride_alert_clients(req, ride_id))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+        assert body["alerted"] == 0
 
 
 # ---------------------------------------------------------------------------

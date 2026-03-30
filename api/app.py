@@ -9219,6 +9219,118 @@ async def api_ride_take(request: Request, ride_id: str):
     return JSONResponse({"ok": True})
 
 
+@fastapi_app.post("/api/rides/{ride_id}/alert_clients")
+async def api_ride_alert_clients(request: Request, ride_id: str):
+    """Driver alerts all clients who have chatted about their ride that they have arrived.
+
+    - Finds all unique passengers who sent messages in the ride's chat room.
+    - Emits a ``driver_arrived`` socket event to each online passenger.
+    - Creates an in-app notification for each passenger.
+    - If only one passenger is found, alerts only that one; otherwise alerts all.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if not user:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    if user.get("role") != "driver":
+        return JSONResponse({"error": "Only drivers can send arrival alerts."}, status_code=403)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            # Verify ride belongs to this driver
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, origin, destination, status FROM rides WHERE ride_id=%s", (ride_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id, origin, destination, status FROM rides WHERE ride_id=?", (ride_id,))
+                row = cur.fetchone()
+            if row is None:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+            if row[0] != user_id:
+                return JSONResponse({"error": "Not authorised."}, status_code=403)
+            ride_origin = row[1]
+            ride_destination = row[2]
+
+            # Collect unique passengers (users who sent messages in this ride chat, excluding the driver)
+            driver_name = user["name"]
+            if USE_POSTGRES:
+                cur.execute(
+                    """
+                    SELECT DISTINCT sender_name
+                    FROM ride_chat_messages
+                    WHERE ride_id=%s AND sender_name != %s AND sender_role != 'driver'
+                    LIMIT 100
+                    """,
+                    (ride_id, driver_name),
+                )
+                passenger_names = [r[0] for r in cur.fetchall()]
+                # Map sender names to user_ids
+                if passenger_names:
+                    cur.execute(
+                        "SELECT user_id, name FROM app_users WHERE name = ANY(%s)",
+                        (passenger_names,),
+                    )
+                    passenger_rows = cur.fetchall()
+                else:
+                    passenger_rows = []
+            else:
+                cur2 = conn.execute(
+                    """
+                    SELECT DISTINCT sender_name
+                    FROM ride_chat_messages
+                    WHERE ride_id=? AND sender_name != ? AND sender_role != 'driver'
+                    LIMIT 100
+                    """,
+                    (ride_id, driver_name),
+                )
+                passenger_names = [r[0] for r in cur2.fetchall()]
+                if passenger_names:
+                    placeholders = ",".join("?" * len(passenger_names))
+                    cur3 = conn.execute(
+                        f"SELECT user_id, name FROM app_users WHERE name IN ({placeholders})",
+                        passenger_names,
+                    )
+                    passenger_rows = cur3.fetchall()
+                else:
+                    passenger_rows = []
+        finally:
+            conn.close()
+
+    alerted_count = 0
+    payload = {
+        "ride_id": ride_id,
+        "driver_name": driver_name,
+        "origin": ride_origin,
+        "destination": ride_destination,
+        "message": f"🚗 Your driver {driver_name} has arrived at {ride_origin}!",
+    }
+
+    for passenger_id, passenger_name in passenger_rows:
+        try:
+            _create_notification(
+                passenger_id,
+                "driver_arrived",
+                f"🚗 Driver Arrived — {driver_name}",
+                f"Your driver has arrived at {ride_origin}. Check your ride to {ride_destination}.",
+                link="#rides",
+                link_label="View Rides",
+            )
+            with _socket_user_lock:
+                psid = _user_to_sid.get(passenger_id)
+            if psid:
+                asyncio.ensure_future(sio.emit("driver_arrived", payload, room=psid))
+            alerted_count += 1
+        except Exception as exc:
+            logger.warning("Failed to alert passenger %s: %s", passenger_id, exc)
+
+    return JSONResponse({"ok": True, "alerted": alerted_count, "total_passengers": len(passenger_rows)})
+
+
 @fastapi_app.get("/api/admin/rides")
 async def api_admin_rides(request: Request):
     """Return ride-sharing statistics for the admin dashboard."""

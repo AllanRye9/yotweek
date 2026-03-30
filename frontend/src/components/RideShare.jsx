@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare } from '../api'
+import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare, alertRideClients } from '../api'
 import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../sounds'
 import socket from '../socket'
 import RideChat from './RideChat'
@@ -151,6 +151,12 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [nearbyDrivers, setNearbyDrivers] = useState([])
   const [chatRide, setChatRide] = useState(null)
   const [chatDefaultMsg, setChatDefaultMsg] = useState('')
+  // Private client alert (driver arrival)
+  const [alertingClients, setAlertingClients] = useState(false)
+  const [alertClientMsg, setAlertClientMsg] = useState('')
+  const [arrivedAlert, setArrivedAlert] = useState(null)       // driver_arrived event payload
+  const [arrivedVisible, setArrivedVisible] = useState(false)
+  const arrivedTimerRef = useRef(null)
   // Location search filter
   const [locationFilter, setLocationFilter] = useState('')
   const [userLat, setUserLat] = useState(user?.lat ?? null)
@@ -328,15 +334,27 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       const duration = isVeryClose ? 12000 : 8000
       alertTimerRef.current = setTimeout(() => { setAlertVisible(false); setTimeout(() => setDriverAlert(null), 500) }, duration)
     }
+    const onDriverArrived = (data) => {
+      playDriverAlertSound()
+      setArrivedAlert(data)
+      setArrivedVisible(true)
+      if (arrivedTimerRef.current) clearTimeout(arrivedTimerRef.current)
+      arrivedTimerRef.current = setTimeout(() => {
+        setArrivedVisible(false)
+        setTimeout(() => setArrivedAlert(null), 500)
+      }, 15000)
+    }
     socket.on('new_ride', onNewRide)
     socket.on('ride_cancelled', onCancelled)
     socket.on('ride_taken', onTaken)
     socket.on('driver_nearby', onDriverNearby)
+    socket.on('driver_arrived', onDriverArrived)
     return () => {
       socket.off('new_ride', onNewRide)
       socket.off('ride_cancelled', onCancelled)
       socket.off('ride_taken', onTaken)
       socket.off('driver_nearby', onDriverNearby)
+      socket.off('driver_arrived', onDriverArrived)
     }
   }, [userLat, userLng])
 
@@ -406,6 +424,26 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       () => { setBroadcastMsg('Location permission denied.'); setBroadcasting(false) },
       { enableHighAccuracy: true, timeout: 8000 }
     )
+  }
+
+  const handleAlertClients = async (rideId) => {
+    setAlertingClients(true)
+    setAlertClientMsg('')
+    try {
+      const data = await alertRideClients(rideId)
+      if (data.alerted === 0) {
+        setAlertClientMsg('ℹ️ No booked clients to alert yet.')
+      } else if (data.alerted === 1) {
+        setAlertClientMsg('✅ Your client has been notified that you have arrived!')
+      } else {
+        setAlertClientMsg(`✅ ${data.alerted} clients have been notified that you have arrived!`)
+      }
+    } catch (err) {
+      setAlertClientMsg(err.message || 'Failed to send arrival alert.')
+    } finally {
+      setAlertingClients(false)
+      setTimeout(() => setAlertClientMsg(''), 8000)
+    }
   }
 
   const StatusTag = ({ status }) => {
@@ -481,6 +519,29 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         </div>
       )}
 
+      {/* ── Driver arrived toast (shown to passengers) ── */}
+      {arrivedAlert && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[90vw] max-w-sm rounded-xl p-4 shadow-2xl border-2 border-blue-400 bg-blue-900 driver-alert-toast ${arrivedVisible ? 'driver-alert-enter' : 'driver-alert-exit'}`}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">📍</span>
+            <p className="font-bold text-sm text-blue-200">Your Driver Has Arrived!</p>
+          </div>
+          <p className="text-blue-100 text-xs">{arrivedAlert.message}</p>
+          {arrivedAlert.driver_name && (
+            <p className="text-blue-300 text-xs mt-1 font-medium">👤 {arrivedAlert.driver_name}</p>
+          )}
+          {arrivedAlert.origin && (
+            <p className="text-blue-400 text-xs mt-0.5">📍 {arrivedAlert.origin} → {arrivedAlert.destination}</p>
+          )}
+          <button
+            onClick={() => { setArrivedVisible(false); setTimeout(() => setArrivedAlert(null), 300) }}
+            className="mt-2 text-xs text-blue-400 hover:text-blue-200 transition-colors"
+          >
+            Dismiss ✕
+          </button>
+        </div>
+      )}
+
       {/* ── Dashboard ── */}
       {sections.dashboard && (
       <div className="ride-dashboard rounded-xl border border-gray-700 bg-gray-900/50 p-4 space-y-3">
@@ -535,13 +596,31 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
             <span className="driver-pulse-icon">🚗</span> Broadcast Your Location
           </h3>
           <p className="text-xs text-yellow-200/70">Let nearby passengers know your car is empty and available.</p>
-          <button onClick={handleBroadcast} disabled={broadcasting}
-            className="w-full py-2 rounded-lg text-sm font-semibold text-white bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 transition-colors driver-broadcast-btn">
-            {broadcasting
-              ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Broadcasting…</span>
-              : '📡 Alert Nearby Passengers (Empty Car)'}
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button onClick={handleBroadcast} disabled={broadcasting}
+              className="py-2 rounded-lg text-sm font-semibold text-white bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 transition-colors driver-broadcast-btn">
+              {broadcasting
+                ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Broadcasting…</span>
+                : '📡 Alert Nearby Passengers (Empty Car)'}
+            </button>
+            {/* Private client alert: alert clients who booked this ride that driver has arrived */}
+            {rides.some(r => r.status === 'open' && r.user_id === user?.user_id) && (
+              <button
+                onClick={() => {
+                  const myRide = rides.find(r => r.status === 'open' && r.user_id === user?.user_id)
+                  if (myRide) handleAlertClients(myRide.ride_id)
+                }}
+                disabled={alertingClients}
+                className="py-2 rounded-lg text-sm font-semibold text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-50 transition-colors"
+              >
+                {alertingClients
+                  ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Alerting…</span>
+                  : '📍 I\'ve Arrived! Alert My Clients'}
+              </button>
+            )}
+          </div>
           {broadcastMsg && <p className={`text-xs ${broadcastMsg.startsWith('📡') ? 'text-green-300' : 'text-red-300'}`}>{broadcastMsg}</p>}
+          {alertClientMsg && <p className={`text-xs ${alertClientMsg.startsWith('✅') ? 'text-green-300' : alertClientMsg.startsWith('ℹ') ? 'text-blue-300' : 'text-red-300'}`}>{alertClientMsg}</p>}
           {nearbyDrivers.length > 0 && <div className="text-xs text-yellow-200/60">{nearbyDrivers.length} other driver(s) nearby.</div>}
         </div>
       )}
@@ -623,7 +702,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="ride-field-wrap">
                 <label className="text-xs text-gray-400 mb-1 block">Pickup Time</label>
                 <input type="datetime-local" value={departure}
@@ -853,11 +932,11 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           const rideTypeLabel = (ride.ride_type || 'airport') === 'airport' ? '✈️' : '🚗'
           return (
           <div key={ride.ride_id}
-            className={`ride-card ride-card-enter rounded-xl border p-4 space-y-2 transition-all ${
+            className={`ride-card ride-card-enter rounded-xl border p-3 sm:p-4 space-y-2 transition-all ${
               ride.status === 'taken'     ? 'border-amber-700/60 bg-amber-900/10'
             : ride.status === 'cancelled' ? 'border-red-800/40 bg-red-900/10 opacity-60'
             : 'border-gray-700 bg-gray-800/60 hover:border-gray-600'}`}>
-            <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">
                   <StatusTag status={ride.status} />
@@ -892,7 +971,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                     </span>
                   )}
                 </div>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-gray-400 leading-relaxed">
                   🕐 {new Date(ride.departure).toLocaleString()} · 💺 {ride.seats} seat{ride.seats !== 1 ? 's' : ''} · 👤 {ride.driver_name}
                 </p>
                 {ride.origin_lat != null && ride.origin_lng != null && (
@@ -919,8 +998,8 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                   )
                 })()}
               </div>
-              <div className="flex flex-col gap-1.5 shrink-0">
-                {ride.status === 'open' && (!user || user.user_id !== ride.user_id) && (
+              <div className="flex flex-row sm:flex-col gap-1.5 shrink-0 flex-wrap">
+                {ride.status === 'open' && !isDriver && (!user || user.user_id !== ride.user_id) && (
                   <button onClick={() => { setChatRide(ride); setChatDefaultMsg(_buildClientBookingMsg(ride, user?.name)) }}
                     className="ride-chat-btn text-xs text-blue-400 hover:text-blue-300 border border-blue-700/50 hover:border-blue-500 rounded-lg px-2 py-1 transition-colors flex items-center gap-1">
                     💬 Book
