@@ -12261,6 +12261,208 @@ def _expire_stale_broadcasts():
             conn.close()
 
 # =========================================================
+# ADMIN — PROPERTIES / USERS / BROADCASTS
+# =========================================================
+
+@fastapi_app.get("/api/admin/properties")
+async def api_admin_properties(request: Request):
+    """Return all property listings (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["property_id", "title", "description", "price", "address",
+                    "lat", "lng", "status", "owner_user_id", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT p.property_id, p.title, p.description, p.price, p.address,"
+                    " p.lat, p.lng, p.status, p.owner_user_id, p.created_at,"
+                    " au.name AS owner_name, au.email AS owner_email"
+                    " FROM properties p"
+                    " LEFT JOIN app_users au ON p.owner_user_id = au.user_id"
+                    " ORDER BY p.created_at DESC LIMIT 500"
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT p.property_id, p.title, p.description, p.price, p.address,"
+                    " p.lat, p.lng, p.status, p.owner_user_id, p.created_at,"
+                    " au.name AS owner_name, au.email AS owner_email"
+                    " FROM properties p"
+                    " LEFT JOIN app_users au ON p.owner_user_id = au.user_id"
+                    " ORDER BY p.created_at DESC LIMIT 500"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    full_cols = cols + ["owner_name", "owner_email"]
+    properties = [dict(zip(full_cols, r)) for r in rows]
+    return JSONResponse({"properties": properties})
+
+
+@fastapi_app.delete("/api/admin/properties/{property_id}")
+async def api_admin_delete_property(request: Request, property_id: str):
+    """Delete any property listing (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            ph = "%s" if USE_POSTGRES else "?"
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(f"SELECT property_id FROM properties WHERE property_id={ph}", (property_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(f"SELECT property_id FROM properties WHERE property_id={ph}", (property_id,))
+                row = cur.fetchone()
+            if not row:
+                conn.close()
+                return JSONResponse({"error": "Property not found."}, status_code=404)
+            _execute(conn, f"DELETE FROM property_agents WHERE property_id={ph}", (property_id,))
+            _execute(conn, f"DELETE FROM properties WHERE property_id={ph}", (property_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/admin/users")
+async def api_admin_users(request: Request):
+    """Return all registered platform users (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["user_id", "name", "email", "role", "can_post_properties", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT user_id, name, email, role, can_post_properties, created_at"
+                    " FROM app_users ORDER BY created_at DESC LIMIT 1000"
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT user_id, name, email, role, can_post_properties, created_at"
+                    " FROM app_users ORDER BY created_at DESC LIMIT 1000"
+                )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    users = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({"users": users})
+
+
+@fastapi_app.delete("/api/admin/users/{user_id}")
+async def api_admin_delete_user(request: Request, user_id: str):
+    """Delete a platform user account and all their related data (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            ph = "%s" if USE_POSTGRES else "?"
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(f"SELECT user_id FROM app_users WHERE user_id={ph}", (user_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(f"SELECT user_id FROM app_users WHERE user_id={ph}", (user_id,))
+                row = cur.fetchone()
+            if not row:
+                conn.close()
+                return JSONResponse({"error": "User not found."}, status_code=404)
+            # Cascade: delete all data owned by this user before removing the account
+            for table, col in [
+                ("properties",           "owner_user_id"),
+                ("rides",                "user_id"),
+                ("driver_applications",  "user_id"),
+                ("agent_applications",   "user_id"),
+                ("notifications",        "user_id"),
+                ("broadcasts",           "user_id"),
+                ("bookings",             "passenger_id"),
+            ]:
+                _execute(conn, f"DELETE FROM {table} WHERE {col}={ph}", (user_id,))
+            # DM conversations where this user is a participant
+            _execute(conn, f"DELETE FROM dm_conversations WHERE user1_id={ph} OR user2_id={ph}", (user_id, user_id))
+            _execute(conn, f"DELETE FROM app_users WHERE user_id={ph}", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/admin/broadcasts")
+async def api_admin_broadcasts(request: Request):
+    """Return all broadcasts (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    _expire_stale_broadcasts()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["broadcast_id", "user_id", "poster_name", "seats", "waiting_time",
+                    "start_destination", "end_destination", "fare", "status", "created_at", "expires_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT broadcast_id, user_id, poster_name, seats, waiting_time,"
+                    " start_destination, end_destination, fare, status, created_at, expires_at"
+                    " FROM broadcasts ORDER BY created_at DESC LIMIT 500"
+                )
+            else:
+                cur = conn.execute(
+                    "SELECT broadcast_id, user_id, poster_name, seats, waiting_time,"
+                    " start_destination, end_destination, fare, status, created_at, expires_at"
+                    " FROM broadcasts ORDER BY created_at DESC LIMIT 500"
+                )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    broadcasts = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({"broadcasts": broadcasts})
+
+
+@fastapi_app.delete("/api/admin/broadcasts/{broadcast_id}")
+async def api_admin_delete_broadcast(request: Request, broadcast_id: str):
+    """Cancel any broadcast (admin only)."""
+    if not request.session.get("admin_user"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            ph = "%s" if USE_POSTGRES else "?"
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(f"SELECT broadcast_id FROM broadcasts WHERE broadcast_id={ph}", (broadcast_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(f"SELECT broadcast_id FROM broadcasts WHERE broadcast_id={ph}", (broadcast_id,))
+                row = cur.fetchone()
+            if not row:
+                conn.close()
+                return JSONResponse({"error": "Broadcast not found."}, status_code=404)
+            _execute(conn, f"UPDATE broadcasts SET status='expired' WHERE broadcast_id={ph}", (broadcast_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+# =========================================================
 # ENTRY POINT
 # =========================================================
 

@@ -3930,3 +3930,229 @@ class TestAgentApplications:
         to_addr, subject = emails_sent[0]
         assert to_addr == "rejectagent@example.com"
         assert "Not Approved" in subject
+
+
+# ---------------------------------------------------------------------------
+# Admin — Properties
+# ---------------------------------------------------------------------------
+
+class TestAdminProperties:
+    """Tests for GET /api/admin/properties and DELETE /api/admin/properties/{id}."""
+
+    def test_list_requires_admin(self):
+        from api.app import api_admin_properties
+        req = _make_request({})
+        resp = run(api_admin_properties(req))
+        assert resp.status_code == 401
+
+    def test_list_returns_all_properties(self):
+        import json
+        from api.app import api_admin_properties, api_create_property, _PropertyCreateRequest
+        # Create a property via authenticated user
+        resp_user, email = _register_user(name="PropAdminUser")
+        user_id = json.loads(resp_user.body)["user_id"]
+        _grant_posting_permission(user_id)
+        session = _login_session(email)
+        req_user = _make_request(session)
+        prop_resp = run(api_create_property(req_user, _PropertyCreateRequest(
+            title="AdminListProp",
+            description="test",
+            price=100.0,
+            address="123 Admin St",
+            lat=10.0,
+            lng=20.0,
+            status="active",
+        )))
+        assert prop_resp.status_code == 201
+        prop_id = json.loads(prop_resp.body)["property"]["property_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_properties(admin_req))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "properties" in body
+        ids = [p["property_id"] for p in body["properties"]]
+        assert prop_id in ids
+
+    def test_delete_requires_admin(self):
+        from api.app import api_admin_delete_property
+        req = _make_request({})
+        resp = run(api_admin_delete_property(req, "fake-id"))
+        assert resp.status_code == 401
+
+    def test_delete_nonexistent_returns_404(self):
+        from api.app import api_admin_delete_property
+        req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_delete_property(req, "does-not-exist"))
+        assert resp.status_code == 404
+
+    def test_admin_can_delete_any_property(self):
+        import json
+        from api.app import api_admin_properties, api_admin_delete_property, api_create_property, _PropertyCreateRequest
+        resp_user, email = _register_user(name="PropDeleteUser")
+        user_id = json.loads(resp_user.body)["user_id"]
+        _grant_posting_permission(user_id)
+        session = _login_session(email)
+        req_user = _make_request(session)
+        prop_resp = run(api_create_property(req_user, _PropertyCreateRequest(
+            title="ToDeleteProp",
+            description="del",
+            price=50.0,
+            address="456 Delete Ave",
+            lat=11.0,
+            lng=21.0,
+            status="active",
+        )))
+        prop_id = json.loads(prop_resp.body)["property"]["property_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        del_resp = run(api_admin_delete_property(admin_req, prop_id))
+        assert del_resp.status_code == 200
+        assert json.loads(del_resp.body)["ok"] is True
+
+        # Confirm it's gone
+        list_resp = run(api_admin_properties(admin_req))
+        ids = [p["property_id"] for p in json.loads(list_resp.body)["properties"]]
+        assert prop_id not in ids
+
+
+# ---------------------------------------------------------------------------
+# Admin — Users
+# ---------------------------------------------------------------------------
+
+class TestAdminUsers:
+    """Tests for GET /api/admin/users and DELETE /api/admin/users/{id}."""
+
+    def test_list_requires_admin(self):
+        from api.app import api_admin_users
+        req = _make_request({})
+        resp = run(api_admin_users(req))
+        assert resp.status_code == 401
+
+    def test_list_returns_users(self):
+        import json
+        from api.app import api_admin_users
+        resp_user, _ = _register_user(name="AdminListableUser")
+        registered_id = json.loads(resp_user.body)["user_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_users(admin_req))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "users" in body
+        ids = [u["user_id"] for u in body["users"]]
+        assert registered_id in ids
+
+    def test_list_includes_expected_fields(self):
+        import json
+        from api.app import api_admin_users
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_users(admin_req))
+        body = json.loads(resp.body)
+        if body["users"]:
+            user = body["users"][0]
+            for field in ("user_id", "name", "email", "role", "can_post_properties", "created_at"):
+                assert field in user
+
+    def test_delete_requires_admin(self):
+        from api.app import api_admin_delete_user
+        req = _make_request({})
+        resp = run(api_admin_delete_user(req, "fake-user-id"))
+        assert resp.status_code == 401
+
+    def test_delete_nonexistent_returns_404(self):
+        from api.app import api_admin_delete_user
+        req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_delete_user(req, "does-not-exist"))
+        assert resp.status_code == 404
+
+    def test_admin_can_delete_user(self):
+        import json
+        from api.app import api_admin_users, api_admin_delete_user
+        resp_user, _ = _register_user(name="DeleteableUser")
+        user_id = json.loads(resp_user.body)["user_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        del_resp = run(api_admin_delete_user(admin_req, user_id))
+        assert del_resp.status_code == 200
+        assert json.loads(del_resp.body)["ok"] is True
+
+        # Confirm gone
+        list_resp = run(api_admin_users(admin_req))
+        ids = [u["user_id"] for u in json.loads(list_resp.body)["users"]]
+        assert user_id not in ids
+
+
+# ---------------------------------------------------------------------------
+# Admin — Broadcasts
+# ---------------------------------------------------------------------------
+
+class TestAdminBroadcasts:
+    """Tests for GET /api/admin/broadcasts and DELETE /api/admin/broadcasts/{id}."""
+
+    def test_list_requires_admin(self):
+        from api.app import api_admin_broadcasts
+        req = _make_request({})
+        resp = run(api_admin_broadcasts(req))
+        assert resp.status_code == 401
+
+    def test_list_returns_broadcasts(self):
+        import json
+        from api.app import api_admin_broadcasts, api_broadcast_post, _BroadcastPostRequest
+        resp_user, email = _register_user(name="BcastAdminUser")
+        session = _login_session(email)
+        req_user = _make_request(session)
+        bcast_resp = run(api_broadcast_post(req_user, _BroadcastPostRequest(
+            seats=2,
+            waiting_time="30 min",
+            start_destination="Airport",
+            end_destination="City Centre",
+        )))
+        assert bcast_resp.status_code == 201
+        bcast_id = json.loads(bcast_resp.body)["broadcast_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_broadcasts(admin_req))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "broadcasts" in body
+        ids = [b["broadcast_id"] for b in body["broadcasts"]]
+        assert bcast_id in ids
+
+    def test_cancel_requires_admin(self):
+        from api.app import api_admin_delete_broadcast
+        req = _make_request({})
+        resp = run(api_admin_delete_broadcast(req, "fake-id"))
+        assert resp.status_code == 401
+
+    def test_cancel_nonexistent_returns_404(self):
+        from api.app import api_admin_delete_broadcast
+        req = _make_request({"admin_user": "admin"})
+        resp = run(api_admin_delete_broadcast(req, "does-not-exist"))
+        assert resp.status_code == 404
+
+    def test_admin_can_cancel_any_broadcast(self):
+        import json
+        from api.app import api_admin_broadcasts, api_admin_delete_broadcast, api_broadcast_post, _BroadcastPostRequest
+        resp_user, email = _register_user(name="BcastCancelUser")
+        session = _login_session(email)
+        req_user = _make_request(session)
+        bcast_resp = run(api_broadcast_post(req_user, _BroadcastPostRequest(
+            seats=1,
+            waiting_time="15 min",
+            start_destination="North",
+            end_destination="South",
+        )))
+        bcast_id = json.loads(bcast_resp.body)["broadcast_id"]
+
+        admin_req = _make_request({"admin_user": "admin"})
+        del_resp = run(api_admin_delete_broadcast(admin_req, bcast_id))
+        assert del_resp.status_code == 200
+        assert json.loads(del_resp.body)["ok"] is True
+
+        # Confirm status is expired
+        list_resp = run(api_admin_broadcasts(admin_req))
+        bcasts = json.loads(list_resp.body)["broadcasts"]
+        found = next((b for b in bcasts if b["broadcast_id"] == bcast_id), None)
+        assert found is not None
+        assert found["status"] == "expired"

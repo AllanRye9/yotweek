@@ -11,6 +11,9 @@ import {
   getAdminDriverApplications, approveDriverApplication,
   getAdminAgentApplications, adminApproveAgentApplication,
   getAdminReviews, deleteAdminReview,
+  getAdminProperties, adminDeleteProperty,
+  getAdminUsers, adminDeleteUser,
+  getAdminBroadcasts, adminCancelBroadcast,
 } from '../api'
 import AdminStats from '../components/admin/AdminStats'
 import AnalyticsCharts from '../components/admin/AnalyticsCharts'
@@ -28,6 +31,9 @@ const SIDEBAR_TABS = [
   { id: 'drivers',      icon: '🚕', label: 'Driver Apps'  },
   { id: 'agents',       icon: '🏡', label: 'Agent Apps'   },
   { id: 'reviews',      icon: '⭐',  label: 'Reviews'      },
+  { id: 'properties',   icon: '🏘',  label: 'Properties'  },
+  { id: 'users',        icon: '👤',  label: 'Users'        },
+  { id: 'broadcasts',   icon: '📡',  label: 'Broadcasts'  },
   { id: 'database',     icon: '🗄',  label: 'Database'    },
   { id: 'cookies',      icon: '🍪',  label: 'Cookies'     },
 ]
@@ -110,6 +116,12 @@ export default function AdminDashboard() {
   const [loadingAgentApps, setLoadingAgentApps] = useState(false)
   const [adminReviews, setAdminReviews] = useState([])
   const [loadingReviews, setLoadingReviews] = useState(false)
+  const [adminProperties, setAdminProperties] = useState([])
+  const [loadingProperties, setLoadingProperties] = useState(false)
+  const [adminUsers, setAdminUsers]   = useState([])
+  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [adminBroadcasts, setAdminBroadcasts] = useState([])
+  const [loadingBroadcasts, setLoadingBroadcasts] = useState(false)
   const [cookieStatus, setCookieStatus] = useState(null)
   const [loadingAnalytics, setLoadingAnalytics] = useState(false)
   const [loadingDl, setLoadingDl]     = useState(false)
@@ -183,6 +195,24 @@ export default function AdminDashboard() {
     finally { setLoadingReviews(false) }
   }, [])
 
+  const fetchAdminProperties = useCallback(async () => {
+    setLoadingProperties(true)
+    try { setAdminProperties((await getAdminProperties()).properties || []) } catch {}
+    finally { setLoadingProperties(false) }
+  }, [])
+
+  const fetchAdminUsers = useCallback(async () => {
+    setLoadingUsers(true)
+    try { setAdminUsers((await getAdminUsers()).users || []) } catch {}
+    finally { setLoadingUsers(false) }
+  }, [])
+
+  const fetchAdminBroadcasts = useCallback(async () => {
+    setLoadingBroadcasts(true)
+    try { setAdminBroadcasts((await getAdminBroadcasts()).broadcasts || []) } catch {}
+    finally { setLoadingBroadcasts(false) }
+  }, [])
+
   // Load data based on active tab
   useEffect(() => {
     if (tab === 'dashboard' || tab === 'analytics') {
@@ -200,6 +230,9 @@ export default function AdminDashboard() {
     if (tab === 'drivers')    fetchDriverApps()
     if (tab === 'agents')     fetchAgentApps()
     if (tab === 'reviews')    fetchAdminReviews()
+    if (tab === 'properties') fetchAdminProperties()
+    if (tab === 'users')      fetchAdminUsers()
+    if (tab === 'broadcasts') fetchAdminBroadcasts()
   }, [tab])
 
   const handleLogout = async () => {
@@ -353,6 +386,9 @@ export default function AdminDashboard() {
               if (tab === 'drivers')   fetchDriverApps()
               if (tab === 'agents')    fetchAgentApps()
               if (tab === 'reviews')   fetchAdminReviews()
+              if (tab === 'properties') fetchAdminProperties()
+              if (tab === 'users')      fetchAdminUsers()
+              if (tab === 'broadcasts') fetchAdminBroadcasts()
             }}
           >↻ Refresh</button>
         </header>
@@ -864,6 +900,242 @@ export default function AdminDashboard() {
                   🗑 Clear All Admin Data
                 </button>
               </div>
+            </div>
+          )}
+
+            </div>
+          )}
+
+          {/* Properties tab */}
+          {tab === 'properties' && (
+            <div className="space-y-4">
+              {loadingProperties ? (
+                <p className="text-sm text-gray-400 py-6 text-center">Loading properties…</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total</p>
+                      <p className="text-2xl font-bold text-white">{adminProperties.length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Active</p>
+                      <p className="text-2xl font-bold text-green-300">{adminProperties.filter(p => p.status === 'active').length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Sold</p>
+                      <p className="text-2xl font-bold text-blue-300">{adminProperties.filter(p => p.status === 'sold').length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Rented</p>
+                      <p className="text-2xl font-bold text-gray-400">{adminProperties.filter(p => p.status === 'rented').length}</p>
+                    </div>
+                  </div>
+                  <div className="card overflow-x-auto">
+                    <h3 className="font-semibold text-white mb-3">🏘 All Properties</h3>
+                    {adminProperties.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-4 text-center">No properties yet.</p>
+                    ) : (
+                      <table className="w-full text-xs text-left text-gray-300 border-collapse">
+                        <thead>
+                          <tr className="border-b border-gray-700 text-gray-500">
+                            <th className="py-2 pr-3">Title</th>
+                            <th className="py-2 pr-3">Status</th>
+                            <th className="py-2 pr-3">Price</th>
+                            <th className="py-2 pr-3">Owner</th>
+                            <th className="py-2 pr-3">Created</th>
+                            <th className="py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminProperties.map(p => (
+                            <tr key={p.property_id} className="border-b border-gray-800 hover:bg-gray-800/40">
+                              <td className="py-2 pr-3 max-w-[180px] truncate">{p.title}</td>
+                              <td className="py-2 pr-3">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                  p.status === 'active' ? 'bg-green-900/60 text-green-300' :
+                                  p.status === 'sold' ? 'bg-blue-900/60 text-blue-300' :
+                                  'bg-gray-700 text-gray-400'
+                                }`}>{p.status}</span>
+                              </td>
+                              <td className="py-2 pr-3">{p.price != null ? `$${p.price}` : '—'}</td>
+                              <td className="py-2 pr-3 max-w-[120px] truncate">{p.owner_name || p.owner_user_id}</td>
+                              <td className="py-2 pr-3 text-gray-500">{p.created_at ? p.created_at.slice(0, 10) : '—'}</td>
+                              <td className="py-2 text-right">
+                                <button
+                                  className="text-red-400 hover:text-red-300 transition-colors text-xs px-2"
+                                  onClick={async () => {
+                                    if (!confirm('Delete this property?')) return
+                                    try {
+                                      await adminDeleteProperty(p.property_id)
+                                      setAdminProperties(prev => prev.filter(x => x.property_id !== p.property_id))
+                                      setNotice('Property deleted.')
+                                    } catch (err) { setError(err.message || 'Failed to delete property') }
+                                  }}
+                                >🗑 Delete</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Users tab */}
+          {tab === 'users' && (
+            <div className="space-y-4">
+              {loadingUsers ? (
+                <p className="text-sm text-gray-400 py-6 text-center">Loading users…</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total Users</p>
+                      <p className="text-2xl font-bold text-white">{adminUsers.length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Drivers</p>
+                      <p className="text-2xl font-bold text-yellow-300">{adminUsers.filter(u => u.role === 'driver').length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Agents</p>
+                      <p className="text-2xl font-bold text-purple-300">{adminUsers.filter(u => u.can_post_properties).length}</p>
+                    </div>
+                  </div>
+                  <div className="card overflow-x-auto">
+                    <h3 className="font-semibold text-white mb-3">👤 All Users</h3>
+                    {adminUsers.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-4 text-center">No users yet.</p>
+                    ) : (
+                      <table className="w-full text-xs text-left text-gray-300 border-collapse">
+                        <thead>
+                          <tr className="border-b border-gray-700 text-gray-500">
+                            <th className="py-2 pr-3">Name</th>
+                            <th className="py-2 pr-3">Email</th>
+                            <th className="py-2 pr-3">Role</th>
+                            <th className="py-2 pr-3">Agent</th>
+                            <th className="py-2 pr-3">Joined</th>
+                            <th className="py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminUsers.map(u => (
+                            <tr key={u.user_id} className="border-b border-gray-800 hover:bg-gray-800/40">
+                              <td className="py-2 pr-3 font-medium">{u.name}</td>
+                              <td className="py-2 pr-3 text-gray-400">{u.email}</td>
+                              <td className="py-2 pr-3">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                  u.role === 'driver' ? 'bg-yellow-900/60 text-yellow-300' : 'bg-gray-700 text-gray-300'
+                                }`}>{u.role}</span>
+                              </td>
+                              <td className="py-2 pr-3">{u.can_post_properties ? '✅' : '—'}</td>
+                              <td className="py-2 pr-3 text-gray-500">{u.created_at ? u.created_at.slice(0, 10) : '—'}</td>
+                              <td className="py-2 text-right">
+                                <button
+                                  className="text-red-400 hover:text-red-300 transition-colors text-xs px-2"
+                                  onClick={async () => {
+                                    if (!confirm(`Delete user "${u.name}"? This cannot be undone.`)) return
+                                    try {
+                                      await adminDeleteUser(u.user_id)
+                                      setAdminUsers(prev => prev.filter(x => x.user_id !== u.user_id))
+                                      setNotice('User deleted.')
+                                    } catch (err) { setError(err.message || 'Failed to delete user') }
+                                  }}
+                                >🗑 Delete</button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Broadcasts tab */}
+          {tab === 'broadcasts' && (
+            <div className="space-y-4">
+              {loadingBroadcasts ? (
+                <p className="text-sm text-gray-400 py-6 text-center">Loading broadcasts…</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Total</p>
+                      <p className="text-2xl font-bold text-white">{adminBroadcasts.length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Active</p>
+                      <p className="text-2xl font-bold text-green-300">{adminBroadcasts.filter(b => b.status === 'active').length}</p>
+                    </div>
+                    <div className="card text-center">
+                      <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Expired/Filled</p>
+                      <p className="text-2xl font-bold text-gray-400">{adminBroadcasts.filter(b => b.status !== 'active').length}</p>
+                    </div>
+                  </div>
+                  <div className="card overflow-x-auto">
+                    <h3 className="font-semibold text-white mb-3">📡 All Broadcasts</h3>
+                    {adminBroadcasts.length === 0 ? (
+                      <p className="text-sm text-gray-500 py-4 text-center">No broadcasts yet.</p>
+                    ) : (
+                      <table className="w-full text-xs text-left text-gray-300 border-collapse">
+                        <thead>
+                          <tr className="border-b border-gray-700 text-gray-500">
+                            <th className="py-2 pr-3">From → To</th>
+                            <th className="py-2 pr-3">Poster</th>
+                            <th className="py-2 pr-3">Seats</th>
+                            <th className="py-2 pr-3">Fare</th>
+                            <th className="py-2 pr-3">Status</th>
+                            <th className="py-2 pr-3">Created</th>
+                            <th className="py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {adminBroadcasts.map(b => (
+                            <tr key={b.broadcast_id} className="border-b border-gray-800 hover:bg-gray-800/40">
+                              <td className="py-2 pr-3 max-w-[200px]">
+                                <span className="truncate block">{b.start_destination} → {b.end_destination}</span>
+                              </td>
+                              <td className="py-2 pr-3">{b.poster_name}</td>
+                              <td className="py-2 pr-3">{b.seats}</td>
+                              <td className="py-2 pr-3">{b.fare != null ? `$${b.fare}` : '—'}</td>
+                              <td className="py-2 pr-3">
+                                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                  b.status === 'active' ? 'bg-green-900/60 text-green-300' :
+                                  b.status === 'filled' ? 'bg-blue-900/60 text-blue-300' :
+                                  'bg-gray-700 text-gray-400'
+                                }`}>{b.status}</span>
+                              </td>
+                              <td className="py-2 pr-3 text-gray-500">{b.created_at ? b.created_at.slice(0, 10) : '—'}</td>
+                              <td className="py-2 text-right">
+                                {b.status === 'active' && (
+                                  <button
+                                    className="text-red-400 hover:text-red-300 transition-colors text-xs px-2"
+                                    onClick={async () => {
+                                      if (!confirm('Cancel this broadcast?')) return
+                                      try {
+                                        await adminCancelBroadcast(b.broadcast_id)
+                                        setAdminBroadcasts(prev => prev.map(x => x.broadcast_id === b.broadcast_id ? { ...x, status: 'expired' } : x))
+                                        setNotice('Broadcast cancelled.')
+                                      } catch (err) { setError(err.message || 'Failed to cancel broadcast') }
+                                    }}
+                                  >✖ Cancel</button>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 

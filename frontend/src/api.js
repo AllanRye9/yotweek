@@ -482,3 +482,24 @@ export const getAdminAgentApplications = () =>
 
 export const adminApproveAgentApplication = (appId, approved) =>
   request('POST', `/api/admin/agent_applications/${encodeURIComponent(appId)}/approve`, { approved })
+
+// ── Admin — Properties ────────────────────────────────────────────────────────
+
+export const getAdminProperties = () => request('GET', '/api/admin/properties')
+
+export const adminDeleteProperty = (propertyId) =>
+  request('DELETE', `/api/admin/properties/${encodeURIComponent(propertyId)}`)
+
+// ── Admin — Users ─────────────────────────────────────────────────────────────
+
+export const getAdminUsers = () => request('GET', '/api/admin/users')
+
+export const adminDeleteUser = (userId) =>
+  request('DELETE', `/api/admin/users/${encodeURIComponent(userId)}`)
+
+// ── Admin — Broadcasts ────────────────────────────────────────────────────────
+
+export const getAdminBroadcasts = () => request('GET', '/api/admin/broadcasts')
+
+export const adminCancelBroadcast = (broadcastId) =>
+  request('DELETE', `/api/admin/broadcasts/${encodeURIComponent(broadcastId)}`)
