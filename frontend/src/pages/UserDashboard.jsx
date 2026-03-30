@@ -728,6 +728,27 @@ export default function UserDashboard() {
                           <p className={`text-sm font-medium ${n.read ? 'text-gray-300' : 'text-white'}`}>{n.title}</p>
                           <p className="text-xs text-gray-400 truncate">{n.body}</p>
                           <p className="text-xs text-gray-600 mt-0.5">{new Date(n.created_at).toLocaleString()}</p>
+                          {n.link && (
+                            <a
+                              href={n.link}
+                              onClick={e => {
+                                e.stopPropagation()
+                                // If the link is a hash fragment (e.g., #inbox), navigate to that tab
+                                if (n.link.startsWith('#')) {
+                                  e.preventDefault()
+                                  handleSelectTab(n.link.slice(1))
+                                  if (!n.read) {
+                                    markNotificationRead(n.notif_id).catch(() => {})
+                                    setNotifications(prev => prev.map(x => x.notif_id === n.notif_id ? { ...x, read: 1 } : x))
+                                    setUnreadNotifs(c => Math.max(0, c - 1))
+                                  }
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 mt-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                            >
+                              {n.link_label || 'View'} →
+                            </a>
+                          )}
                         </div>
                         {!n.read && <span className="w-2 h-2 bg-blue-400 rounded-full shrink-0 mt-1.5" />}
                       </div>

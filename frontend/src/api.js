@@ -369,6 +369,12 @@ export const calculateFare = (origin_lat, origin_lng, dest_lat, dest_lng) =>
 export const calculateSharedFare = (total_fare, total_seats, booked_seats) =>
   request('GET', `/api/rides/shared_fare?total_fare=${total_fare}&total_seats=${total_seats}&booked_seats=${booked_seats}`)
 
+export const geocodeAddress = (address) =>
+  request('GET', `/api/rides/geocode?address=${encodeURIComponent(address)}`)
+
+export const estimateFare = (start, destination, seats = 1) =>
+  request('GET', `/api/rides/estimate_fare?start=${encodeURIComponent(start)}&destination=${encodeURIComponent(destination)}&seats=${seats}`)
+
 export const listRides = (status = null) =>
   request('GET', `/api/rides/list${status ? `?status=${encodeURIComponent(status)}` : ''}`)
 
@@ -390,7 +396,10 @@ export const getAllDriverLocations = () => request('GET', '/api/driver/locations
 
 // ── Direct Messaging ──────────────────────────────────────────────────────────
 
-export const dmListConversations = () => request('GET', '/api/dm/conversations')
+export const dmListConversations = (search = null) =>
+  request('GET', `/api/dm/conversations${search ? `?search=${encodeURIComponent(search)}` : ''}`)
+
+export const dmGetContacts = () => request('GET', '/api/dm/contacts')
 
 export const dmStartConversation = (other_user_id) =>
   request('POST', '/api/dm/conversations', { other_user_id })
