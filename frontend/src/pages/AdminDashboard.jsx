@@ -134,6 +134,9 @@ export default function AdminDashboard() {
     return buckets
   }, [downloads])
 
+  const pendingDriverCount = driverApps.filter(a => a.status === 'pending').length
+  const pendingAgentCount  = agentApps.filter(a => a.status === 'pending').length
+
   const fetchAnalytics = useCallback(async () => {
     setLoadingAnalytics(true)
     try { setAnalytics(await getAdminAnalytics()) } catch {}
@@ -185,6 +188,10 @@ export default function AdminDashboard() {
     if (tab === 'dashboard' || tab === 'analytics') {
       fetchAnalytics()
       fetchDownloads()  // needed for 30-day trend
+    }
+    if (tab === 'dashboard') {
+      fetchDriverApps()
+      fetchAgentApps()
     }
     if (tab === 'downloads')  fetchDownloads()
     if (tab === 'visitors')   fetchVisitors()
@@ -302,6 +309,12 @@ export default function AdminDashboard() {
               {t.id === 'visitors' && visitors.length > 0 && (
                 <span className="ml-auto badge-gray">{visitors.length}</span>
               )}
+              {t.id === 'drivers' && pendingDriverCount > 0 && (
+                <span className="ml-auto badge-gray">{pendingDriverCount}</span>
+              )}
+              {t.id === 'agents' && pendingAgentCount > 0 && (
+                <span className="ml-auto badge-gray">{pendingAgentCount}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -333,6 +346,7 @@ export default function AdminDashboard() {
             className="btn-ghost btn-sm text-xs"
             onClick={() => {
               if (tab === 'dashboard' || tab === 'analytics') fetchAnalytics()
+              if (tab === 'dashboard') { fetchDriverApps(); fetchAgentApps() }
               if (tab === 'downloads') fetchDownloads()
               if (tab === 'visitors')  fetchVisitors()
               if (tab === 'rides')     fetchRides()
@@ -365,6 +379,53 @@ export default function AdminDashboard() {
                 ? <div className="flex justify-center py-20"><span className="spinner w-10 h-10" /></div>
                 : <>
                     <AdminStats analytics={analytics} />
+
+                    {/* Pending Applications summary */}
+                    <div className="mb-6">
+                      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+                        Pending Applications
+                      </h2>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* Driver Applications */}
+                        <div className="rounded-xl border border-amber-700/40 bg-amber-900/10 p-4 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">🚕 Driver Applications</p>
+                            <p className="text-2xl font-bold text-amber-300">
+                              {pendingDriverCount}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {driverApps.length} total · {driverApps.filter(a => a.status === 'approved').length} approved
+                            </p>
+                          </div>
+                          <button
+                            className="text-xs px-3 py-1.5 rounded-lg bg-amber-800/40 hover:bg-amber-700/50 text-amber-300 border border-amber-700/40 transition-colors"
+                            onClick={() => setTab('drivers')}
+                          >
+                            Manage →
+                          </button>
+                        </div>
+
+                        {/* Agent Applications */}
+                        <div className="rounded-xl border border-purple-700/40 bg-purple-900/10 p-4 flex items-center justify-between">
+                          <div>
+                            <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">🏡 Agent Applications</p>
+                            <p className="text-2xl font-bold text-purple-300">
+                              {pendingAgentCount}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {agentApps.length} total · {agentApps.filter(a => a.status === 'approved').length} approved
+                            </p>
+                          </div>
+                          <button
+                            className="text-xs px-3 py-1.5 rounded-lg bg-purple-800/40 hover:bg-purple-700/50 text-purple-300 border border-purple-700/40 transition-colors"
+                            onClick={() => setTab('agents')}
+                          >
+                            Manage →
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
                     <ActivitySummary downloads={downloads} analytics={analytics} />
                   </>
               }
@@ -501,7 +562,7 @@ export default function AdminDashboard() {
                     </div>
                     <div className="rounded-xl border border-amber-700/40 bg-amber-900/20 p-4">
                       <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Pending</p>
-                      <p className="text-2xl font-bold text-amber-300">{driverApps.filter(a => a.status === 'pending').length}</p>
+                      <p className="text-2xl font-bold text-amber-300">{pendingDriverCount}</p>
                     </div>
                     <div className="rounded-xl border border-green-800/40 bg-green-900/20 p-4">
                       <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Approved</p>
@@ -602,7 +663,7 @@ export default function AdminDashboard() {
                     </div>
                     <div className="rounded-xl border border-amber-700/40 bg-amber-900/20 p-4">
                       <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Pending</p>
-                      <p className="text-2xl font-bold text-amber-300">{agentApps.filter(a => a.status === 'pending').length}</p>
+                      <p className="text-2xl font-bold text-amber-300">{pendingAgentCount}</p>
                     </div>
                     <div className="rounded-xl border border-green-800/40 bg-green-900/20 p-4">
                       <p className="text-xs text-gray-400 uppercase tracking-wider mb-1">Approved</p>

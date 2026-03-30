@@ -36,6 +36,8 @@ if psycopg2 is not None:
 import gzip
 import zipfile
 import ipaddress
+import smtplib
+from email.mime.text import MIMEText
 import maxminddb
 import asyncio
 import mimetypes
@@ -417,6 +419,43 @@ def _bucket_write_json(folder: str, type_prefix: str, record_id: str, data: dict
     key = f"{folder.rstrip('/')}/{type_prefix}_{ts}_{record_id}.json"
     payload = json.dumps(data, default=str).encode("utf-8")
     return _s3_upload_bytes(payload, key, "application/json")
+
+
+# ── Email / SMTP ───────────────────────────────────────────────────────────────
+
+_SMTP_HOST     = os.environ.get("SMTP_HOST", "")
+_SMTP_PORT     = int(os.environ.get("SMTP_PORT", "587"))
+_SMTP_USER     = os.environ.get("SMTP_USER", "")
+_SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+_SMTP_FROM     = os.environ.get("SMTP_FROM", "") or _SMTP_USER
+
+
+def _send_email(to_addr: str, subject: str, body_text: str) -> bool:
+    """Send a plain-text email via SMTP.
+
+    Returns True on success, False when SMTP is not configured or sending
+    fails (errors are logged but never re-raised).
+    """
+    if not _SMTP_HOST or not to_addr:
+        return False
+    try:
+        msg = MIMEText(body_text, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"]    = _SMTP_FROM
+        msg["To"]      = to_addr
+        with smtplib.SMTP(_SMTP_HOST, _SMTP_PORT, timeout=10) as smtp:
+            smtp.ehlo()
+            if _SMTP_PORT != 465:
+                smtp.starttls()
+                smtp.ehlo()
+            if _SMTP_USER and _SMTP_PASSWORD:
+                smtp.login(_SMTP_USER, _SMTP_PASSWORD)
+            smtp.send_message(msg)
+        logger.info("Email sent to %s: %s", to_addr, subject)
+        return True
+    except Exception as exc:
+        logger.error("Email send failed to %s: %s", to_addr, exc)
+        return False
 
 
 # Paths whose visits are tracked for analytics (main site + admin page)
@@ -8201,16 +8240,30 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id FROM driver_applications WHERE app_id=%s", (app_id,))
+                cur.execute(
+                    """SELECT da.user_id, au.name, au.email
+                       FROM driver_applications da
+                       JOIN app_users au ON da.user_id = au.user_id
+                       WHERE da.app_id=%s""",
+                    (app_id,),
+                )
                 row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id FROM driver_applications WHERE app_id=?", (app_id,))
+                cur = conn.execute(
+                    """SELECT da.user_id, au.name, au.email
+                       FROM driver_applications da
+                       JOIN app_users au ON da.user_id = au.user_id
+                       WHERE da.app_id=?""",
+                    (app_id,),
+                )
                 row = cur.fetchone()
 
             if row is None:
                 return JSONResponse({"error": "Application not found."}, status_code=404)
 
             target_user_id = row[0]
+            driver_name    = row[1]
+            driver_email   = row[2]
 
             if USE_POSTGRES:
                 cur.execute("UPDATE driver_applications SET status=%s WHERE app_id=%s", (new_status, app_id))
@@ -8232,6 +8285,14 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             "driver_approved",
             "🎉 Driver Application Approved",
             "Congratulations! Your driver application has been approved. You can now post rides and use Driver Alerts.",
+        )
+        _send_email(
+            driver_email,
+            "Your Driver Registration Has Been Approved",
+            f"Dear {driver_name},\n\n"
+            "Congratulations! Your driver application has been approved. "
+            "You can now post rides and use Driver Alerts.\n\n"
+            "Best regards,\nThe YotWeek Team",
         )
         # Also emit real-time socket event if the user is connected
         with _socket_user_lock:
@@ -8255,6 +8316,14 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             "driver_rejected",
             "❌ Driver Application Rejected",
             "Unfortunately, your driver application was not approved this time. You may re-apply with updated details.",
+        )
+        _send_email(
+            driver_email,
+            "Your Driver Registration Was Not Approved",
+            f"Dear {driver_name},\n\n"
+            "Unfortunately, your driver application was not approved this time. "
+            "You may re-apply with updated details.\n\n"
+            "Best regards,\nThe YotWeek Team",
         )
         # Persist rejected record to bucket under /driver_reg/pending/ (status update)
         _bucket_write_json("driver_reg/pending", "driver_reg", app_id, {
@@ -8450,16 +8519,17 @@ async def api_admin_agent_approve(request: Request, app_id: str, body: _AgentApp
         try:
             cur = _execute(
                 conn,
-                "SELECT user_id,full_name FROM agent_applications WHERE app_id=?"
+                "SELECT user_id,full_name,email FROM agent_applications WHERE app_id=?"
                 if not USE_POSTGRES else
-                "SELECT user_id,full_name FROM agent_applications WHERE app_id=%s",
+                "SELECT user_id,full_name,email FROM agent_applications WHERE app_id=%s",
                 (app_id,),
             )
             row = cur.fetchone()
             if row is None:
                 return JSONResponse({"error": "Application not found."}, status_code=404)
-            target_user_id = row["user_id"] if USE_POSTGRES else row[0]
-            applicant_name = row["full_name"] if USE_POSTGRES else row[1]
+            target_user_id  = row["user_id"]  if USE_POSTGRES else row[0]
+            applicant_name  = row["full_name"] if USE_POSTGRES else row[1]
+            applicant_email = row["email"]     if USE_POSTGRES else row[2]
 
             _execute(
                 conn,
@@ -8497,6 +8567,14 @@ async def api_admin_agent_approve(request: Request, app_id: str, body: _AgentApp
             "Agent Application Approved",
             "Congratulations! Your agent registration has been approved. You can now post properties.",
         )
+        _send_email(
+            applicant_email,
+            "Your Agent Registration Has Been Approved",
+            f"Dear {applicant_name},\n\n"
+            "Congratulations! Your agent registration has been approved. "
+            "You can now log in and post property listings.\n\n"
+            "Best regards,\nThe YotWeek Team",
+        )
         _bucket_write_json("agent_reg/verified", "agent_reg", app_id, {
             "app_id": app_id, "user_id": target_user_id,
             "applicant_name": applicant_name,
@@ -8508,6 +8586,14 @@ async def api_admin_agent_approve(request: Request, app_id: str, body: _AgentApp
             "agent_rejected",
             "Agent Application Rejected",
             "Your agent registration application was not approved. Please contact support for more information.",
+        )
+        _send_email(
+            applicant_email,
+            "Your Agent Registration Was Not Approved",
+            f"Dear {applicant_name},\n\n"
+            "Unfortunately, your agent registration application was not approved at this time. "
+            "Please contact support for more information.\n\n"
+            "Best regards,\nThe YotWeek Team",
         )
         _bucket_write_json("agent_reg/pending", "agent_reg", app_id, {
             "app_id": app_id, "user_id": target_user_id,
