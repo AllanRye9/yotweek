@@ -3943,8 +3943,7 @@ class TestBroadcastList:
         resp = run(api_broadcasts_list(req, status=None, mine=True))
         data = json.loads(resp.body)
         assert len(data["broadcasts"]) >= 1
-        import json as j
-        user_id = j.loads(resp_data.body)["user_id"]
+        user_id = json.loads(resp_data.body)["user_id"]
         assert all(b["user_id"] == user_id for b in data["broadcasts"])
 
     def test_get_broadcast_by_id(self):

@@ -11454,6 +11454,7 @@ async def internal_error(request: Request, exc):
 # =========================================================
 
 _VALID_WAITING_TIMES = ("Leave now", "15 min", "30 min", "1 hour")
+_WAITING_TIME_MINUTES = {"Leave now": 0, "15 min": 15, "30 min": 30, "1 hour": 60}
 
 class _BroadcastPostRequest(BaseModel):
     seats: int
@@ -11509,8 +11510,7 @@ async def api_broadcast_post(request: Request, body: _BroadcastPostRequest):
         fare = round(dist_km * _FARE_PER_KM, 2)
 
     # Calculate expiry based on waiting_time
-    _waiting_time_minutes = {"Leave now": 0, "15 min": 15, "30 min": 30, "1 hour": 60}
-    minutes = _waiting_time_minutes[body.waiting_time]
+    minutes = _WAITING_TIME_MINUTES[body.waiting_time]
     now = datetime.now(timezone.utc)
     expires_at = (now + timedelta(minutes=minutes)).isoformat() if minutes > 0 else now.isoformat()
     created_at = now.isoformat()
@@ -11719,8 +11719,7 @@ async def api_broadcast_update(request: Request, broadcast_id: str, body: _Broad
                     )
                 updates["waiting_time"] = body.waiting_time
                 # Recalculate expires_at
-                _waiting_time_minutes = {"Leave now": 0, "15 min": 15, "30 min": 30, "1 hour": 60}
-                minutes = _waiting_time_minutes[body.waiting_time]
+                minutes = _WAITING_TIME_MINUTES[body.waiting_time]
                 now = datetime.now(timezone.utc)
                 updates["expires_at"] = (now + timedelta(minutes=minutes)).isoformat() if minutes > 0 else now.isoformat()
             if body.fare is not None:
@@ -11842,13 +11841,13 @@ async def api_broadcast_book(request: Request, broadcast_id: str):
             conn.close()
 
     total_seats = bcast["seats"]
+    if total_seats <= 0:
+        return JSONResponse({"error": "This broadcast has no available seats."}, status_code=400)
     if booked_count >= total_seats:
         return JSONResponse({"error": "No seats available on this broadcast."}, status_code=400)
 
     fare = bcast["fare"] or 0.0
     # Per-seat cost: total fare ÷ total seats (shared cost model)
-    if total_seats <= 0:
-        return JSONResponse({"error": "This broadcast has no available seats."}, status_code=400)
     per_seat_cost = round(fare / total_seats, 2)
     # Dynamic adjustment if not all seats fill: total/current_bookers+1
     current_passengers = booked_count + 1
