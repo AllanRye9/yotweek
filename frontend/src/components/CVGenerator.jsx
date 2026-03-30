@@ -287,29 +287,49 @@ function StepDots({ steps, current, onGoto }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 // AI suggestions panel shown below text areas
-function AiPanel({ field, aiState, onSuggest, onApply, onDismiss }) {
+function AiPanel({ field, aiState, onSuggest, onApply, onDismiss, onAutoFill, autoFillLoading, autoFillError }) {
   const { loading, suggestions, sampleVerbs, enhancedText, source, error } = aiState
   const sourceLabel = source === 'groq' ? '⚡ Groq AI' : source === 'huggingface' ? '🤗 HuggingFace AI' : '🧠 Smart Tips'
   const hasResults = suggestions.length > 0 || sampleVerbs.length > 0 || enhancedText
+  const isBusy = loading || autoFillLoading
 
   return (
     <div style={{ marginTop: 8 }}>
-      <button
-        type="button"
-        onClick={() => onSuggest(field)}
-        disabled={loading}
-        style={{
-          background: '#1f2937', border: '1px solid #374151', borderRadius: 6,
-          padding: '5px 12px', fontSize: '0.75rem', color: loading ? '#6b7280' : '#a78bfa',
-          cursor: loading ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
-          transition: 'all 0.15s',
-        }}
-      >
-        {loading ? '⏳ Getting AI suggestions…' : '✨ AI Enhance'}
-      </button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          onClick={() => onSuggest(field)}
+          disabled={isBusy}
+          style={{
+            background: '#1f2937', border: '1px solid #374151', borderRadius: 6,
+            padding: '5px 12px', fontSize: '0.75rem', color: isBusy ? '#6b7280' : '#a78bfa',
+            cursor: isBusy ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+            transition: 'all 0.15s',
+          }}
+        >
+          {loading ? '⏳ Getting AI suggestions…' : '✨ AI Enhance'}
+        </button>
+        <button
+          type="button"
+          onClick={() => onAutoFill(field)}
+          disabled={isBusy}
+          style={{
+            background: autoFillLoading ? '#1f2937' : '#065f46', border: '1px solid #047857', borderRadius: 6,
+            padding: '5px 12px', fontSize: '0.75rem', color: isBusy ? '#6b7280' : '#6ee7b7',
+            cursor: isBusy ? 'not-allowed' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5,
+            transition: 'all 0.15s', fontWeight: 600,
+          }}
+        >
+          {autoFillLoading ? '⏳ Auto-filling…' : '🪄 Auto-fill'}
+        </button>
+      </div>
 
       {error && (
         <div style={{ marginTop: 6, fontSize: '0.72rem', color: '#f87171' }}>❌ {error}</div>
+      )}
+
+      {autoFillError && (
+        <div style={{ marginTop: 6, fontSize: '0.72rem', color: '#f87171' }}>❌ {autoFillError}</div>
       )}
 
       {hasResults && !loading && (
@@ -393,6 +413,8 @@ function CVBuilder() {
   const [animKey, setAnimKey]     = useState(0)
   const [cvUploadStatus, setCvUploadStatus] = useState(null)
   const [aiState, setAiState]     = useState({ loading: false, suggestions: [], sampleVerbs: [], enhancedText: '', source: '', error: '' })
+  const [autoFillField, setAutoFillField] = useState(null)
+  const [autoFillError, setAutoFillError] = useState({ field: null, msg: null })
   const [copied, setCopied]       = useState(false)
   const submitRef    = useRef(null)
   const cvUploadRef  = useRef(null)
@@ -510,6 +532,24 @@ function CVBuilder() {
   const dismissAi = useCallback(() => {
     setAiState({ loading: false, suggestions: [], sampleVerbs: [], enhancedText: '', source: '', error: '' })
   }, [])
+
+  const handleAutoFill = useCallback(async (field) => {
+    setAutoFillField(field)
+    setAutoFillError({ field: null, msg: null })
+    try {
+      const data = await aiCvSuggest(field, fields[field] || '', fields.name)
+      const fillText = data.enhanced_text || data.suggestions?.[0] || ''
+      if (fillText) {
+        setFields(f => ({ ...f, [field]: fillText }))
+      } else {
+        setAutoFillError({ field, msg: 'No AI content available to auto-fill. Try AI Enhance instead.' })
+      }
+    } catch (err) {
+      setAutoFillError({ field, msg: err.message || 'Auto-fill failed. Try AI Enhance instead.' })
+    } finally {
+      setAutoFillField(null)
+    }
+  }, [fields])
 
   const handleGenerate = async () => {
     const err = validate()
@@ -713,7 +753,7 @@ function CVBuilder() {
                   placeholder="A brief professional summary highlighting your key strengths and career goals…"
                   value={fields.summary} onChange={set('summary')} onBlur={blurSummary} />
                 <p className="text-xs text-gray-500">2–4 sentences work best.</p>
-                <AiPanel field="summary" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} />
+                <AiPanel field="summary" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} onAutoFill={handleAutoFill} autoFillLoading={autoFillField === 'summary'} autoFillError={autoFillError.field === 'summary' ? autoFillError.msg : null} />
               </div>
             )}
 
@@ -725,7 +765,7 @@ function CVBuilder() {
                   placeholder={"Company — Title — Start–End\n• Achievement or responsibility\n\nCompany — Title — Start–End\n• Achievement"}
                   value={fields.experience} onChange={set('experience')} onBlur={blurExperience} />
                 <p className="text-xs text-gray-500">Separate roles with a blank line. Bullet lines start with • or -.</p>
-                <AiPanel field="experience" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} />
+                <AiPanel field="experience" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} onAutoFill={handleAutoFill} autoFillLoading={autoFillField === 'experience'} autoFillError={autoFillError.field === 'experience' ? autoFillError.msg : null} />
               </div>
             )}
 
@@ -736,7 +776,7 @@ function CVBuilder() {
                 <textarea className="input resize-y font-mono text-xs" rows={4}
                   placeholder={"University — Degree — Year\nUniversity — Degree — Year"}
                   value={fields.education} onChange={set('education')} onBlur={blurEducation} />
-                <AiPanel field="education" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} />
+                <AiPanel field="education" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} onAutoFill={handleAutoFill} autoFillLoading={autoFillField === 'education'} autoFillError={autoFillError.field === 'education' ? autoFillError.msg : null} />
               </div>
             )}
 
@@ -748,7 +788,7 @@ function CVBuilder() {
                   placeholder="Python, FastAPI, React, Docker, Kubernetes, …"
                   value={fields.skills} onChange={set('skills')} onBlur={blurSkills} />
                 <p className="text-xs text-gray-500">Duplicates are removed automatically.</p>
-                <AiPanel field="skills" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} />
+                <AiPanel field="skills" aiState={aiState} onSuggest={handleAiSuggest} onApply={applyAiEnhancement} onDismiss={dismissAi} onAutoFill={handleAutoFill} autoFillLoading={autoFillField === 'skills'} autoFillError={autoFillError.field === 'skills' ? autoFillError.msg : null} />
               </div>
             )}
 
