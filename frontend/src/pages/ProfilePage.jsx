@@ -147,6 +147,7 @@ export default function ProfilePage() {
                 </div>
                 <p className="text-gray-400 text-sm">{appUser.email}</p>
                 <p className="text-gray-500 text-xs capitalize mt-0.5">{appUser.role} · Member since {new Date(appUser.created_at).toLocaleDateString()}</p>
+                <p className="text-gray-600 text-xs font-mono mt-1 truncate" title={appUser.user_id}>ID: {appUser.user_id}</p>
               </div>
 
               <button

@@ -13,7 +13,7 @@ import PropertyManager from '../components/PropertyManager'
 import DMInbox from '../components/DMInbox'
 import {
   getUserProfile, userLogout, getStats, getNotifications,
-  markAllNotificationsRead, markNotificationRead,
+  markAllNotificationsRead, markNotificationRead, clearAllNotifications,
   getRideHistory, getRideChatInbox,
   driverApply, getDriverApplication,
 } from '../api'
@@ -676,15 +676,29 @@ export default function UserDashboard() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">🔔 Notifications</h2>
                   {notifications.length > 0 && (
-                    <button
-                      onClick={() => markAllNotificationsRead().then(() => {
-                        setNotifications(prev => prev.map(n => ({ ...n, read: 1 })))
-                        setUnreadNotifs(0)
-                      }).catch(() => {})}
-                      className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
-                    >
-                      Mark all read
-                    </button>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => markAllNotificationsRead().then(() => {
+                          setNotifications(prev => prev.map(n => ({ ...n, read: 1 })))
+                          setUnreadNotifs(0)
+                        }).catch(() => {})}
+                        className="text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        Mark all read
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!window.confirm('Clear all notifications? This cannot be undone.')) return
+                          clearAllNotifications().then(() => {
+                            setNotifications([])
+                            setUnreadNotifs(0)
+                          }).catch(() => {})
+                        }}
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        Clear all
+                      </button>
+                    </div>
                   )}
                 </div>
                 {notifications.length === 0 ? (

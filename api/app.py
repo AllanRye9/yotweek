@@ -7075,7 +7075,7 @@ async def api_cv_ats_scan(
 # USER AUTHENTICATION MODULE
 # =========================================================
 
-_APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "50"))
+_APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "6"))
 # Base fare per km for airport pickup rides (env-configurable, $1/km as per platform standard)
 _FARE_PER_KM = float(os.environ.get("FARE_PER_KM", "1.0"))
 
@@ -7659,6 +7659,28 @@ async def api_mark_all_notifications_read(request: Request):
                 cur.execute("UPDATE notifications SET read=1 WHERE user_id=%s", (user_id,))
             else:
                 conn.execute("UPDATE notifications SET read=1 WHERE user_id=?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.delete("/api/notifications/clear_all")
+async def api_clear_all_notifications(request: Request):
+    """Delete all notifications for the logged-in user."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM notifications WHERE user_id=%s", (user_id,))
+            else:
+                conn.execute("DELETE FROM notifications WHERE user_id=?", (user_id,))
             conn.commit()
         finally:
             conn.close()
@@ -10338,6 +10360,38 @@ async def api_dm_mark_read(request: Request, conv_id: str):
     # Notify the other side that messages are read
     room = f"dm_{conv_id}"
     await sio.emit("dm_read", {"conv_id": conv_id, "reader_id": user_id}, room=room)
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.delete("/api/dm/conversations/{conv_id}")
+async def api_dm_delete_conversation(request: Request, conv_id: str):
+    """Delete a DM conversation and all its messages for the current user."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    conv = _get_dm_conversation(conv_id)
+    if not conv:
+        return JSONResponse({"error": "Conversation not found."}, status_code=404)
+    if user_id not in (conv["user1_id"], conv["user2_id"]):
+        return JSONResponse({"error": "Access denied."}, status_code=403)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            _execute(
+                conn,
+                "DELETE FROM dm_messages WHERE conv_id=?" if not USE_POSTGRES else "DELETE FROM dm_messages WHERE conv_id=%s",
+                (conv_id,),
+            )
+            _execute(
+                conn,
+                "DELETE FROM dm_conversations WHERE conv_id=?" if not USE_POSTGRES else "DELETE FROM dm_conversations WHERE conv_id=%s",
+                (conv_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
     return JSONResponse({"ok": True})
 
 

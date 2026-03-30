@@ -441,6 +441,16 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           <p className="text-green-200 text-xs">{driverAlert.message}</p>
           {driverAlert.driver_name && <p className="text-green-400 text-xs mt-1 font-medium">👤 {driverAlert.driver_name}</p>}
           {driverAlert.seats > 0 && <p className="text-green-300 text-xs mt-0.5">💺 {driverAlert.seats} empty seat{driverAlert.seats !== 1 ? 's' : ''}</p>}
+          {driverAlert.lat != null && driverAlert.lng != null && (
+            <a
+              href={`https://www.google.com/maps?q=${driverAlert.lat},${driverAlert.lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1.5 text-xs text-blue-300 hover:text-blue-200 underline flex items-center gap-1"
+            >
+              🗺️ View on Google Maps
+            </a>
+          )}
         </div>
       )}
 
@@ -749,9 +759,13 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                       {distKm <= 6 && ' 🔥'}
                     </span>
                   )}
-                  {ride.fare != null && (
+                  {ride.fare != null ? (
                     <span className="text-xs px-1.5 py-0.5 rounded-full bg-blue-900/50 text-blue-300 border border-blue-700/50 font-semibold">
                       💰 ${Number(ride.fare).toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full bg-gray-700/50 text-gray-400 border border-gray-600/50 font-semibold">
+                      💰 Fare TBD
                     </span>
                   )}
                   {ride.fare != null && ride.seats > 1 && (
@@ -763,6 +777,16 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 <p className="text-xs text-gray-400">
                   🕐 {new Date(ride.departure).toLocaleString()} · 💺 {ride.seats} seat{ride.seats !== 1 ? 's' : ''} · 👤 {ride.driver_name}
                 </p>
+                {ride.origin_lat != null && ride.origin_lng != null && (
+                  <a
+                    href={`https://www.google.com/maps?q=${ride.origin_lat},${ride.origin_lng}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1 mt-0.5"
+                  >
+                    🗺️ View pickup on Google Maps
+                  </a>
+                )}
                 {ride.notes && !ride.notes.includes('Contact:') && (
                   <p className="text-xs text-gray-500 mt-1 italic">"{ride.notes}"</p>
                 )}
@@ -778,7 +802,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 })()}
               </div>
               <div className="flex flex-col gap-1.5 shrink-0">
-                {ride.status === 'open' && (
+                {ride.status === 'open' && (!user || user.user_id !== ride.user_id) && (
                   <button onClick={() => { setChatRide(ride); setChatDefaultMsg(_buildClientBookingMsg(ride, user?.name)) }}
                     className="ride-chat-btn text-xs text-blue-400 hover:text-blue-300 border border-blue-700/50 hover:border-blue-500 rounded-lg px-2 py-1 transition-colors flex items-center gap-1">
                     💬 Book

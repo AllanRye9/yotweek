@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import socket from '../socket'
 import {
-  dmListConversations, dmStartConversation, dmSendMessage, listUsers,
+  dmListConversations, dmStartConversation, dmSendMessage, listUsers, dmDeleteConversation,
 } from '../api'
 import DMChat from './DMChat'
 import { playMessageChime } from '../sounds'
@@ -11,11 +11,13 @@ import { playMessageChime } from '../sounds'
  *
  * Features:
  *  - Lists all conversations, sorted by most-recent message
+ *  - Conversation search filter
  *  - Unread count badges
  *  - Last message preview (sender + snippet)
  *  - Quick-reply inline (without opening full chat)
  *  - Open full chat for any conversation
- *  - Start new conversation by picking a user
+ *  - Delete individual conversations
+ *  - Start new conversation (previously communicated users shown first)
  *  - Real-time updates via dm_notification socket event
  *
  * Props:
@@ -32,6 +34,7 @@ export default function DMInbox({ currentUser }) {
   const [showNewChat,    setShowNewChat]     = useState(false)
   const [allUsers,       setAllUsers]        = useState([])
   const [userSearch,     setUserSearch]      = useState('')
+  const [convSearch,     setConvSearch]      = useState('')
   const [totalUnread,    setTotalUnread]     = useState(0)
   const prevUnreadRef    = useRef(0)
 
@@ -93,8 +96,12 @@ export default function DMInbox({ currentUser }) {
     try {
       const data = await dmStartConversation(otherUserId)
       const conv = data.conv
-      // Enrich with other user info
-      const otherUser = allUsers.find(u => u.user_id === otherUserId)
+      // Build a lookup map from all available sources for O(1) name resolution
+      const userMap = new Map([
+        ...conversations.map(c => c.other_user ? [c.other_user.user_id, c.other_user] : null).filter(Boolean),
+        ...allUsers.map(u => [u.user_id, u]),
+      ])
+      const otherUser = userMap.get(otherUserId)
       setActiveConv({
         conv_id:    conv.conv_id,
         other_user: { user_id: otherUserId, name: otherUser?.name || otherUserId },
@@ -103,6 +110,16 @@ export default function DMInbox({ currentUser }) {
       })
       setShowNewChat(false)
       loadConversations()
+    } catch { /* ignore */ }
+  }
+
+  // ── Delete conversation ───────────────────────────────────────────────────
+
+  const handleDeleteConversation = async (convId) => {
+    if (!window.confirm('Delete this conversation? This cannot be undone.')) return
+    try {
+      await dmDeleteConversation(convId)
+      setConversations(prev => prev.filter(c => c.conv_id !== convId))
     } catch { /* ignore */ }
   }
 
@@ -149,11 +166,30 @@ export default function DMInbox({ currentUser }) {
     )
   }
 
-  // ── Filtered user list for new chat ───────────────────────────────────────
+  // ── Build user list for new chat (previously communicated first) ──────────
 
-  const filteredUsers = allUsers.filter(u =>
+  // IDs of users already in conversations
+  const prevContactIds = new Set(conversations.map(c => c.other_user?.user_id).filter(Boolean))
+
+  // Users already communicated with (from conversation list)
+  const prevContacts = conversations
+    .filter(c => c.other_user)
+    .map(c => ({ user_id: c.other_user.user_id, name: c.other_user.name }))
+
+  // Remaining users (all users minus already-in-conversations)
+  const otherUsers = allUsers.filter(u => !prevContactIds.has(u.user_id))
+
+  // Combined list: prev contacts first, then others
+  const combinedUsers = [...prevContacts, ...otherUsers]
+  const filteredUsers = combinedUsers.filter(u =>
     u.name.toLowerCase().includes(userSearch.toLowerCase())
   )
+
+  // ── Filtered conversation list ────────────────────────────────────────────
+
+  const filteredConversations = convSearch.trim()
+    ? conversations.filter(c => c.other_user?.name?.toLowerCase().includes(convSearch.toLowerCase()))
+    : conversations
 
   return (
     <div className="space-y-4">
@@ -184,6 +220,17 @@ export default function DMInbox({ currentUser }) {
         </div>
       </div>
 
+      {/* Conversation search */}
+      {conversations.length > 0 && (
+        <input
+          type="text"
+          placeholder="Search conversations…"
+          value={convSearch}
+          onChange={e => setConvSearch(e.target.value)}
+          className="w-full rounded-lg bg-gray-900 border border-gray-700 text-gray-100 text-sm px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      )}
+
       {/* New chat picker */}
       {showNewChat && (
         <div className="bg-gray-800 border border-gray-700 rounded-xl p-4 space-y-3">
@@ -205,22 +252,39 @@ export default function DMInbox({ currentUser }) {
           />
           {filteredUsers.length === 0 ? (
             <p className="text-xs text-gray-500 text-center py-2">
-              {allUsers.length === 0 ? 'Loading users…' : 'No users found.'}
+              {combinedUsers.length === 0 ? 'Loading users…' : 'No users found.'}
             </p>
           ) : (
             <div className="space-y-1 max-h-48 overflow-y-auto">
-              {filteredUsers.map(u => (
-                <button
-                  key={u.user_id}
-                  onClick={() => handleStartConversation(u.user_id)}
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left"
-                >
-                  <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
-                    {u.name.charAt(0).toUpperCase()}
+              {prevContacts.length > 0 && !userSearch && (
+                <p className="text-xs text-gray-500 px-1 pb-0.5">Previously contacted</p>
+              )}
+              {filteredUsers.map((u, idx) => {
+                const isPrevContact = prevContactIds.has(u.user_id)
+                const shouldShowDivider = !userSearch
+                  && idx === prevContacts.length
+                  && prevContacts.length > 0
+                  && otherUsers.length > 0
+                return (
+                  <div key={u.user_id}>
+                    {shouldShowDivider && (
+                      <p className="text-xs text-gray-500 px-1 pt-1 pb-0.5">Other users</p>
+                    )}
+                    <button
+                      onClick={() => handleStartConversation(u.user_id)}
+                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+                        {u.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm text-white flex-1">{u.name}</span>
+                      {isPrevContact && (
+                        <span className="text-xs text-gray-500">💬</span>
+                      )}
+                    </button>
                   </div>
-                  <span className="text-sm text-white">{u.name}</span>
-                </button>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -231,20 +295,22 @@ export default function DMInbox({ currentUser }) {
         <div className="text-center py-8">
           <div className="spinner w-6 h-6 mx-auto" />
         </div>
-      ) : conversations.length === 0 ? (
+      ) : filteredConversations.length === 0 ? (
         <div className="text-center text-sm text-gray-500 py-10">
           <p className="text-3xl mb-2">💬</p>
-          <p>No conversations yet.</p>
-          <button
-            onClick={handleOpenNewChat}
-            className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-          >
-            Start a new conversation →
-          </button>
+          <p>{convSearch ? 'No conversations match your search.' : 'No conversations yet.'}</p>
+          {!convSearch && (
+            <button
+              onClick={handleOpenNewChat}
+              className="mt-3 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+            >
+              Start a new conversation →
+            </button>
+          )}
         </div>
       ) : (
         <div className="space-y-2">
-          {conversations.map((conv) => {
+          {filteredConversations.map((conv) => {
             const isQR = quickReply?.conv_id === conv.conv_id
             const lastMsg = conv.last_message
             const preview = lastMsg
@@ -307,6 +373,14 @@ export default function DMInbox({ currentUser }) {
                         title="Open chat"
                       >
                         💬
+                      </button>
+                      {/* Delete conversation button */}
+                      <button
+                        onClick={() => handleDeleteConversation(conv.conv_id)}
+                        className="text-xs text-gray-500 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded border border-gray-700 hover:border-red-500"
+                        title="Delete conversation"
+                      >
+                        🗑
                       </button>
                     </div>
                   </div>

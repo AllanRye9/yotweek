@@ -332,6 +332,9 @@ export const markNotificationRead = (notifId) =>
 export const markAllNotificationsRead = () =>
   request('POST', '/api/notifications/read_all', {})
 
+export const clearAllNotifications = () =>
+  request('DELETE', '/api/notifications/clear_all')
+
 export const requestMagicLink = (email) =>
   request('POST', '/api/auth/magic_link', { email })
 
@@ -400,6 +403,9 @@ export const dmSendMessage = (conv_id, content, reply_to_id = null) =>
 
 export const dmMarkRead = (convId) =>
   request('POST', `/api/dm/read/${encodeURIComponent(convId)}`, {})
+
+export const dmDeleteConversation = (convId) =>
+  request('DELETE', `/api/dm/conversations/${encodeURIComponent(convId)}`)
 
 export const listUsers = () => request('GET', '/api/users/list')
 

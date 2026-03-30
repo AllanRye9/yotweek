@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   updateUserLocation, userLogout, getRideHistory, getDriverApplication, driverApply,
   updateProfileDetails, uploadAvatar, getNotifications, markNotificationRead, markAllNotificationsRead,
-  changePassword,
+  clearAllNotifications, changePassword,
 } from '../api'
 import socket from '../socket'
 import DMInbox from './DMInbox'
@@ -376,6 +376,13 @@ function InboxTab({ user, unreadCount, onUnreadChange }) {
     setMarkingAll(false)
   }
 
+  const handleClearAll = async () => {
+    if (!window.confirm('Clear all notifications? This cannot be undone.')) return
+    await clearAllNotifications().catch(() => {})
+    setNotifications([])
+    onUnreadChange?.(0)
+  }
+
   // Clicking a DM/message notification navigates to the messages section
   const handleNotifClick = (n) => {
     if (!n.read) handleMarkRead(n.notif_id)
@@ -437,12 +444,20 @@ function InboxTab({ user, unreadCount, onUnreadChange }) {
               {notifications?.length ?? 0} notification{(notifications?.length ?? 0) !== 1 ? 's' : ''}
               {unreadCount > 0 && <span className="ml-2 text-blue-400">&middot; {unreadCount} unread</span>}
             </p>
-            {unreadCount > 0 && (
-              <button onClick={handleMarkAll} disabled={markingAll}
-                className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50">
-                {markingAll ? 'Marking...' : 'Mark all read'}
-              </button>
-            )}
+            <div className="flex gap-2">
+              {unreadCount > 0 && (
+                <button onClick={handleMarkAll} disabled={markingAll}
+                  className="text-xs text-blue-400 hover:text-blue-300 transition-colors disabled:opacity-50">
+                  {markingAll ? 'Marking...' : 'Mark all read'}
+                </button>
+              )}
+              {(notifications?.length ?? 0) > 0 && (
+                <button onClick={handleClearAll}
+                  className="text-xs text-red-400 hover:text-red-300 transition-colors">
+                  Clear all
+                </button>
+              )}
+            </div>
           </div>
 
           {loading ? (

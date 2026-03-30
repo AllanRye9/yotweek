@@ -1764,6 +1764,32 @@ class TestNotifications:
         types = [n["type"] for n in data["notifications"]]
         assert "driver_approved" in types
 
+    def test_clear_all_notifications_requires_login(self):
+        from api.app import api_clear_all_notifications
+        req = _make_request({})
+        resp = run(api_clear_all_notifications(req))
+        assert resp.status_code == 401
+
+    def test_clear_all_notifications_removes_all(self):
+        import json
+        from api.app import api_get_notifications, api_clear_all_notifications, _create_notification
+        resp, _ = _register_user("NotifClearAll")
+        user_id = json.loads(resp.body)["user_id"]
+        for i in range(3):
+            _create_notification(user_id, "system", f"Title {i}", f"Body {i}")
+        req = _make_request({"app_user_id": user_id})
+        # Verify notifications exist
+        data = json.loads(run(api_get_notifications(req)).body)
+        assert len(data["notifications"]) >= 3
+        # Clear all
+        clear_resp = run(api_clear_all_notifications(req))
+        assert clear_resp.status_code == 200
+        assert json.loads(clear_resp.body)["ok"] is True
+        # Verify empty
+        data2 = json.loads(run(api_get_notifications(req)).body)
+        assert len(data2["notifications"]) == 0
+        assert data2["unread"] == 0
+
 
 # ── Admin Reviews ──────────────────────────────────────────────────────────────
 
@@ -2441,6 +2467,58 @@ class TestDirectMessaging:
         assert resp.status_code == 200
         users = json.loads(resp.body)["users"]
         assert all(u["user_id"] != uid for u in users)
+
+    def test_delete_conversation_requires_login(self):
+        """DELETE /api/dm/conversations/{conv_id} without login → 401."""
+        from api.app import api_dm_delete_conversation
+        req = _make_request({})
+        resp = run(api_dm_delete_conversation(req, "fake-conv"))
+        assert resp.status_code == 401
+
+    def test_delete_conversation_not_found(self):
+        """DELETE /api/dm/conversations/{conv_id} with unknown conv → 404."""
+        import json
+        from api.app import api_dm_delete_conversation
+        uid = self._register_and_get_id("DM_DeleteNotFound")
+        req = _make_request({"app_user_id": uid})
+        resp = run(api_dm_delete_conversation(req, "nonexistent-conv-id"))
+        assert resp.status_code == 404
+
+    def test_delete_conversation_removes_messages(self):
+        """DELETE /api/dm/conversations/{conv_id} removes the conversation and its messages."""
+        import json
+        from api.app import (
+            api_dm_start_conversation, api_dm_send, api_dm_list_conversations,
+            api_dm_delete_conversation, _DMStartRequest, _DMSendRequest,
+        )
+        uid_a = self._register_and_get_id("DM_DelA")
+        uid_b = self._register_and_get_id("DM_DelB")
+        req_a = _make_request({"app_user_id": uid_a})
+        conv_id = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)["conv"]["conv_id"]
+        # Send a message
+        run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="Delete me")))
+        # Delete conversation
+        del_resp = run(api_dm_delete_conversation(req_a, conv_id))
+        assert del_resp.status_code == 200
+        assert json.loads(del_resp.body)["ok"] is True
+        # Conversation no longer listed
+        convs = json.loads(run(api_dm_list_conversations(req_a)).body)["conversations"]
+        assert not any(c["conv_id"] == conv_id for c in convs)
+
+    def test_delete_conversation_access_denied_for_non_participant(self):
+        """DELETE /api/dm/conversations/{conv_id} by a non-participant → 403."""
+        import json
+        from api.app import (
+            api_dm_start_conversation, api_dm_delete_conversation, _DMStartRequest,
+        )
+        uid_a = self._register_and_get_id("DM_DelDeny_A")
+        uid_b = self._register_and_get_id("DM_DelDeny_B")
+        uid_c = self._register_and_get_id("DM_DelDeny_C")
+        req_a = _make_request({"app_user_id": uid_a})
+        conv_id = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)["conv"]["conv_id"]
+        req_c = _make_request({"app_user_id": uid_c})
+        resp = run(api_dm_delete_conversation(req_c, conv_id))
+        assert resp.status_code == 403
 
 
 # ===========================================================================
