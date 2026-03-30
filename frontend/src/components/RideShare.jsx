@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare } from '../api'
+import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare } from '../api'
 import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../sounds'
 import socket from '../socket'
 import RideChat from './RideChat'
@@ -166,6 +166,15 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const PAGE_SIZE = 12
   const [page, setPage] = useState(1)
 
+  // Fare estimation panel (input search + estimate)
+  const [estimateStart, setEstimateStart]       = useState('')
+  const [estimateDest, setEstimateDest]         = useState('')
+  const [estimateSeats, setEstimateSeats]       = useState(1)
+  const [estimateResult, setEstimateResult]     = useState(null)
+  const [estimateLoading, setEstimateLoading]   = useState(false)
+  const [estimateError, setEstimateError]       = useState('')
+  const [showEstimator, setShowEstimator]       = useState(false)
+
   const loadRides = useCallback(async () => {
     setLoading(true)
     try {
@@ -277,6 +286,24 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       .finally(() => { if (!cancelled) setFareLoading(false) })
     return () => { cancelled = true }
   }, [originLat, originLng, destLat, destLng])
+
+  const handleEstimateFare = async () => {
+    if (!estimateStart.trim() || !estimateDest.trim()) {
+      setEstimateError('Please enter both a start location and a destination.')
+      return
+    }
+    setEstimateLoading(true)
+    setEstimateError('')
+    setEstimateResult(null)
+    try {
+      const result = await estimateFare(estimateStart.trim(), estimateDest.trim(), estimateSeats)
+      setEstimateResult(result)
+    } catch (e) {
+      setEstimateError(e.message || 'Could not estimate fare. Try a more specific address.')
+    } finally {
+      setEstimateLoading(false)
+    }
+  }
 
 
   useEffect(() => {
@@ -645,8 +672,99 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-gray-200">🗺️ All Rides</h3>
-          <button onClick={loadRides} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setShowEstimator(v => !v); setEstimateResult(null); setEstimateError('') }}
+              className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${showEstimator ? 'bg-indigo-700 border-indigo-600 text-white' : 'border-gray-600 text-gray-400 hover:text-white hover:border-gray-500'}`}
+            >
+              💰 Estimate Fare
+            </button>
+            <button onClick={loadRides} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
+          </div>
         </div>
+
+        {/* ── Fare Estimation Panel ── */}
+        {showEstimator && (
+          <div className="rounded-xl border border-indigo-700/50 bg-indigo-900/10 p-4 space-y-3">
+            <p className="text-xs font-semibold text-indigo-300 flex items-center gap-1.5">
+              💰 Fare Estimator{estimateResult ? ` · $${estimateResult.rate_per_km}/km` : ' · $1/km'}
+            </p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Start Location</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Nairobi CBD"
+                  value={estimateStart}
+                  onChange={e => { setEstimateStart(e.target.value); setEstimateResult(null) }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleEstimateFare() }}
+                  className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Destination</label>
+                <input
+                  type="text"
+                  placeholder="e.g. JKIA Airport"
+                  value={estimateDest}
+                  onChange={e => { setEstimateDest(e.target.value); setEstimateResult(null) }}
+                  onKeyDown={e => { if (e.key === 'Enter') handleEstimateFare() }}
+                  className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-400">Seats</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={estimateSeats}
+                  onChange={e => setEstimateSeats(Math.max(1, Math.min(8, Number(e.target.value))))}
+                  className="w-14 rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm px-2 py-1.5 text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <button
+                onClick={handleEstimateFare}
+                disabled={estimateLoading || !estimateStart.trim() || !estimateDest.trim()}
+                className="flex-1 sm:flex-none rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm px-4 py-1.5 transition-colors"
+              >
+                {estimateLoading ? '…' : '🧮 Calculate'}
+              </button>
+            </div>
+            {estimateError && (
+              <p className="text-xs text-red-400 bg-red-900/20 border border-red-700/40 rounded-lg px-3 py-2">{estimateError}</p>
+            )}
+            {estimateResult && (
+              <div className="rounded-lg bg-gray-800/70 border border-gray-700 p-3 space-y-1.5">
+                <p className="text-xs text-gray-400">
+                  📍 {estimateResult.origin_display} → {estimateResult.dest_display}
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  <span className="text-sm font-semibold text-white">
+                    📏 {estimateResult.dist_km} km
+                  </span>
+                  <span className="text-sm font-semibold text-blue-300">
+                    💰 Total fare: ${estimateResult.total_fare.toFixed(2)}
+                  </span>
+                  {estimateResult.seats > 1 && (
+                    <span className="text-sm font-semibold text-emerald-300">
+                      👤 ${estimateResult.per_seat_cost.toFixed(2)}/person ({estimateResult.seats} seats)
+                    </span>
+                  )}
+                  <span className="text-xs text-gray-500 self-center">
+                    @ ${estimateResult.rate_per_km}/km
+                  </span>
+                </div>
+                {/* Show a note when the result is for a different route than currently typed */}
+                {(estimateStart.trim() !== estimateResult.start || estimateDest.trim() !== estimateResult.destination) && (
+                  <p className="text-xs text-amber-400">⚠️ This is an estimate. Actual fare may vary based on driver's confirmed route.</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ── Advanced search bar ── */}
         <div className="rounded-xl border border-gray-700/70 bg-gray-900/60 p-3 space-y-2">

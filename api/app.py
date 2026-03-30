@@ -752,7 +752,9 @@ def init_db():
                         title TEXT NOT NULL,
                         body TEXT NOT NULL,
                         read INTEGER NOT NULL DEFAULT 0,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        link TEXT,
+                        link_label TEXT
                     )
                 """)
                 cur.execute("""
@@ -768,6 +770,17 @@ def init_db():
                         lat REAL,
                         lng REAL,
                         ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS text_extraction_errors (
+                        id SERIAL PRIMARY KEY,
+                        error_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT,
+                        filename TEXT,
+                        error_type TEXT NOT NULL,
+                        error_detail TEXT NOT NULL,
                         created_at TEXT NOT NULL
                     )
                 """)
@@ -980,6 +993,13 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
+                for col, coldef in [("link", "TEXT"), ("link_label", "TEXT")]:
+                    try:
+                        cur.execute(f"ALTER TABLE notifications ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -1051,6 +1071,17 @@ def init_db():
                         title TEXT NOT NULL,
                         body TEXT NOT NULL,
                         read INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL,
+                        link TEXT,
+                        link_label TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS text_extraction_errors (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        error_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT,
+                        filename TEXT,
+                        error_type TEXT NOT NULL,
+                        error_detail TEXT NOT NULL,
                         created_at TEXT NOT NULL
                     );
                     CREATE TABLE IF NOT EXISTS ride_chat_messages (
@@ -1240,6 +1271,11 @@ def init_db():
                 for col, coldef in [("subscription_type", "TEXT DEFAULT 'monthly'")]:
                     try:
                         conn.execute(f"ALTER TABLE driver_applications ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass  # column already exists
+                for col, coldef in [("link", "TEXT"), ("link_label", "TEXT")]:
+                    try:
+                        conn.execute(f"ALTER TABLE notifications ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
             conn.commit()
@@ -4439,6 +4475,34 @@ async def api_admin_delete_review(request: Request, review_id: str):
     return JSONResponse({"ok": True})
 
 
+@fastapi_app.get("/api/admin/extraction_errors")
+async def api_admin_extraction_errors(request: Request):
+    """Return recent text extraction errors (admin only, for diagnostics)."""
+    if not request.session.get("admin_user") and not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    cols = ["error_id", "user_id", "filename", "error_type", "error_detail", "created_at"]
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT error_id,user_id,filename,error_type,error_detail,created_at FROM text_extraction_errors ORDER BY created_at DESC LIMIT 100"
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT error_id,user_id,filename,error_type,error_detail,created_at FROM text_extraction_errors ORDER BY created_at DESC LIMIT 100"
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    errors = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({"errors": errors})
+
+
 @fastapi_app.get("/const")
 async def admin_page(request: Request):
     """Admin dashboard — served via React SPA (authentication checked client-side via /admin/auth_status)"""
@@ -6987,6 +7051,36 @@ def _extract_text_from_rtf(path: str) -> str:
         return ""
 
 
+def _log_extraction_error(user_id: str | None, filename: str, error_type: str, error_detail: str) -> None:
+    """Persist an extraction failure to the database for admin diagnostics."""
+    error_id = str(uuid.uuid4())
+    created  = datetime.now(timezone.utc).isoformat()
+    try:
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO text_extraction_errors (error_id,user_id,filename,error_type,error_detail,created_at) VALUES (%s,%s,%s,%s,%s,%s)",
+                        (error_id, user_id, filename, error_type, error_detail, created),
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO text_extraction_errors (error_id,user_id,filename,error_type,error_detail,created_at) VALUES (?,?,?,?,?,?)",
+                        (error_id, user_id, filename, error_type, error_detail, created),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+    except Exception as _e:
+        logger.warning("Could not persist extraction error log: %s", _e)
+
+
+# Characters shown to unauthenticated users in preview mode
+_TEXT_EXTRACT_PREVIEW_CHARS = 500
+
+
 @fastapi_app.post("/api/doc/to_text")
 async def api_doc_to_text(
     request: Request,
@@ -6998,31 +7092,43 @@ async def api_doc_to_text(
       - ``text``: the extracted text (Unicode-safe, emojis preserved, bullets normalised)
       - ``filename``: original filename
       - ``truncated``: true if content was trimmed to 200 000 characters
+      - ``preview_only``: true when the user is unauthenticated (limited preview)
     """
     import tempfile
 
     session = request.session
-    if not session.get("user_id"):
-        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    # Support both session key variants used across the app
+    user_id: str | None = session.get("app_user_id") or session.get("user_id") or None
+    is_authenticated = bool(user_id)
 
     filename = (file.filename or "upload").strip()
     src_ext = os.path.splitext(filename)[1].lower().lstrip(".")
 
     if src_ext not in _TEXT_EXTRACT_ACCEPT:
+        _log_extraction_error(user_id, filename, "unsupported_format",
+                              f"File type '.{src_ext}' is not supported.")
         return JSONResponse(
             {
                 "error": (
-                    f"Unsupported file type '.{src_ext}'. "
-                    f"Supported: {', '.join(sorted(_TEXT_EXTRACT_ACCEPT))}."
+                    "Unable to extract text. Please ensure the file is a supported format "
+                    f"({', '.join('.' + e for e in sorted(_TEXT_EXTRACT_ACCEPT))}) and try again."
                 )
             },
             status_code=400,
         )
 
     content = await file.read()
-    if len(content) > _TEXT_EXTRACT_MAX_BYTES:
+    if len(content) == 0:
+        _log_extraction_error(user_id, filename, "empty_file", "Uploaded file is empty.")
         return JSONResponse(
-            {"error": f"File too large (max {_TEXT_EXTRACT_MAX_BYTES // (1024 * 1024)} MB)."},
+            {"error": "Unable to extract text. The uploaded file appears to be empty."},
+            status_code=400,
+        )
+    if len(content) > _TEXT_EXTRACT_MAX_BYTES:
+        _log_extraction_error(user_id, filename, "file_too_large",
+                              f"File size {len(content)} bytes exceeds {_TEXT_EXTRACT_MAX_BYTES} bytes limit.")
+        return JSONResponse(
+            {"error": f"Unable to extract text. File is too large (max {_TEXT_EXTRACT_MAX_BYTES // (1024 * 1024)} MB)."},
             status_code=400,
         )
 
@@ -7041,6 +7147,19 @@ async def api_doc_to_text(
         else:  # txt
             raw = _extract_text_from_txt(src_path)
 
+        if not raw or not raw.strip():
+            _log_extraction_error(user_id, filename, "no_text_found",
+                                  "Extraction returned empty text (file may be image-based or corrupted).")
+            return JSONResponse(
+                {
+                    "error": (
+                        "Unable to extract text. The file appears to contain no readable text "
+                        "(it may be image-based, encrypted, or corrupted)."
+                    )
+                },
+                status_code=422,
+            )
+
         # Normalise bullets; emojis and line breaks are kept as-is
         text = _normalize_text_bullets(raw)
 
@@ -7049,11 +7168,31 @@ async def api_doc_to_text(
         if truncated:
             text = text[:_MAX_CHARS]
 
-        return JSONResponse({"text": text, "filename": filename, "truncated": truncated})
+        # Unauthenticated users receive a limited preview
+        if not is_authenticated:
+            preview = text[:_TEXT_EXTRACT_PREVIEW_CHARS]
+            return JSONResponse({
+                "text": preview,
+                "filename": filename,
+                "truncated": True,
+                "preview_only": True,
+                "message": "Sign in to extract the full document text.",
+            })
+
+        return JSONResponse({"text": text, "filename": filename, "truncated": truncated, "preview_only": False})
 
     except Exception as exc:
-        logger.error("Text extraction error: %s", exc, exc_info=True)
-        return JSONResponse({"error": f"Extraction failed: {exc}"}, status_code=500)
+        logger.error("Text extraction error for '%s': %s", filename, exc, exc_info=True)
+        _log_extraction_error(user_id, filename, "processing_error", str(exc))
+        return JSONResponse(
+            {
+                "error": (
+                    "Unable to extract text. Please ensure the file is a supported format "
+                    f"({', '.join('.' + e for e in sorted(_TEXT_EXTRACT_ACCEPT))}) and try again."
+                )
+            },
+            status_code=500,
+        )
     finally:
         def _rm(p):
             import time as _t
@@ -7683,7 +7822,8 @@ async def api_serve_avatar(filename: str):
 
 # ── Notifications ──────────────────────────────────────────────────────────────
 
-def _create_notification(user_id: str, notif_type: str, title: str, body: str) -> str:
+def _create_notification(user_id: str, notif_type: str, title: str, body: str,
+                          link: str | None = None, link_label: str | None = None) -> str:
     """Insert a notification row for a user and return the notif_id."""
     notif_id  = str(uuid.uuid4())
     created   = datetime.now(timezone.utc).isoformat()
@@ -7693,13 +7833,13 @@ def _create_notification(user_id: str, notif_type: str, title: str, body: str) -
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    "INSERT INTO notifications (notif_id,user_id,type,title,body,created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                    (notif_id, user_id, notif_type, title, body, created),
+                    "INSERT INTO notifications (notif_id,user_id,type,title,body,created_at,link,link_label) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (notif_id, user_id, notif_type, title, body, created, link, link_label),
                 )
             else:
                 conn.execute(
-                    "INSERT INTO notifications (notif_id,user_id,type,title,body,created_at) VALUES (?,?,?,?,?,?)",
-                    (notif_id, user_id, notif_type, title, body, created),
+                    "INSERT INTO notifications (notif_id,user_id,type,title,body,created_at,link,link_label) VALUES (?,?,?,?,?,?,?,?)",
+                    (notif_id, user_id, notif_type, title, body, created, link, link_label),
                 )
             conn.commit()
         finally:
@@ -7713,6 +7853,8 @@ def _create_notification(user_id: str, notif_type: str, title: str, body: str) -
         "body": body,
         "read_status": False,
         "created_at": created,
+        "link": link,
+        "link_label": link_label,
     })
     return notif_id
 
@@ -7724,20 +7866,20 @@ async def api_get_notifications(request: Request):
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
 
-    cols = ["notif_id", "type", "title", "body", "read", "created_at"]
+    cols = ["notif_id", "type", "title", "body", "read", "created_at", "link", "link_label"]
     with _db_lock:
         conn = _get_db()
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT notif_id,type,title,body,read,created_at FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 50",
+                    "SELECT notif_id,type,title,body,read,created_at,link,link_label FROM notifications WHERE user_id=%s ORDER BY created_at DESC LIMIT 50",
                     (user_id,),
                 )
                 rows = cur.fetchall()
             else:
                 cur = conn.execute(
-                    "SELECT notif_id,type,title,body,read,created_at FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 50",
+                    "SELECT notif_id,type,title,body,read,created_at,link,link_label FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 50",
                     (user_id,),
                 )
                 rows = cur.fetchall()
@@ -8285,6 +8427,8 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             "driver_approved",
             "🎉 Driver Application Approved",
             "Congratulations! Your driver application has been approved. You can now post rides and use Driver Alerts.",
+            link="#driver_reg",
+            link_label="View Driver Status",
         )
         _send_email(
             driver_email,
@@ -8316,6 +8460,8 @@ async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverA
             "driver_rejected",
             "❌ Driver Application Rejected",
             "Unfortunately, your driver application was not approved this time. You may re-apply with updated details.",
+            link="#driver_reg",
+            link_label="View Driver Registration",
         )
         _send_email(
             driver_email,
@@ -8566,6 +8712,8 @@ async def api_admin_agent_approve(request: Request, app_id: str, body: _AgentApp
             "agent_approved",
             "Agent Application Approved",
             "Congratulations! Your agent registration has been approved. You can now post properties.",
+            link="/properties",
+            link_label="Post a Property",
         )
         _send_email(
             applicant_email,
@@ -8586,6 +8734,8 @@ async def api_admin_agent_approve(request: Request, app_id: str, body: _AgentApp
             "agent_rejected",
             "Agent Application Rejected",
             "Your agent registration application was not approved. Please contact support for more information.",
+            link="#profile",
+            link_label="View Profile",
         )
         _send_email(
             applicant_email,
@@ -8849,6 +8999,134 @@ async def api_shared_fare(
     })
 
 
+# Nominatim geocoding base URL (uses OpenStreetMap data, no API key required).
+# NOTE: Nominatim usage policy requires a descriptive User-Agent including a
+# project name and contact URL/email, and enforces a rate limit of 1 req/second.
+# Override _NOMINATIM_URL via the NOMINATIM_URL env var to use a self-hosted
+# instance or a commercial provider with higher rate limits.
+_NOMINATIM_URL = os.environ.get("NOMINATIM_URL", "https://nominatim.openstreetmap.org/search")
+_NOMINATIM_TIMEOUT_SECS = 5
+# Contact email shown in the User-Agent (configurable via env var)
+_NOMINATIM_CONTACT = os.environ.get("NOMINATIM_CONTACT", "contact@yotweek.app")
+
+
+def _geocode_address(address: str) -> dict | None:
+    """Geocode an address string using Nominatim (OpenStreetMap).
+
+    Returns ``{"lat": float, "lng": float, "display_name": str}`` or ``None``
+    if the address cannot be resolved.
+
+    Nominatim policy requires 1 request/second and a descriptive User-Agent
+    with contact information. For high-volume production use, configure a
+    self-hosted Nominatim instance via the NOMINATIM_URL environment variable.
+    """
+    import urllib.request
+    import urllib.parse
+    import json as _json
+
+    params = urllib.parse.urlencode({
+        "q": address,
+        "format": "json",
+        "limit": "1",
+        "addressdetails": "0",
+    })
+    url = f"{_NOMINATIM_URL}?{params}"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": f"yotweek-platform/1.0 ({_NOMINATIM_CONTACT})"},
+        )
+        with urllib.request.urlopen(req, timeout=_NOMINATIM_TIMEOUT_SECS) as resp:
+            data = _json.loads(resp.read().decode())
+        if not data:
+            return None
+        first = data[0]
+        return {
+            "lat":          float(first["lat"]),
+            "lng":          float(first["lon"]),
+            "display_name": first.get("display_name", address),
+        }
+    except Exception as exc:
+        logger.warning("Geocoding failed for '%s': %s", address, exc)
+        return None
+
+
+@fastapi_app.get("/api/rides/geocode")
+async def api_rides_geocode(address: str):
+    """Geocode a free-text address to latitude/longitude coordinates.
+
+    Returns ``{"lat", "lng", "display_name"}`` or an error if geocoding fails.
+    Uses Nominatim (OpenStreetMap) — no API key required.
+    """
+    if not address or not address.strip():
+        return JSONResponse({"error": "address parameter is required."}, status_code=400)
+    result = await asyncio.get_event_loop().run_in_executor(None, _geocode_address, address.strip())
+    if result is None:
+        return JSONResponse(
+            {"error": f"Could not geocode address: '{address}'. Try a more specific address."},
+            status_code=422,
+        )
+    return JSONResponse(result)
+
+
+@fastapi_app.get("/api/rides/estimate_fare")
+async def api_rides_estimate_fare(start: str, destination: str, seats: int = 1):
+    """Estimate the fare for a trip between two address strings.
+
+    Geocodes both ``start`` and ``destination``, computes the Haversine
+    distance, and returns the estimated fare at the platform rate ($1/km).
+
+    Query params:
+      - ``start``       – Origin address
+      - ``destination`` – Destination address
+      - ``seats``       – Number of seats (default 1); used to compute per-seat cost
+    """
+    if not start or not start.strip():
+        return JSONResponse({"error": "start parameter is required."}, status_code=400)
+    if not destination or not destination.strip():
+        return JSONResponse({"error": "destination parameter is required."}, status_code=400)
+    if seats < 1:
+        return JSONResponse({"error": "seats must be at least 1."}, status_code=400)
+
+    loop = asyncio.get_event_loop()
+    origin_result, dest_result = await asyncio.gather(
+        loop.run_in_executor(None, _geocode_address, start.strip()),
+        loop.run_in_executor(None, _geocode_address, destination.strip()),
+    )
+
+    if origin_result is None:
+        return JSONResponse(
+            {"error": f"Could not geocode start address: '{start}'. Try a more specific address."},
+            status_code=422,
+        )
+    if dest_result is None:
+        return JSONResponse(
+            {"error": f"Could not geocode destination: '{destination}'. Try a more specific address."},
+            status_code=422,
+        )
+
+    dist_km     = _haversine_km(origin_result["lat"], origin_result["lng"],
+                                dest_result["lat"],   dest_result["lng"])
+    total_fare  = round(dist_km * _FARE_PER_KM, 2)
+    per_seat    = round(total_fare / seats, 2)
+
+    return JSONResponse({
+        "start":            start.strip(),
+        "destination":      destination.strip(),
+        "origin_lat":       origin_result["lat"],
+        "origin_lng":       origin_result["lng"],
+        "origin_display":   origin_result["display_name"],
+        "dest_lat":         dest_result["lat"],
+        "dest_lng":         dest_result["lng"],
+        "dest_display":     dest_result["display_name"],
+        "dist_km":          round(dist_km, 2),
+        "total_fare":       total_fare,
+        "per_seat_cost":    per_seat,
+        "seats":            seats,
+        "rate_per_km":      _FARE_PER_KM,
+    })
+
+
 @fastapi_app.delete("/api/rides/{ride_id}")
 async def api_ride_cancel(request: Request, ride_id: str):
     """Cancel a ride (only the poster can cancel it)."""
@@ -8935,6 +9213,8 @@ async def api_ride_take(request: Request, ride_id: str):
         "ride_taken",
         "✅ Your Ride Has Been Taken",
         f"Good news! Your ride has been marked as taken.",
+        link="#inbox",
+        link_label="View in Inbox",
     )
     return JSONResponse({"ok": True})
 
@@ -9401,6 +9681,8 @@ async def api_submit_agent_review(request: Request, agent_id: str, body: _AgentR
             "agent_review",
             f"New review from {reviewer_name}",
             f"{reviewer_name} gave you {body.rating}★" + (f": {text[:80]}" if text else ""),
+            link=f"/properties",
+            link_label="View Profile",
         )
     return JSONResponse({"ok": True, "review_id": review_id})
 
@@ -9459,6 +9741,8 @@ async def api_like_agent(request: Request, agent_id: str):
             "agent_like",
             "Someone liked your profile",
             f"{user['name']} liked your agent profile.",
+            link="/properties",
+            link_label="View Profile",
         )
     updated = _get_agent_row(agent_id)
     return JSONResponse({"ok": True, "liked": liked, "like_count": updated["like_count"] if updated else 0})
@@ -10336,8 +10620,11 @@ def _find_or_create_conversation(user_a: str, user_b: str) -> dict:
 
 
 @fastapi_app.get("/api/dm/conversations")
-async def api_dm_list_conversations(request: Request):
-    """List all DM conversations for the current user, with last-message preview."""
+async def api_dm_list_conversations(request: Request, search: str | None = None):
+    """List all DM conversations for the current user, with last-message preview.
+
+    Optional query param ``search`` filters by participant name or message content.
+    """
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
@@ -10355,6 +10642,8 @@ async def api_dm_list_conversations(request: Request):
             rows = cur.fetchall()
         finally:
             conn.close()
+
+    search_lower = search.lower().strip() if search else None
 
     conversations = []
     for row in rows:
@@ -10382,9 +10671,18 @@ async def api_dm_list_conversations(request: Request):
         if lm:
             last_msg = dict(zip(["msg_id","sender_id","content","status","reply_to_id","ts"], lm))
 
+        other_name = other["name"] if other else other_id
+
+        # Apply search filter: match participant name or last message content
+        if search_lower:
+            name_match = search_lower in other_name.lower()
+            msg_match  = last_msg and search_lower in (last_msg.get("content") or "").lower()
+            if not name_match and not msg_match:
+                continue
+
         conversations.append({
             "conv_id":      conv["conv_id"],
-            "other_user":   {"user_id": other_id, "name": other["name"] if other else other_id, "online_status": "offline"},
+            "other_user":   {"user_id": other_id, "name": other_name, "online_status": "offline"},
             "unread_count": unread,
             "last_message": last_msg,
             "created_at":   conv["created_at"],
@@ -10393,6 +10691,64 @@ async def api_dm_list_conversations(request: Request):
     # Sort by last message timestamp (most recent first)
     conversations.sort(key=lambda c: (c["last_message"]["ts"] if c["last_message"] else 0), reverse=True)
     return JSONResponse({"conversations": conversations})
+
+
+@fastapi_app.get("/api/dm/contacts")
+async def api_dm_contacts(request: Request):
+    """Return the list of users the current user has previously messaged.
+
+    Results are sorted by most recent interaction. Use this to populate the
+    '+ New Message' picker with previously communicated contacts.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT conv_id,user1_id,user2_id,created_at FROM dm_conversations WHERE user1_id=? OR user2_id=?"
+                if not USE_POSTGRES else
+                "SELECT conv_id,user1_id,user2_id,created_at FROM dm_conversations WHERE user1_id=%s OR user2_id=%s",
+                (user_id, user_id),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    contacts = []
+    for row in rows:
+        conv_id, u1, u2, created_at = row
+        other_id = u2 if u1 == user_id else u1
+        # Get last message timestamp for sorting
+        with _db_lock:
+            conn = _get_db()
+            try:
+                cur = _execute(
+                    conn,
+                    "SELECT ts FROM dm_messages WHERE conv_id=? ORDER BY ts DESC LIMIT 1"
+                    if not USE_POSTGRES else
+                    "SELECT ts FROM dm_messages WHERE conv_id=%s ORDER BY ts DESC LIMIT 1",
+                    (conv_id,),
+                )
+                lm = cur.fetchone()
+            finally:
+                conn.close()
+        last_ts = lm[0] if lm else 0
+
+        other = _get_app_user(other_id)
+        contacts.append({
+            "user_id":      other_id,
+            "name":         other["name"] if other else other_id,
+            "conv_id":      conv_id,
+            "last_message_ts": last_ts,
+        })
+
+    # Sort by most recent interaction
+    contacts.sort(key=lambda c: c["last_message_ts"], reverse=True)
+    return JSONResponse({"contacts": contacts})
 
 
 @fastapi_app.post("/api/dm/conversations")
@@ -10825,6 +11181,8 @@ async def on_ride_chat_message(sid, data):
                     "chat_message",
                     f"New message from {name}",
                     f"Ride: {ride_id[:8]}… — {preview[:80]}",
+                    link=f"#inbox",
+                    link_label="View in Inbox",
                 )
                 # Push real-time notification to the poster's socket if online
                 with _socket_user_lock:

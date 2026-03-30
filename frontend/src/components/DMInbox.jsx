@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import socket from '../socket'
 import {
-  dmListConversations, dmStartConversation, dmSendMessage, listUsers, dmDeleteConversation,
+  dmListConversations, dmStartConversation, dmSendMessage, dmGetContacts, dmDeleteConversation,
 } from '../api'
 import DMChat from './DMChat'
 import { playMessageChime } from '../sounds'
@@ -32,7 +32,7 @@ export default function DMInbox({ currentUser }) {
   const [quickText,      setQuickText]      = useState('')
   const [sendingQR,      setSendingQR]      = useState(false)
   const [showNewChat,    setShowNewChat]     = useState(false)
-  const [allUsers,       setAllUsers]        = useState([])
+  const [contacts,       setContacts]       = useState([])    // previously communicated users
   const [userSearch,     setUserSearch]      = useState('')
   const [convSearch,     setConvSearch]      = useState('')
   const [totalUnread,    setTotalUnread]     = useState(0)
@@ -84,10 +84,10 @@ export default function DMInbox({ currentUser }) {
 
   const handleOpenNewChat = async () => {
     setShowNewChat(true)
-    if (allUsers.length === 0) {
+    if (contacts.length === 0) {
       try {
-        const data = await listUsers()
-        setAllUsers(data.users || [])
+        const data = await dmGetContacts()
+        setContacts(data.contacts || [])
       } catch { /* ignore */ }
     }
   }
@@ -96,10 +96,10 @@ export default function DMInbox({ currentUser }) {
     try {
       const data = await dmStartConversation(otherUserId)
       const conv = data.conv
-      // Build a lookup map from all available sources for O(1) name resolution
+      // Build a lookup map from available sources for O(1) name resolution
       const userMap = new Map([
         ...conversations.map(c => c.other_user ? [c.other_user.user_id, c.other_user] : null).filter(Boolean),
-        ...allUsers.map(u => [u.user_id, u]),
+        ...contacts.map(u => [u.user_id, u]),
       ])
       const otherUser = userMap.get(otherUserId)
       setActiveConv({
@@ -166,22 +166,11 @@ export default function DMInbox({ currentUser }) {
     )
   }
 
-  // ── Build user list for new chat (previously communicated first) ──────────
+  // ── Build user list for new chat (previously communicated users only) ──────
 
-  // IDs of users already in conversations
-  const prevContactIds = new Set(conversations.map(c => c.other_user?.user_id).filter(Boolean))
-
-  // Users already communicated with (from conversation list)
-  const prevContacts = conversations
-    .filter(c => c.other_user)
-    .map(c => ({ user_id: c.other_user.user_id, name: c.other_user.name }))
-
-  // Remaining users (all users minus already-in-conversations)
-  const otherUsers = allUsers.filter(u => !prevContactIds.has(u.user_id))
-
-  // Combined list: prev contacts first, then others
-  const combinedUsers = [...prevContacts, ...otherUsers]
-  const filteredUsers = combinedUsers.filter(u =>
+  // Previously communicated users from the /api/dm/contacts endpoint
+  // (sorted by most recent interaction, already loaded when picker opens)
+  const filteredUsers = contacts.filter(u =>
     u.name.toLowerCase().includes(userSearch.toLowerCase())
   )
 
@@ -252,39 +241,28 @@ export default function DMInbox({ currentUser }) {
           />
           {filteredUsers.length === 0 ? (
             <p className="text-xs text-gray-500 text-center py-2">
-              {combinedUsers.length === 0 ? 'Loading users…' : 'No users found.'}
+              {contacts.length === 0
+                ? 'No previous contacts. Start a conversation by booking a ride or inquiring about a property.'
+                : 'No contacts match your search.'}
             </p>
           ) : (
             <div className="space-y-1 max-h-48 overflow-y-auto">
-              {prevContacts.length > 0 && !userSearch && (
+              {contacts.length > 0 && !userSearch && (
                 <p className="text-xs text-gray-500 px-1 pb-0.5">Previously contacted</p>
               )}
-              {filteredUsers.map((u, idx) => {
-                const isPrevContact = prevContactIds.has(u.user_id)
-                const shouldShowDivider = !userSearch
-                  && idx === prevContacts.length
-                  && prevContacts.length > 0
-                  && otherUsers.length > 0
-                return (
-                  <div key={u.user_id}>
-                    {shouldShowDivider && (
-                      <p className="text-xs text-gray-500 px-1 pt-1 pb-0.5">Other users</p>
-                    )}
-                    <button
-                      onClick={() => handleStartConversation(u.user_id)}
-                      className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
-                        {u.name.charAt(0).toUpperCase()}
-                      </div>
-                      <span className="text-sm text-white flex-1">{u.name}</span>
-                      {isPrevContact && (
-                        <span className="text-xs text-gray-500">💬</span>
-                      )}
-                    </button>
+              {filteredUsers.map((u) => (
+                <button
+                  key={u.user_id}
+                  onClick={() => handleStartConversation(u.user_id)}
+                  className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-gray-700 transition-colors text-left"
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+                    {u.name.charAt(0).toUpperCase()}
                   </div>
-                )
-              })}
+                  <span className="text-sm text-white flex-1">{u.name}</span>
+                  <span className="text-xs text-gray-500">💬</span>
+                </button>
+              ))}
             </div>
           )}
         </div>
