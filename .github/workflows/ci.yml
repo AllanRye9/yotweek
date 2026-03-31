@@ -83,7 +83,7 @@ jobs:
               "skip_download": True,
               "extract_flat": False,
               "extractor_args": {
-                  "youtube": {"player_client": ["web_embedded", "tv"]}
+                  "youtube": {"player_client": ["android_vr", "web_embedded", "tv"]}
               },
           }
 
