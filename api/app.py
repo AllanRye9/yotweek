@@ -12721,7 +12721,8 @@ async def api_receipt_pdf(request: Request, receipt_id: str):
 
     # Item row
     item_desc = f"Ride: {rec['start_destination']} -> {rec['end_destination']}"
-    subtotal = round(float(rec["amount"]) / 1.10, 2)
+    _TAX_RATE = 0.10
+    subtotal = round(float(rec["amount"]) / (1 + _TAX_RATE), 2)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(60, 60, 60)
     pdf.cell(130, 7, item_desc, border=1)

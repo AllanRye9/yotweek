@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { convertDoc, extractDocText, triggerBlobDownload } from '../api'
+import { convertDoc, triggerBlobDownload } from '../api'
 
 // Conversion matrix: source extension → available target formats
 const CONVERSION_MAP = {
@@ -107,221 +107,10 @@ function humanSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
-// ─── Text Extractor sub-component ─────────────────────────────────────────────
-
-const TEXT_EXTRACT_EXTS = ['.pdf', '.docx', '.doc', '.odt', '.txt', '.rtf']
-const TEXT_EXTRACT_ACCEPT = TEXT_EXTRACT_EXTS.join(',')
-
-function TextExtractor() {
-  const [file, setFile]         = useState(null)
-  const [status, setStatus]     = useState(null) // null | 'loading' | 'done' | 'error'
-  const [errMsg, setErrMsg]     = useState('')
-  const [result, setResult]     = useState(null) // { text, filename, truncated }
-  const [copied, setCopied]     = useState(false)
-  const fileInputRef            = useRef(null)
-
-  const ext       = file ? getExt(file.name) : null
-  const supported = ext ? TEXT_EXTRACT_EXTS.includes('.' + ext) : false
-  const unsupported = file && !supported
-
-  const handleFileChange = (e) => {
-    const f = e.target.files?.[0] ?? null
-    setFile(f)
-    setStatus(null)
-    setResult(null)
-    setErrMsg('')
-  }
-
-  const handleExtract = async () => {
-    if (!file) return
-    setStatus('loading')
-    setResult(null)
-    setErrMsg('')
-    try {
-      const data = await extractDocText(file)
-      setResult(data)
-      setStatus('done')
-    } catch (err) {
-      setErrMsg(err.message || 'Extraction failed.')
-      setStatus('error')
-    }
-  }
-
-  const reset = () => {
-    setFile(null)
-    setStatus(null)
-    setResult(null)
-    setErrMsg('')
-    setCopied(false)
-    if (fileInputRef.current) fileInputRef.current.value = ''
-  }
-
-  const handleCopy = () => {
-    if (!result?.text) return
-    navigator.clipboard.writeText(result.text).then(() => {
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    })
-  }
-
-  const handleSave = () => {
-    if (!result?.text) return
-    const outName = (result.filename || 'extracted').replace(/\.[^.]+$/, '') + '.txt'
-    const blob = new Blob([result.text], { type: 'text/plain;charset=utf-8' })
-    triggerBlobDownload(blob, outName)
-  }
-
-  return (
-    <div className="space-y-4">
-      <p className="text-xs text-gray-400">
-        Upload a PDF, Word, ODT or TXT file to extract clean, plain text — line breaks, emojis
-        and bullet points are preserved.
-      </p>
-
-      {/* File picker */}
-      <div
-        style={{
-          border: '2px dashed #374151', borderRadius: 10, padding: '20px 16px',
-          textAlign: 'center', cursor: 'pointer', background: '#111827',
-          transition: 'border-color 0.2s',
-        }}
-        onClick={() => fileInputRef.current?.click()}
-        onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = '#dc2626' }}
-        onDragLeave={e => { e.currentTarget.style.borderColor = '#374151' }}
-        onDrop={e => {
-          e.preventDefault()
-          e.currentTarget.style.borderColor = '#374151'
-          const f = e.dataTransfer.files?.[0]
-          if (f) { setFile(f); setStatus(null); setResult(null); setErrMsg('') }
-        }}
-      >
-        {file ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10 }}>
-            <span style={{ fontSize: '1.5rem' }}>{ext === 'pdf' ? '📄' : ext === 'txt' ? '📝' : '📃'}</span>
-            <div style={{ textAlign: 'left' }}>
-              <div style={{ color: '#f3f4f6', fontSize: '0.85rem', fontWeight: 600 }}>{file.name}</div>
-              <div style={{ color: '#6b7280', fontSize: '0.72rem' }}>{humanSize(file.size)}</div>
-            </div>
-            <button
-              type="button"
-              onClick={e => { e.stopPropagation(); reset() }}
-              style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '1rem', marginLeft: 8 }}
-              aria-label="Remove file"
-            >✕</button>
-          </div>
-        ) : (
-          <div>
-            <div style={{ fontSize: '2rem', marginBottom: 6 }}>📂</div>
-            <div style={{ color: '#9ca3af', fontSize: '0.82rem' }}>Click to browse or drag &amp; drop</div>
-            <div style={{ color: '#4b5563', fontSize: '0.72rem', marginTop: 4 }}>PDF, DOCX, DOC, ODT, TXT — up to 20 MB</div>
-          </div>
-        )}
-      </div>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={TEXT_EXTRACT_ACCEPT}
-        style={{ display: 'none' }}
-        onChange={handleFileChange}
-      />
-
-      {unsupported && (
-        <div style={{ color: '#f87171', fontSize: '0.78rem' }}>
-          ⚠️ Unsupported file type ".{ext}". Supported: {TEXT_EXTRACT_EXTS.join(', ')}.
-        </div>
-      )}
-
-      {file && supported && (
-        <button
-          type="button"
-          onClick={handleExtract}
-          disabled={status === 'loading'}
-          className="btn-primary"
-          style={{ width: '100%', fontSize: '0.9rem', padding: '10px 0' }}
-        >
-          {status === 'loading' ? '⏳ Extracting…' : '📄 Extract Text'}
-        </button>
-      )}
-
-      {status === 'error' && (
-        <div style={{
-          borderRadius: 8, padding: '10px 14px',
-          background: '#7f1d1d33', border: '1px solid #991b1b44',
-          fontSize: '0.82rem', color: '#f87171', display: 'flex', alignItems: 'center', gap: 8,
-        }}>
-          <span>❌</span>
-          <span>{errMsg}</span>
-          <button
-            type="button"
-            onClick={() => setStatus(null)}
-            style={{ marginLeft: 'auto', background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.78rem', textDecoration: 'underline' }}
-          >Dismiss</button>
-        </div>
-      )}
-
-      {result && status === 'done' && (
-        <div>
-          {result.truncated && (
-            <div style={{ color: '#fbbf24', fontSize: '0.75rem', marginBottom: 8 }}>
-              ⚠️ Content was trimmed to 200,000 characters.
-            </div>
-          )}
-          <div style={{
-            background: '#111827', border: '1px solid #374151', borderRadius: 8,
-            padding: '12px 14px', maxHeight: 320, overflowY: 'auto',
-            fontFamily: 'monospace', fontSize: '0.78rem', color: '#e5e7eb',
-            whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.6,
-          }}>
-            {result.text || '(no text found)'}
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-            <button
-              type="button"
-              onClick={handleCopy}
-              style={{
-                flex: 1, borderRadius: 8, padding: '8px 0', fontSize: '0.82rem',
-                fontWeight: 600, cursor: 'pointer',
-                border: '1px solid #374151', background: '#1f2937', color: '#d1d5db',
-                transition: 'all 0.15s',
-              }}
-            >
-              {copied ? '✅ Copied!' : '📋 Copy Text'}
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              style={{
-                flex: 1, borderRadius: 8, padding: '8px 0', fontSize: '0.82rem',
-                fontWeight: 600, cursor: 'pointer',
-                border: '1px solid #374151', background: '#1f2937', color: '#d1d5db',
-                transition: 'all 0.15s',
-              }}
-            >
-              💾 Save as .txt
-            </button>
-            <button
-              type="button"
-              onClick={reset}
-              style={{
-                borderRadius: 8, padding: '8px 16px', fontSize: '0.82rem',
-                fontWeight: 600, cursor: 'pointer',
-                border: '1px solid #374151', background: '#1f293780', color: '#9ca3af',
-                transition: 'all 0.15s',
-              }}
-            >
-              Reset
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
 
 // ─── Main DocConverter with sub-tabs ──────────────────────────────────────────
 
 export default function DocConverter() {
-  const [subTab, setSubTab]           = useState('format')
   const [file, setFile]               = useState(null)
   const [target, setTarget]           = useState(null)
   const [status, setStatus]           = useState(null)
@@ -425,37 +214,11 @@ export default function DocConverter() {
           🔄 Document Converter
         </h2>
         <p className="text-xs text-gray-400 mt-0.5">
-          Convert between formats, or extract clean text from any document.
+          Convert between formats — PDF, Word, Excel, PowerPoint, images, and more.
         </p>
       </div>
 
-      {/* Sub-tab bar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        {[
-          { id: 'format', label: '🔄 Format Converter' },
-          { id: 'text',   label: '📄 Text Extractor' },
-        ].map(t => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setSubTab(t.id)}
-            style={{
-              borderRadius: 8, padding: '7px 16px', fontSize: '0.82rem',
-              fontWeight: 600, cursor: 'pointer',
-              border: subTab === t.id ? '2px solid #dc2626' : '1px solid #374151',
-              background: subTab === t.id ? '#dc262622' : '#1f293780',
-              color: subTab === t.id ? '#fff' : '#9ca3af',
-              transition: 'all 0.15s',
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {subTab === 'text' && <TextExtractor />}
-
-      {subTab === 'format' && (
+      {true && (
       <div>
       <div style={{
         background: '#1f2937', border: '1px solid #374151',

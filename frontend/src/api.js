@@ -251,22 +251,6 @@ export const convertDoc = (file, target) => {
   return request('POST', '/api/doc/convert', fd, false)
 }
 
-/**
- * Extract clean plain text from a document (PDF, DOCX, DOC, ODT, TXT).
- * @param {File} file
- * @returns {Promise<{text: string, filename: string, truncated: boolean}>}
- */
-export const extractDocText = async (file) => {
-  const fd = new FormData()
-  fd.append('file', file, file.name)
-  const res = await request('POST', '/api/doc/to_text', fd, false)
-  if (!res.ok) {
-    let msg = `Server error (${res.status})`
-    try { const j = await res.json(); if (j.error) msg = j.error } catch {}
-    throw new Error(msg)
-  }
-  return res.json()
-}
 
 // ── Admin Cookies ─────────────────────────────────────────────────────────────
 
@@ -447,6 +431,9 @@ export const updateProperty = (propertyId, data) =>
 export const deleteProperty = (propertyId) =>
   request('DELETE', `/api/properties/${encodeURIComponent(propertyId)}`)
 
+export const getNearbyAgents = (propertyId, limit = 4, offset = 0) =>
+  request('GET', `/api/properties/${encodeURIComponent(propertyId)}/nearby_agents?limit=${limit}&offset=${offset}`)
+
 // ── Property Conversations (Inbox) ────────────────────────────────────────────
 
 export const listPropertyConversations = () =>
@@ -514,3 +501,18 @@ export const getAdminBroadcasts = () => request('GET', '/api/admin/broadcasts')
 
 export const adminCancelBroadcast = (broadcastId) =>
   request('DELETE', `/api/admin/broadcasts/${encodeURIComponent(broadcastId)}`)
+
+// ── Receipts ──────────────────────────────────────────────────────────────────
+
+export const getReceipts = () => request('GET', '/api/receipts')
+
+export const downloadReceiptPdf = async (receiptId) => {
+  const res = await request('GET', `/api/receipts/${encodeURIComponent(receiptId)}/pdf`, null, false)
+  if (!res.ok) {
+    let msg = `Server error (${res.status})`
+    try { const j = await res.json(); if (j.error) msg = j.error } catch {}
+    throw new Error(msg)
+  }
+  const blob = await res.blob()
+  triggerBlobDownload(blob, `receipt-${receiptId}.pdf`)
+}
