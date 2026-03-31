@@ -1008,6 +1008,13 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
+                for col, coldef in [("subtotal", "REAL NOT NULL DEFAULT 0")]:
+                    try:
+                        cur.execute(f"ALTER TABLE receipts ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
             else:
                 conn.executescript("""
                     CREATE TABLE IF NOT EXISTS downloads (
@@ -1290,6 +1297,11 @@ def init_db():
                 for col, coldef in [("property_type", "TEXT DEFAULT 'listings'")]:
                     try:
                         conn.execute(f"ALTER TABLE properties ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass  # column already exists
+                for col, coldef in [("subtotal", "REAL NOT NULL DEFAULT 0")]:
+                    try:
+                        conn.execute(f"ALTER TABLE receipts ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
             conn.commit()
@@ -6605,10 +6617,10 @@ async def api_ai_cv_suggest(body: _AiCvRequest):
     # Build surrounding context from other CV sections when provided
     surrounding_ctx = ""
     ctx_parts = []
-    if body.summary and field != "summary":      ctx_parts.append(f"Summary: {body.summary[:300]}")
-    if body.experience and field != "experience": ctx_parts.append(f"Experience: {body.experience[:300]}")
-    if body.skills and field != "skills":         ctx_parts.append(f"Skills: {body.skills[:300]}")
-    if body.education and field != "education":   ctx_parts.append(f"Education: {body.education[:200]}")
+    if body.summary and field != "summary":      ctx_parts.append(f"Summary: {body.summary[:_CV_CONTEXT_LONG_MAX_CHARS]}")
+    if body.experience and field != "experience": ctx_parts.append(f"Experience: {body.experience[:_CV_CONTEXT_LONG_MAX_CHARS]}")
+    if body.skills and field != "skills":         ctx_parts.append(f"Skills: {body.skills[:_CV_CONTEXT_LONG_MAX_CHARS]}")
+    if body.education and field != "education":   ctx_parts.append(f"Education: {body.education[:_CV_CONTEXT_SHORT_MAX_CHARS]}")
     if ctx_parts:
         surrounding_ctx = "Other CV sections for context:\n" + "\n".join(ctx_parts) + "\n\n"
 
@@ -9832,6 +9844,16 @@ _VALID_PROPERTY_STATUSES = {"active", "sold", "rented"}
 # Booking payment tax rate (10%)
 _BOOKING_TAX_RATE = 0.10
 
+# Earth's radius in kilometres, used by haversine calculations
+_EARTH_RADIUS_KM = 6371.0
+
+# Maximum truncation length for surrounding CV context fields sent to AI
+_CV_CONTEXT_LONG_MAX_CHARS = 300
+_CV_CONTEXT_SHORT_MAX_CHARS = 200
+
+# Sentinel distance value used when a real distance cannot be computed
+_AGENT_UNKNOWN_DISTANCE_KM = 9999.0
+
 # Demo property seed data (linked to the demo agents)
 _DEMO_PROPERTIES_SEED = [
     {
@@ -10149,11 +10171,10 @@ async def api_property_nearby_agents(
     agents = [dict(zip(cols, r)) for r in rows]
 
     def _haversine(lat1, lng1, lat2, lng2):
-        R = 6371
         d_lat = _math.radians(lat2 - lat1)
         d_lng = _math.radians(lng2 - lng1)
         a = _math.sin(d_lat / 2) ** 2 + _math.cos(_math.radians(lat1)) * _math.cos(_math.radians(lat2)) * _math.sin(d_lng / 2) ** 2
-        return R * 2 * _math.atan2(_math.sqrt(a), _math.sqrt(1 - a))
+        return _EARTH_RADIUS_KM * 2 * _math.atan2(_math.sqrt(a), _math.sqrt(1 - a))
 
     for a in agents:
         if prop_lat is not None and prop_lng is not None and a["lat"] is not None and a["lng"] is not None:
@@ -10161,7 +10182,7 @@ async def api_property_nearby_agents(
         else:
             a["distance_km"] = None
 
-    agents.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or 9999))
+    agents.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or _AGENT_UNKNOWN_DISTANCE_KM))
 
     total = len(agents)
     page = agents[offset: offset + limit]
@@ -12555,22 +12576,22 @@ async def api_booking_pay(request: Request, booking_id: str, body: _BookingPayRe
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    """INSERT INTO receipts (receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+                    """INSERT INTO receipts (receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,subtotal,transaction_id,start_destination,end_destination,created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                     (receipt_id, booking_id, booking["broadcast_id"],
                      user_id, booking["passenger_name"],
                      bcast["user_id"], bcast["poster_name"],
-                     total_amount, transaction_id,
+                     total_amount, subtotal, transaction_id,
                      bcast["start_destination"], bcast["end_destination"], created_at),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO receipts (receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    """INSERT INTO receipts (receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,subtotal,transaction_id,start_destination,end_destination,created_at)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                     (receipt_id, booking_id, booking["broadcast_id"],
                      user_id, booking["passenger_name"],
                      bcast["user_id"], bcast["poster_name"],
-                     total_amount, transaction_id,
+                     total_amount, subtotal, transaction_id,
                      bcast["start_destination"], bcast["end_destination"], created_at),
                 )
             conn.commit()
@@ -12619,7 +12640,7 @@ async def api_receipt_pdf(request: Request, receipt_id: str):
         return JSONResponse({"error": "Login required."}, status_code=401)
 
     cols = ["receipt_id", "booking_id", "broadcast_id", "passenger_id", "passenger_name",
-            "driver_id", "driver_name", "amount", "transaction_id",
+            "driver_id", "driver_name", "amount", "subtotal", "transaction_id",
             "start_destination", "end_destination", "created_at"]
 
     with _db_lock:
@@ -12627,9 +12648,9 @@ async def api_receipt_pdf(request: Request, receipt_id: str):
         try:
             cur = _execute(
                 conn,
-                "SELECT receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at FROM receipts WHERE receipt_id=?"
+                "SELECT receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,subtotal,transaction_id,start_destination,end_destination,created_at FROM receipts WHERE receipt_id=?"
                 if not USE_POSTGRES else
-                "SELECT receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,transaction_id,start_destination,end_destination,created_at FROM receipts WHERE receipt_id=%s",
+                "SELECT receipt_id,booking_id,broadcast_id,passenger_id,passenger_name,driver_id,driver_name,amount,subtotal,transaction_id,start_destination,end_destination,created_at FROM receipts WHERE receipt_id=%s",
                 (receipt_id,),
             )
             row = cur.fetchone()
@@ -12723,7 +12744,8 @@ async def api_receipt_pdf(request: Request, receipt_id: str):
 
     # Item row
     item_desc = f"Ride: {rec['start_destination']} \u2192 {rec['end_destination']}"
-    subtotal = round(float(rec["amount"]) / (1 + _BOOKING_TAX_RATE), 2)
+    # Use stored subtotal to avoid rounding errors from back-calculation
+    subtotal = round(float(rec.get("subtotal") or rec["amount"]), 2)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(60, 60, 60)
     pdf.cell(130, 7, item_desc, border=1)
@@ -12732,8 +12754,8 @@ async def api_receipt_pdf(request: Request, receipt_id: str):
     pdf.ln(2)
 
     # Totals
-    tax_amount = round(float(rec["amount"]) - subtotal, 2)
-    total = float(rec["amount"])
+    total = round(float(rec["amount"]), 2)
+    tax_amount = round(total - subtotal, 2)
 
     pdf.set_font("Helvetica", "", 9)
     pdf.cell(130, 6, "")
