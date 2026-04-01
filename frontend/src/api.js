@@ -413,6 +413,9 @@ export const dmDeleteConversation = (convId) =>
 
 export const listUsers = () => request('GET', '/api/users/list')
 
+export const searchUsers = (q) =>
+  request('GET', `/api/users/search?q=${encodeURIComponent(q)}`)
+
 // ── Properties ────────────────────────────────────────────────────────────────
 
 export const listProperties = (params = {}) => {

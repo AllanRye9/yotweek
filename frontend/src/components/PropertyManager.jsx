@@ -1,20 +1,21 @@
 /**
  * PropertyManager — Property management dashboard with:
- *   - Tabbed navigation: Dashboard | Properties | Agents | Map View
+ *   - Tabbed navigation: Dashboard | Properties | Post Property | Agents | Map View
  *   - Property list with status management (Empty / Occupied / Soon Empty)
+ *   - Categorised listings: Short Stay | Rentals | Sale
+ *   - Post property form for approved agents (real API integration)
  *   - Closest available property identification
  *   - Interactive map with property pins
  *   - Agent list sorted by distance with "Show more" pagination
  *   - Agent availability status, filtering, and real-time updates via socket.io
  *   - Agent profile modal with chat, reviews, and review submission
  *   - Geolocation banner for location-based nearest agent/property lookup
- *
- * Uses demo data since this feature ships as a UI-only prototype.
  */
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import PropertyMap from './PropertyMap'
 import socket from '../socket'
+import { listProperties, createProperty, updateProperty, deleteProperty, getAgentApplicationStatus } from '../api'
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,9 @@ const AGENTS_PAGE_SIZE = 4
 const STATUS_COLOR = { empty: '#6b7280', occupied: '#ef4444', soon_empty: '#22c55e' }
 const STATUS_LABEL = { empty: 'Empty', occupied: 'Occupied', soon_empty: 'Soon Empty' }
 const STATUS_BG    = { empty: '#6b728022', occupied: '#ef444422', soon_empty: '#22c55e22' }
+
+const PROP_TYPE_LABEL = { short_stay: 'Short Stay', rentals: 'Rentals', sale: 'Sale' }
+const PROP_TYPE_COLOR = { short_stay: '#6366f1', rentals: '#3b82f6', sale: '#f59e0b' }
 
 const AVAIL_COLOR = { available: '#22c55e', busy: '#f59e0b', offline: '#6b7280' }
 const AVAIL_LABEL = { available: 'Available', busy: 'Busy', offline: 'Offline' }
@@ -725,32 +729,90 @@ function DashboardPanel({ properties, agents, userLocation, onSelectProperty, cl
 
 // ─── Properties list panel ────────────────────────────────────────────────────
 
-function PropertiesPanel({ properties, setProperties, onSelectOnMap }) {
-  const [filter, setFilter] = useState('all')
-  const [search, setSearch] = useState('')
+function PropertiesPanel({ properties, setProperties, onSelectOnMap, canPost, onPostProperty }) {
+  const [filter, setFilter]   = useState('all')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [search, setSearch]   = useState('')
+  const [saving, setSaving]   = useState(null)
 
   const filtered = useMemo(() => {
     let list = properties
     if (filter !== 'all') list = list.filter(p => p.status === filter)
+    if (typeFilter !== 'all') list = list.filter(p => p.property_type === typeFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
-      list = list.filter(p => p.address.toLowerCase().includes(q))
+      list = list.filter(p =>
+        (p.address || '').toLowerCase().includes(q) ||
+        (p.title || '').toLowerCase().includes(q)
+      )
     }
     return list
-  }, [properties, filter, search])
+  }, [properties, filter, typeFilter, search])
 
-  const cycleStatus = (id) => {
+  const cycleStatus = async (prop) => {
     const cycle = { empty: 'occupied', occupied: 'soon_empty', soon_empty: 'empty' }
-    setProperties(prev => prev.map(p => p.id === id ? { ...p, status: cycle[p.status] } : p))
+    const newStatus = cycle[prop.status] ?? 'empty'
+    setSaving(prop.property_id)
+    try {
+      const res = await updateProperty(prop.property_id, { status: newStatus })
+      const updated = res?.property
+      if (updated) {
+        setProperties(prev => prev.map(p => p.property_id === prop.property_id ? { ...p, ...updated } : p))
+      }
+    } catch { /* ignore */ } finally {
+      setSaving(null)
+    }
+  }
+
+  const handleDelete = async (prop) => {
+    if (!window.confirm(`Delete "${prop.title || prop.address}"?`)) return
+    setSaving(prop.property_id)
+    try {
+      await deleteProperty(prop.property_id)
+      setProperties(prev => prev.filter(p => p.property_id !== prop.property_id))
+    } catch { /* ignore */ } finally {
+      setSaving(null)
+    }
   }
 
   return (
     <div className="space-y-4">
-      {/* Filters */}
+      {/* Category tabs */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingBottom: 6, borderBottom: '1px solid #374151' }}>
+        {[['all', 'All'], ...Object.entries(PROP_TYPE_LABEL)].map(([k, v]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setTypeFilter(k)}
+            style={{
+              padding: '6px 14px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer',
+              border: typeFilter === k ? `1.5px solid ${PROP_TYPE_COLOR[k] ?? '#6366f1'}` : '1px solid #374151',
+              background: typeFilter === k ? `${PROP_TYPE_COLOR[k] ?? '#6366f1'}22` : '#1f2937',
+              color: typeFilter === k ? (PROP_TYPE_COLOR[k] ?? '#a5b4fc') : '#9ca3af',
+            }}
+          >
+            {v}
+          </button>
+        ))}
+        {canPost && (
+          <button
+            type="button"
+            onClick={onPostProperty}
+            style={{
+              marginLeft: 'auto', padding: '6px 14px', borderRadius: 8, fontSize: '0.78rem', fontWeight: 600,
+              cursor: 'pointer', background: '#3b82f6', border: '1px solid #2563eb', color: '#fff',
+            }}
+          >
+            + Post Property
+          </button>
+        )}
+      </div>
+
+      {/* Status + search filters */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
         <input
           type="text"
-          placeholder="Search by address…"
+          placeholder="Search by title or address…"
           value={search}
           onChange={e => setSearch(e.target.value)}
           style={{
@@ -782,8 +844,8 @@ function PropertiesPanel({ properties, setProperties, onSelectOnMap }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
           <thead>
             <tr style={{ color: '#6b7280', borderBottom: '1px solid #374151' }}>
-              <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Address</th>
-              <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Size</th>
+              <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Title / Address</th>
+              <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Category</th>
               <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Status</th>
               <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Available</th>
               <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600 }}>Actions</th>
@@ -799,29 +861,44 @@ function PropertiesPanel({ properties, setProperties, onSelectOnMap }) {
             )}
             {filtered.map(p => (
               <tr
-                key={p.id}
+                key={p.property_id ?? p.id}
                 style={{ borderBottom: '1px solid #1f2937', transition: 'background 0.1s' }}
                 onMouseEnter={e => e.currentTarget.style.background = '#1f2937'}
                 onMouseLeave={e => e.currentTarget.style.background = ''}
               >
-                <td style={{ padding: '9px 10px', color: '#e5e7eb' }}>{p.address}</td>
-                <td style={{ padding: '9px 10px', color: '#9ca3af' }}>{p.size}</td>
+                <td style={{ padding: '9px 10px', color: '#e5e7eb', maxWidth: 200 }}>
+                  <div style={{ fontWeight: 600, marginBottom: 2 }}>{p.title || p.address}</div>
+                  {p.title && <div style={{ color: '#6b7280', fontSize: '0.75rem' }}>{p.address}</div>}
+                </td>
+                <td style={{ padding: '9px 10px' }}>
+                  <span style={{
+                    fontSize: '0.72rem', fontWeight: 600, padding: '2px 8px', borderRadius: 6,
+                    background: `${PROP_TYPE_COLOR[p.property_type] ?? '#6b7280'}22`,
+                    color: PROP_TYPE_COLOR[p.property_type] ?? '#9ca3af',
+                    border: `1px solid ${PROP_TYPE_COLOR[p.property_type] ?? '#6b7280'}44`,
+                  }}>
+                    {PROP_TYPE_LABEL[p.property_type] ?? p.property_type ?? '—'}
+                  </span>
+                </td>
                 <td style={{ padding: '9px 10px' }}><StatusBadge status={p.status} /></td>
                 <td style={{ padding: '9px 10px', color: '#9ca3af' }}>{p.available_date ?? '—'}</td>
                 <td style={{ padding: '9px 10px' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
-                    <button
-                      type="button"
-                      onClick={() => cycleStatus(p.id)}
-                      title="Cycle status"
-                      style={{
-                        padding: '4px 10px', borderRadius: 6, fontSize: '0.75rem',
-                        background: '#374151', border: '1px solid #4b5563',
-                        color: '#d1d5db', cursor: 'pointer',
-                      }}
-                    >
-                      ↻ Status
-                    </button>
+                    {canPost && (
+                      <button
+                        type="button"
+                        disabled={saving === (p.property_id ?? p.id)}
+                        onClick={() => cycleStatus(p)}
+                        title="Cycle status"
+                        style={{
+                          padding: '4px 10px', borderRadius: 6, fontSize: '0.75rem',
+                          background: '#374151', border: '1px solid #4b5563',
+                          color: '#d1d5db', cursor: 'pointer', opacity: saving === (p.property_id ?? p.id) ? 0.5 : 1,
+                        }}
+                      >
+                        ↻ Status
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => onSelectOnMap?.(p)}
@@ -834,6 +911,21 @@ function PropertiesPanel({ properties, setProperties, onSelectOnMap }) {
                     >
                       🗺 Map
                     </button>
+                    {canPost && p.owner_user_id && (
+                      <button
+                        type="button"
+                        disabled={saving === (p.property_id ?? p.id)}
+                        onClick={() => handleDelete(p)}
+                        title="Delete"
+                        style={{
+                          padding: '4px 10px', borderRadius: 6, fontSize: '0.75rem',
+                          background: '#7f1d1d22', border: '1px solid #7f1d1d44',
+                          color: '#f87171', cursor: 'pointer', opacity: saving === (p.property_id ?? p.id) ? 0.5 : 1,
+                        }}
+                      >
+                        🗑
+                      </button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -845,7 +937,243 @@ function PropertiesPanel({ properties, setProperties, onSelectOnMap }) {
   )
 }
 
-// ─── Agents panel ─────────────────────────────────────────────────────────────
+// ─── Post Property panel ───────────────────────────────────────────────────────
+
+function PostPropertyPanel({ onDone }) {
+  const [form, setForm] = useState({
+    title: '', description: '', price: '', address: '', lat: '', lng: '',
+    status: 'empty', property_type: 'rentals', available_date: '', images: [''],
+  })
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError]           = useState('')
+  const [success, setSuccess]       = useState(false)
+  const [geoLoading, setGeoLoading] = useState(false)
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const setImageUrl = (idx, val) => {
+    setForm(f => {
+      const imgs = [...f.images]
+      imgs[idx] = val
+      return { ...f, images: imgs }
+    })
+  }
+  const addImage    = () => setForm(f => ({ ...f, images: [...f.images, ''] }))
+  const removeImage = (idx) => setForm(f => ({ ...f, images: f.images.filter((_, i) => i !== idx) }))
+
+  const geoLocate = () => {
+    if (!navigator.geolocation) return
+    setGeoLoading(true)
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        set('lat', String(pos.coords.latitude.toFixed(6)))
+        set('lng', String(pos.coords.longitude.toFixed(6)))
+        setGeoLoading(false)
+      },
+      () => setGeoLoading(false),
+    )
+  }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!form.title.trim()) return setError('Title is required.')
+    const lat = parseFloat(form.lat)
+    const lng = parseFloat(form.lng)
+    if (isNaN(lat) || isNaN(lng)) return setError('Valid latitude and longitude are required.')
+    const images = form.images.map(u => u.trim()).filter(Boolean)
+    setSubmitting(true)
+    try {
+      await createProperty({
+        title:          form.title.trim(),
+        description:    form.description.trim(),
+        price:          parseFloat(form.price) || 0,
+        address:        form.address.trim(),
+        lat, lng,
+        status:         form.status,
+        property_type:  form.property_type,
+        available_date: form.status === 'soon_empty' ? form.available_date.trim() || null : null,
+        images,
+      })
+      setSuccess(true)
+      setTimeout(() => { setSuccess(false); onDone?.() }, 2000)
+    } catch (err) {
+      setError(err.message || 'Failed to post property. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (success) {
+    return (
+      <div className="text-center py-10">
+        <p className="text-3xl mb-2">✅</p>
+        <p className="text-white font-semibold">Property posted successfully!</p>
+        <p className="text-sm text-gray-400 mt-1">Returning to property list…</p>
+      </div>
+    )
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '8px 12px', borderRadius: 8, boxSizing: 'border-box',
+    background: '#111827', border: '1px solid #374151', color: '#e5e7eb',
+    fontSize: '0.85rem', outline: 'none',
+  }
+  const labelStyle = { display: 'block', color: '#9ca3af', fontSize: '0.78rem', fontWeight: 600, marginBottom: 4 }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h3 style={{ color: '#e5e7eb', fontWeight: 700, margin: 0, fontSize: '1rem' }}>📋 Post a Property</h3>
+        <button type="button" onClick={onDone} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
+      </div>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Title */}
+        <div>
+          <label style={labelStyle}>Title *</label>
+          <input style={inputStyle} type="text" value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Modern 2-Bed Flat – Shoreditch" maxLength={200} required />
+        </div>
+
+        {/* Category + Status */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div>
+            <label style={labelStyle}>Category *</label>
+            <select style={inputStyle} value={form.property_type} onChange={e => set('property_type', e.target.value)}>
+              <option value="short_stay">Short Stay</option>
+              <option value="rentals">Rentals</option>
+              <option value="sale">Sale</option>
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Status *</label>
+            <select style={inputStyle} value={form.status} onChange={e => set('status', e.target.value)}>
+              <option value="empty">Empty</option>
+              <option value="occupied">Occupied</option>
+              <option value="soon_empty">Soon Empty</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Available date (only for soon_empty) */}
+        {form.status === 'soon_empty' && (
+          <div>
+            <label style={labelStyle}>Available From Date</label>
+            <input style={inputStyle} type="date" value={form.available_date} onChange={e => set('available_date', e.target.value)} />
+          </div>
+        )}
+
+        {/* Description */}
+        <div>
+          <label style={labelStyle}>Description</label>
+          <textarea
+            style={{ ...inputStyle, minHeight: 80, resize: 'vertical' }}
+            value={form.description}
+            onChange={e => set('description', e.target.value)}
+            placeholder="Describe the property…"
+            maxLength={2000}
+          />
+        </div>
+
+        {/* Price */}
+        <div>
+          <label style={labelStyle}>Price (£/month or sale price)</label>
+          <input style={inputStyle} type="number" min="0" step="any" value={form.price} onChange={e => set('price', e.target.value)} placeholder="e.g. 1500" />
+        </div>
+
+        {/* Address */}
+        <div>
+          <label style={labelStyle}>Address</label>
+          <input style={inputStyle} type="text" value={form.address} onChange={e => set('address', e.target.value)} placeholder="Full address" maxLength={300} />
+        </div>
+
+        {/* Location */}
+        <div>
+          <label style={labelStyle}>Location (Latitude &amp; Longitude) *</label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8 }}>
+            <input style={inputStyle} type="text" value={form.lat} onChange={e => set('lat', e.target.value)} placeholder="Latitude" required />
+            <input style={inputStyle} type="text" value={form.lng} onChange={e => set('lng', e.target.value)} placeholder="Longitude" required />
+            <button
+              type="button"
+              disabled={geoLoading}
+              onClick={geoLocate}
+              title="Use my location"
+              style={{
+                padding: '8px 12px', borderRadius: 8, background: '#1d4ed8', border: '1px solid #2563eb',
+                color: '#fff', cursor: 'pointer', fontSize: '0.8rem', whiteSpace: 'nowrap',
+                opacity: geoLoading ? 0.6 : 1,
+              }}
+            >
+              {geoLoading ? '…' : '📍 Auto'}
+            </button>
+          </div>
+          <p style={{ color: '#6b7280', fontSize: '0.73rem', marginTop: 4 }}>
+            Enter coordinates manually or click 📍 Auto to use your current location.
+          </p>
+        </div>
+
+        {/* Images */}
+        <div>
+          <label style={labelStyle}>Images (URLs, up to 20)</label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {form.images.map((url, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: 6 }}>
+                <input
+                  style={{ ...inputStyle, flex: 1 }}
+                  type="url"
+                  value={url}
+                  onChange={e => setImageUrl(idx, e.target.value)}
+                  placeholder={`Image URL ${idx + 1}`}
+                />
+                {form.images.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeImage(idx)}
+                    style={{ padding: '4px 10px', borderRadius: 6, background: '#7f1d1d22', border: '1px solid #7f1d1d44', color: '#f87171', cursor: 'pointer', fontSize: '0.8rem' }}
+                  >✕</button>
+                )}
+              </div>
+            ))}
+            {form.images.length < 20 && (
+              <button
+                type="button"
+                onClick={addImage}
+                style={{ padding: '6px 14px', borderRadius: 8, background: '#374151', border: '1px solid #4b5563', color: '#9ca3af', cursor: 'pointer', fontSize: '0.8rem', alignSelf: 'flex-start' }}
+              >
+                + Add Image
+              </button>
+            )}
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ background: '#7f1d1d22', border: '1px solid #7f1d1d66', borderRadius: 8, padding: '8px 12px', color: '#f87171', fontSize: '0.82rem' }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              flex: 1, padding: '10px 0', borderRadius: 8, background: submitting ? '#374151' : '#3b82f6',
+              border: 'none', color: '#fff', fontWeight: 700, fontSize: '0.88rem', cursor: submitting ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {submitting ? 'Posting…' : '📋 Post Property'}
+          </button>
+          <button
+            type="button"
+            onClick={onDone}
+            style={{ padding: '10px 20px', borderRadius: 8, background: '#374151', border: '1px solid #4b5563', color: '#9ca3af', cursor: 'pointer', fontSize: '0.88rem' }}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </div>
+  )
+}
 
 function AgentsPanel({ agents, properties, selectedPropertyId, onAgentClick, onStatusChange }) {
   const selectedProp = properties.find(p => p.id === selectedPropertyId)
@@ -999,6 +1327,7 @@ function MapViewPanel({ properties, userLocation, closestId, initialSelectedId =
 const PM_TABS = [
   { id: 'dashboard',  label: '🏠 Dashboard' },
   { id: 'properties', label: '🏢 Properties' },
+  { id: 'post',       label: '➕ Post Property' },
   { id: 'agents',     label: '🧑‍💼 Agents' },
   { id: 'map_view',   label: '🗺 Map View' },
 ]
@@ -1010,6 +1339,8 @@ export default function PropertyManager({ userLocation }) {
   const [selectedPropertyId, setSelectedPropertyId] = useState(null)
   const [mapViewId, setMapViewId]   = useState(null)
   const [activeAgent, setActiveAgent] = useState(null)
+  const [canPost, setCanPost]       = useState(false)
+  const [propsLoading, setPropsLoading] = useState(false)
   // Profile visit notifications (shown when another user views your linked agent profile)
   const [profileVisitNotif, setProfileVisitNotif] = useState(null)
   const profileVisitTimerRef = useRef(null)
@@ -1018,6 +1349,32 @@ export default function PropertyManager({ userLocation }) {
   const [geoLocation, setGeoLocation]   = useState(null)
   const [geoRequested, setGeoRequested] = useState(false)
   const [geoError, setGeoError]         = useState(null)
+
+  // Load real properties from API
+  const loadProperties = useCallback(async () => {
+    setPropsLoading(true)
+    try {
+      const data = await listProperties()
+      if (data?.properties?.length) {
+        setProperties(data.properties)
+      }
+    } catch { /* fallback to demo data */ } finally {
+      setPropsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadProperties()
+  }, [loadProperties])
+
+  // Check if current user is an approved agent
+  useEffect(() => {
+    getAgentApplicationStatus()
+      .then(res => {
+        if (res?.application?.status === 'approved') setCanPost(true)
+      })
+      .catch(() => {})
+  }, [])
 
   const requestGeoLocation = useCallback(() => {
     setGeoRequested(true)
@@ -1063,8 +1420,9 @@ export default function PropertyManager({ userLocation }) {
     const refLng = effectiveLocation?.lng ?? -0.09
     const available = properties.filter(p => p.status === 'empty' || p.status === 'soon_empty')
     if (!available.length) return null
+    const idKey = p => p.property_id ?? p.id
     return available
-      .map(p => ({ id: p.id, dist: _haversineKm(refLat, refLng, p.lat, p.lng) }))
+      .map(p => ({ id: idKey(p), dist: _haversineKm(refLat, refLng, p.lat, p.lng) }))
       .sort((a, b) => a.dist - b.dist)[0].id
   }, [properties, effectiveLocation])
 
@@ -1075,12 +1433,12 @@ export default function PropertyManager({ userLocation }) {
     return properties.map(p => ({
       ...p,
       _dist: _haversineKm(refLat, refLng, p.lat, p.lng).toFixed(1),
-      agent_name: agents.find(a => a.id === p.agent_id)?.name,
+      agent_name: agents.find(a => a.id === (p.agent_id ?? p.agent_ids?.[0]))?.name,
     }))
   }, [properties, agents, effectiveLocation])
 
   const handleShowOnMap = useCallback((prop) => {
-    setMapViewId(prop.id)
+    setMapViewId(prop.property_id ?? prop.id)
     setTab('map_view')
   }, [])
 
@@ -1202,7 +1560,7 @@ export default function PropertyManager({ userLocation }) {
           properties={enriched}
           agents={agents}
           userLocation={effectiveLocation}
-          onSelectProperty={p => setSelectedPropertyId(p.id)}
+          onSelectProperty={p => setSelectedPropertyId(p.property_id ?? p.id)}
           closestId={closestId}
           onAgentClick={setActiveAgent}
         />
@@ -1213,7 +1571,21 @@ export default function PropertyManager({ userLocation }) {
           properties={properties}
           setProperties={setProperties}
           onSelectOnMap={handleShowOnMap}
+          canPost={canPost}
+          onPostProperty={() => setTab('post')}
         />
+      )}
+
+      {tab === 'post' && (
+        canPost ? (
+          <PostPropertyPanel onDone={() => { loadProperties(); setTab('properties') }} />
+        ) : (
+          <div style={{ textAlign: 'center', padding: '32px 0', color: '#6b7280', fontSize: '0.9rem' }}>
+            <p style={{ fontSize: '2rem', marginBottom: 8 }}>🔒</p>
+            <p>Only approved agents can post properties.</p>
+            <p style={{ marginTop: 6, fontSize: '0.8rem' }}>Register as an agent in the <strong style={{ color: '#93c5fd' }}>Agents</strong> tab and wait for admin approval.</p>
+          </div>
+        )
       )}
 
       {tab === 'agents' && (

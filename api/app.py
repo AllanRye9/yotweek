@@ -868,10 +868,11 @@ def init_db():
                         lat REAL,
                         lng REAL,
                         images_json TEXT NOT NULL DEFAULT '[]',
-                        status TEXT NOT NULL DEFAULT 'active',
-                        property_type TEXT NOT NULL DEFAULT 'listings',
+                        status TEXT NOT NULL DEFAULT 'empty',
+                        property_type TEXT NOT NULL DEFAULT 'rentals',
                         owner_user_id TEXT,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        available_date TEXT
                     )
                 """)
                 cur.execute("""
@@ -1001,7 +1002,7 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
-                for col, coldef in [("property_type", "TEXT NOT NULL DEFAULT 'listings'")]:
+                for col, coldef in [("property_type", "TEXT NOT NULL DEFAULT 'listings'"), ("available_date", "TEXT")]:
                     try:
                         cur.execute(f"ALTER TABLE properties ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1184,10 +1185,11 @@ def init_db():
                         lat REAL,
                         lng REAL,
                         images_json TEXT NOT NULL DEFAULT '[]',
-                        status TEXT NOT NULL DEFAULT 'active',
-                        property_type TEXT NOT NULL DEFAULT 'listings',
+                        status TEXT NOT NULL DEFAULT 'empty',
+                        property_type TEXT NOT NULL DEFAULT 'rentals',
                         owner_user_id TEXT,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        available_date TEXT
                     );
                     CREATE TABLE IF NOT EXISTS property_agents (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1294,7 +1296,7 @@ def init_db():
                         conn.execute(f"ALTER TABLE notifications ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
-                for col, coldef in [("property_type", "TEXT DEFAULT 'listings'")]:
+                for col, coldef in [("property_type", "TEXT DEFAULT 'listings'"), ("available_date", "TEXT")]:
                     try:
                         conn.execute(f"ALTER TABLE properties ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -9839,7 +9841,7 @@ async def api_get_agent_chat(request: Request, agent_id: str):
 # PROPERTY ENDPOINTS
 # =========================================================
 
-_VALID_PROPERTY_STATUSES = {"active", "sold", "rented"}
+_VALID_PROPERTY_STATUSES = {"active", "sold", "rented", "empty", "occupied", "soon_empty"}
 
 # Booking payment tax rate (10%)
 _BOOKING_TAX_RATE = 0.10
@@ -9864,8 +9866,9 @@ _DEMO_PROPERTIES_SEED = [
         "address": "12 Oak Street, London E1",
         "lat": 51.522, "lng": -0.074,
         "images_json": '["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800","https://images.unsplash.com/photo-1484154218962-a197022b5858?w=800"]',
-        "status": "active",
+        "status": "empty",
         "property_type": "rentals",
+        "available_date": None,
         "agent_ids": ["agent-1", "agent-3"],
     },
     {
@@ -9876,8 +9879,9 @@ _DEMO_PROPERTIES_SEED = [
         "address": "8 Maple Avenue, London N1",
         "lat": 51.533, "lng": -0.103,
         "images_json": '["https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=800","https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=800"]',
-        "status": "active",
-        "property_type": "purchase",
+        "status": "occupied",
+        "property_type": "sale",
+        "available_date": None,
         "agent_ids": ["agent-2", "agent-5"],
     },
     {
@@ -9888,8 +9892,9 @@ _DEMO_PROPERTIES_SEED = [
         "address": "34 Harbour Way, London E14",
         "lat": 51.503, "lng": -0.017,
         "images_json": '["https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800","https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=800"]',
-        "status": "active",
+        "status": "empty",
         "property_type": "short_stay",
+        "available_date": None,
         "agent_ids": ["agent-7"],
     },
     {
@@ -9900,8 +9905,9 @@ _DEMO_PROPERTIES_SEED = [
         "address": "5 Elm Close, Richmond TW10",
         "lat": 51.461, "lng": -0.301,
         "images_json": '["https://images.unsplash.com/photo-1613977257363-707ba9348227?w=800","https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800"]',
-        "status": "active",
-        "property_type": "purchase",
+        "status": "soon_empty",
+        "property_type": "sale",
+        "available_date": "2026-06-01",
         "agent_ids": ["agent-8", "agent-6", "agent-1"],
     },
     {
@@ -9912,8 +9918,9 @@ _DEMO_PROPERTIES_SEED = [
         "address": "21 Birch Lane, London SW4",
         "lat": 51.461, "lng": -0.138,
         "images_json": '["https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800","https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=800"]',
-        "status": "active",
-        "property_type": "listings",
+        "status": "occupied",
+        "property_type": "rentals",
+        "available_date": None,
         "agent_ids": ["agent-4", "agent-2"],
     },
     {
@@ -9924,8 +9931,9 @@ _DEMO_PROPERTIES_SEED = [
         "address": "9 Cedar Court, London E20",
         "lat": 51.541, "lng": -0.002,
         "images_json": '["https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800","https://images.unsplash.com/photo-1554995207-c18c203602cb?w=800"]',
-        "status": "sold",
-        "property_type": "hotels",
+        "status": "soon_empty",
+        "property_type": "short_stay",
+        "available_date": "2026-07-15",
         "agent_ids": ["agent-3", "agent-8"],
     },
 ]
@@ -9945,13 +9953,13 @@ def _seed_properties_if_empty():
                     try:
                         if USE_POSTGRES:
                             conn.cursor().execute(
-                                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "listings"), None, now),
+                                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "rentals"), None, now, p.get("available_date")),
                             )
                         else:
                             conn.execute(
-                                "INSERT OR IGNORE INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "listings"), None, now),
+                                "INSERT OR IGNORE INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "rentals"), None, now, p.get("available_date")),
                             )
                         for pos, agent_id in enumerate(p.get("agent_ids", [])):
                             try:
@@ -9999,12 +10007,12 @@ def _get_property_row(property_id: str, with_agents: bool = False) -> dict | Non
         try:
             cur = _execute(
                 conn,
-                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at FROM properties WHERE property_id=?"
+                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date FROM properties WHERE property_id=?"
                 if not USE_POSTGRES else
-                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at FROM properties WHERE property_id=%s",
+                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date FROM properties WHERE property_id=%s",
                 (property_id,),
             )
-            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at"]
+            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date"]
             row = cur.fetchone()
             if not row:
                 return None
@@ -10020,7 +10028,7 @@ def _get_property_row(property_id: str, with_agents: bool = False) -> dict | Non
     return prop
 
 
-_VALID_PROPERTY_TYPES = {"hotels", "short_stay", "rentals", "purchase", "listings"}
+_VALID_PROPERTY_TYPES = {"hotels", "short_stay", "rentals", "purchase", "listings", "sale"}
 
 
 class _PropertyCreateRequest(BaseModel):
@@ -10032,8 +10040,9 @@ class _PropertyCreateRequest(BaseModel):
     lng: float | None = None
     images: list[str] = []
     agent_ids: list[str] = []
-    status: str = "active"
-    property_type: str = "listings"
+    status: str = "empty"
+    property_type: str = "rentals"
+    available_date: str | None = None
 
 
 class _PropertyUpdateRequest(BaseModel):
@@ -10046,6 +10055,8 @@ class _PropertyUpdateRequest(BaseModel):
     images: list[str] | None = None
     agent_ids: list[str] | None = None
     status: str | None = None
+    property_type: str | None = None
+    available_date: str | None = None
 
 
 @fastapi_app.get("/api/properties")
@@ -10084,7 +10095,7 @@ async def api_list_properties(
                 parts.append(f"lng<={ph}")
                 params.append(max_lng)
             where = (" WHERE " + " AND ".join(parts)) if parts else ""
-            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at"]
+            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date"]
             cur = _execute(conn, f"SELECT {','.join(cols)} FROM properties{where} ORDER BY created_at DESC", params)
             rows = cur.fetchall()
         finally:
@@ -10092,7 +10103,7 @@ async def api_list_properties(
 
     properties = []
     for row in rows:
-        p = dict(zip(["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at"], row))
+        p = dict(zip(["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date"], row))
         try:
             p["images"] = json.loads(p["images_json"] or "[]")
         except Exception:
@@ -10241,16 +10252,17 @@ async def api_create_property(request: Request, body: _PropertyCreateRequest):
     property_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
     images_json = json.dumps(body.images[:20])
+    available_date = body.available_date.strip() if body.available_date else None
 
     with _db_lock:
         conn = _get_db()
         try:
             _execute(
                 conn,
-                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)"
+                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 if not USE_POSTGRES else
-                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (property_id, title, body.description.strip(), body.price, body.address.strip(), body.lat, body.lng, images_json, body.status, prop_type, user_id, now),
+                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (property_id, title, body.description.strip(), body.price, body.address.strip(), body.lat, body.lng, images_json, body.status, prop_type, user_id, now, available_date),
             )
             for pos, agent_id in enumerate(agent_ids):
                 try:
@@ -10290,16 +10302,20 @@ async def api_update_property(request: Request, property_id: str, body: _Propert
 
     if body.status is not None and body.status not in _VALID_PROPERTY_STATUSES:
         return JSONResponse({"error": f"Invalid status."}, status_code=400)
+    if body.property_type is not None and body.property_type not in _VALID_PROPERTY_TYPES:
+        return JSONResponse({"error": f"Invalid property type."}, status_code=400)
 
     updates: dict = {}
-    if body.title       is not None: updates["title"]       = body.title.strip()[:200]
-    if body.description is not None: updates["description"] = body.description.strip()
-    if body.price       is not None: updates["price"]       = body.price
-    if body.address     is not None: updates["address"]     = body.address.strip()
-    if body.lat         is not None: updates["lat"]         = body.lat
-    if body.lng         is not None: updates["lng"]         = body.lng
-    if body.status      is not None: updates["status"]      = body.status
-    if body.images      is not None: updates["images_json"] = json.dumps(body.images[:20])
+    if body.title         is not None: updates["title"]         = body.title.strip()[:200]
+    if body.description   is not None: updates["description"]   = body.description.strip()
+    if body.price         is not None: updates["price"]         = body.price
+    if body.address       is not None: updates["address"]       = body.address.strip()
+    if body.lat           is not None: updates["lat"]           = body.lat
+    if body.lng           is not None: updates["lng"]           = body.lng
+    if body.status        is not None: updates["status"]        = body.status
+    if body.property_type is not None: updates["property_type"] = body.property_type
+    if body.images        is not None: updates["images_json"]   = json.dumps(body.images[:20])
+    if body.available_date is not None: updates["available_date"] = body.available_date.strip() or None
 
     if updates:
         ph = "%s" if USE_POSTGRES else "?"
@@ -11102,6 +11118,33 @@ async def api_list_users(request: Request):
                 if not USE_POSTGRES else
                 "SELECT user_id, name FROM app_users WHERE user_id!=%s ORDER BY name ASC",
                 (user_id,),
+            )
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+    users = [{"user_id": r[0], "name": r[1]} for r in rows]
+    return JSONResponse({"users": users})
+
+
+@fastapi_app.get("/api/users/search")
+async def api_search_users(request: Request, q: str = ""):
+    """Search users by name for DM autocomplete. Returns up to 15 matches."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    q = q.strip()
+    if not q:
+        return JSONResponse({"users": []})
+    pattern = f"%{q}%"
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT user_id, name FROM app_users WHERE user_id!=? AND name LIKE ? ORDER BY name ASC LIMIT 15"
+                if not USE_POSTGRES else
+                "SELECT user_id, name FROM app_users WHERE user_id!=%s AND name ILIKE %s ORDER BY name ASC LIMIT 15",
+                (user_id, pattern),
             )
             rows = cur.fetchall()
         finally:
@@ -12974,12 +13017,12 @@ async def api_admin_properties(request: Request):
         conn = _get_db()
         try:
             cols = ["property_id", "title", "description", "price", "address",
-                    "lat", "lng", "status", "owner_user_id", "created_at"]
+                    "lat", "lng", "status", "property_type", "owner_user_id", "created_at", "available_date"]
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
                     "SELECT p.property_id, p.title, p.description, p.price, p.address,"
-                    " p.lat, p.lng, p.status, p.owner_user_id, p.created_at,"
+                    " p.lat, p.lng, p.status, p.property_type, p.owner_user_id, p.created_at, p.available_date,"
                     " au.name AS owner_name, au.email AS owner_email"
                     " FROM properties p"
                     " LEFT JOIN app_users au ON p.owner_user_id = au.user_id"
@@ -12989,7 +13032,7 @@ async def api_admin_properties(request: Request):
             else:
                 cur = conn.execute(
                     "SELECT p.property_id, p.title, p.description, p.price, p.address,"
-                    " p.lat, p.lng, p.status, p.owner_user_id, p.created_at,"
+                    " p.lat, p.lng, p.status, p.property_type, p.owner_user_id, p.created_at, p.available_date,"
                     " au.name AS owner_name, au.email AS owner_email"
                     " FROM properties p"
                     " LEFT JOIN app_users au ON p.owner_user_id = au.user_id"
