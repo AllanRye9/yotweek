@@ -729,6 +729,12 @@ export default function Home() {
             🏠 Property Discovery
           </Link>
           <Link
+            to="/agents"
+            className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-purple-700 hover:border-purple-600 hover:text-purple-100"
+          >
+            🧑‍💼 Agents
+          </Link>
+          <Link
             to="/map"
             className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-green-700 hover:border-green-600 hover:text-green-100"
           >

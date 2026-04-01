@@ -108,7 +108,7 @@ export default function AgentRegistration({ onClose }) {
       {(!status || status.status === 'rejected') && !success && (
         <form onSubmit={handleSubmit} className="space-y-4">
           <p className="text-sm text-gray-400">
-            Only registered and approved agents can post properties. Submit your details below for admin review.
+            Submit your details below to register as a property agent. Your application will be reviewed by an admin.
           </p>
 
           <div>

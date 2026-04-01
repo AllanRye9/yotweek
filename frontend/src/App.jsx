@@ -9,6 +9,7 @@ import UserDashboard from './pages/UserDashboard'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import PropertiesPage from './pages/PropertiesPage'
+import AgentsPage from './pages/AgentsPage'
 import PropertyDetailPage from './pages/PropertyDetailPage'
 import PropertyInboxPage from './pages/PropertyInboxPage'
 import UnifiedMapPage from './pages/UnifiedMapPage'
@@ -120,6 +121,7 @@ export default function App() {
             <Route path="/properties" element={<PropertiesPage />} />
             <Route path="/properties/:propertyId" element={<PropertyDetailPage />} />
             <Route path="/property-inbox" element={<PropertyInboxPage />} />
+            <Route path="/agents" element={<AgentsPage />} />
             <Route path="/map" element={<UnifiedMapPage />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin/register" element={<AdminLogin register />} />
