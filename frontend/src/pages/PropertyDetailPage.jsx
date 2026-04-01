@@ -390,6 +390,7 @@ export default function PropertyDetailPage() {
   const [nearbyTotal, setNearbyTotal]         = useState(0)
   const [nearbyLoading, setNearbyLoading]     = useState(false)
   const [nearbyOffset, setNearbyOffset]       = useState(0)
+  const [nearbyRadius, setNearbyRadius]       = useState(8)
   const NEARBY_PAGE = 4
 
   // Load user
@@ -420,23 +421,23 @@ export default function PropertyDetailPage() {
       .finally(() => setPropLoading(false))
   }, [propertyId])
 
-  // Load nearby agents (first page)
+  // Load nearby agents (first page) — re-fetch when radius changes
   useEffect(() => {
     if (!propertyId) return
     setNearbyLoading(true)
     setNearbyOffset(0)
-    getNearbyAgents(propertyId, NEARBY_PAGE, 0)
+    getNearbyAgents(propertyId, NEARBY_PAGE, 0, nearbyRadius)
       .then(data => {
         setNearbyAgents(data.agents ?? [])
         setNearbyTotal(data.total ?? 0)
       })
       .catch(() => {})
       .finally(() => setNearbyLoading(false))
-  }, [propertyId])
+  }, [propertyId, nearbyRadius])
 
   const handleLoadMoreNearby = () => {
     const newOffset = nearbyOffset + NEARBY_PAGE
-    getNearbyAgents(propertyId, NEARBY_PAGE, newOffset)
+    getNearbyAgents(propertyId, NEARBY_PAGE, newOffset, nearbyRadius)
       .then(data => {
         setNearbyAgents(prev => [...prev, ...(data.agents ?? [])])
         setNearbyOffset(newOffset)
@@ -686,14 +687,35 @@ export default function PropertyDetailPage() {
 
                 {/* ── Nearby Agents ── */}
                 <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--border-color)' }}>
-                  <h2 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 700, margin: '0 0 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span>📍</span> Nearby Agents
-                    {nearbyTotal > 0 && (
-                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 400 }}>
-                        ({nearbyTotal})
-                      </span>
-                    )}
-                  </h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <h2 style={{ color: 'var(--text-primary)', fontSize: '1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 6, flex: 1 }}>
+                      <span>📍</span> Nearby Agents
+                      {nearbyTotal > 0 && (
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', fontWeight: 400 }}>
+                          ({nearbyTotal})
+                        </span>
+                      )}
+                    </h2>
+                    {/* Distance filter */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <label style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', whiteSpace: 'nowrap' }}>
+                        Within
+                      </label>
+                      <select
+                        value={nearbyRadius}
+                        onChange={e => setNearbyRadius(Number(e.target.value))}
+                        style={{
+                          background: 'var(--bg-input)', color: 'var(--text-primary)',
+                          border: '1px solid var(--border-color)', borderRadius: 6,
+                          padding: '3px 6px', fontSize: '0.75rem', cursor: 'pointer',
+                        }}
+                      >
+                        {[2, 5, 8, 15, 25, 50].map(km => (
+                          <option key={km} value={km}>{km} km</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
 
                   {nearbyLoading ? (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
@@ -701,7 +723,7 @@ export default function PropertyDetailPage() {
                     </div>
                   ) : nearbyAgents.length === 0 ? (
                     <div style={{ color: 'var(--text-secondary)', fontSize: '0.82rem', textAlign: 'center', padding: '12px 0' }}>
-                      No nearby agents found.
+                      No agents found within {nearbyRadius} km.
                     </div>
                   ) : (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

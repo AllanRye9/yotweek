@@ -441,8 +441,8 @@ export const updateProperty = (propertyId, data) =>
 export const deleteProperty = (propertyId) =>
   request('DELETE', `/api/properties/${encodeURIComponent(propertyId)}`)
 
-export const getNearbyAgents = (propertyId, limit = 4, offset = 0) =>
-  request('GET', `/api/properties/${encodeURIComponent(propertyId)}/nearby_agents?limit=${limit}&offset=${offset}`)
+export const getNearbyAgents = (propertyId, limit = 4, offset = 0, radius_km = 8) =>
+  request('GET', `/api/properties/${encodeURIComponent(propertyId)}/nearby_agents?limit=${limit}&offset=${offset}&radius_km=${radius_km}`)
 
 // ── Property Conversations (Inbox) ────────────────────────────────────────────
 

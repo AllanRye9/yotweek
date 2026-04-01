@@ -10138,8 +10138,12 @@ async def api_property_nearby_agents(
     property_id: str,
     limit: int = 4,
     offset: int = 0,
+    radius_km: float = 8.0,
 ):
     """Return agents sorted by distance from a property (haversine formula).
+
+    Only agents within *radius_km* of the property are returned.  Pass
+    radius_km=0 (or a very large value) to disable the distance filter.
 
     Returns:
         { agents: [...], total: int }
@@ -10181,6 +10185,10 @@ async def api_property_nearby_agents(
             a["distance_km"] = round(_haversine(prop_lat, prop_lng, a["lat"], a["lng"]), 2)
         else:
             a["distance_km"] = None
+
+    # Apply distance filter when property coordinates are known
+    if prop_lat is not None and prop_lng is not None and radius_km > 0:
+        agents = [a for a in agents if a["distance_km"] is None or a["distance_km"] <= radius_km]
 
     agents.sort(key=lambda x: (x["distance_km"] is None, x["distance_km"] or _AGENT_UNKNOWN_DISTANCE_KM))
 

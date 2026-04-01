@@ -4,6 +4,7 @@ import { getUserProfile, userLogout } from '../api'
 import UserProfile from '../components/UserProfile'
 import UserAuth from '../components/UserAuth'
 import ThemeSelector from '../components/ThemeSelector'
+import AgentRegistration from '../components/AgentRegistration'
 import { useAuth } from '../App'
 
 /**
@@ -107,7 +108,7 @@ export default function ProfilePage() {
         </div>
       ) : (
         /* ── Logged in ── */
-        <div className="flex-1 max-w-2xl mx-auto w-full px-4 py-8 space-y-8">
+        <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-8 space-y-8">
 
           {/* ── Animated hero banner ── */}
           <div
@@ -210,6 +211,28 @@ export default function ProfilePage() {
               onLocationUpdate={(loc) => setAppUser(u => ({ ...u, ...loc }))}
               onUserUpdate={(u) => u && setAppUser(prev => ({ ...prev, ...u }))}
             />
+          </div>
+
+          {/* ── Agent / Property Registration ── */}
+          <div
+            style={{
+              opacity: statsVisible ? 1 : 0,
+              transform: statsVisible ? 'translateY(0)' : 'translateY(20px)',
+              transition: 'opacity 0.5s ease 0.4s, transform 0.5s ease 0.4s',
+            }}
+          >
+            <div className="rounded-2xl border border-gray-700/60 overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
+              <div className="px-5 py-4 border-b border-gray-700/60 flex items-center gap-3">
+                <span className="text-xl">🏢</span>
+                <div>
+                  <h2 className="text-base font-bold text-white">Property Agent Registration</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Apply to become a verified agent and post property listings.</p>
+                </div>
+              </div>
+              <div className="p-5">
+                <AgentRegistration />
+              </div>
+            </div>
           </div>
 
           {/* ── Quick links ── */}

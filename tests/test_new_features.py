@@ -2867,6 +2867,38 @@ class TestProperties:
         data = json.loads(resp.body)
         assert data["properties"] == []
 
+    def test_nearby_agents_radius_filter(self):
+        """GET /api/properties/:id/nearby_agents?radius_km= should filter by distance."""
+        import json
+        from api.app import api_property_nearby_agents, api_list_properties
+        props = json.loads(run(api_list_properties()).body)["properties"]
+        prop = next((p for p in props if p.get("lat") is not None), None)
+        if prop is None:
+            return  # skip if no geo-coded properties
+        pid = prop["property_id"]
+        # Very small radius should return fewer agents than a large one
+        resp_small = run(api_property_nearby_agents(pid, limit=100, offset=0, radius_km=0.001))
+        resp_large = run(api_property_nearby_agents(pid, limit=100, offset=0, radius_km=9999))
+        assert resp_small.status_code == 200
+        assert resp_large.status_code == 200
+        data_small = json.loads(resp_small.body)
+        data_large = json.loads(resp_large.body)
+        assert data_small["total"] <= data_large["total"]
+
+    def test_nearby_agents_default_radius_is_8km(self):
+        """GET /api/properties/:id/nearby_agents without radius_km defaults to 8 km."""
+        import json
+        from api.app import api_property_nearby_agents, api_list_properties
+        props = json.loads(run(api_list_properties()).body)["properties"]
+        prop = next((p for p in props if p.get("lat") is not None), None)
+        if prop is None:
+            return  # skip if no geo-coded properties
+        pid = prop["property_id"]
+        resp_default = run(api_property_nearby_agents(pid))
+        resp_8km = run(api_property_nearby_agents(pid, radius_km=8))
+        assert resp_default.status_code == 200
+        assert json.loads(resp_default.body)["total"] == json.loads(resp_8km.body)["total"]
+
 
 class TestPropertyConversations:
     """Tests for /api/property_conversations and /api/property_messages endpoints."""

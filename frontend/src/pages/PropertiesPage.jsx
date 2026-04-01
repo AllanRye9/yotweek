@@ -431,9 +431,8 @@ export default function PropertiesPage() {
   }, [])
 
   const handleCardClick = useCallback((prop) => {
-    setSelectedId(prop.property_id)
-    setPreviewProp(prop)
-  }, [])
+    navigate(`/properties/${prop.property_id}`)
+  }, [navigate])
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg-page)', display: 'flex', flexDirection: 'column' }}>
@@ -570,10 +569,10 @@ export default function PropertiesPage() {
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {[
             { id: '',          label: 'All' },
-            { id: 'hotels',    label: '🏨 Hotels' },
             { id: 'short_stay',label: '🛏 Short Stay' },
             { id: 'rentals',   label: '🔑 Rentals' },
             { id: 'purchase',  label: '🏡 Purchase' },
+            { id: 'hotels',    label: '🏨 Hotels' },
             { id: 'listings',  label: '📋 Listings' },
           ].map(t => (
             <button
