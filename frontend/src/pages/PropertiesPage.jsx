@@ -478,6 +478,7 @@ export default function PropertiesPage() {
           <nav style={{ display: 'flex', gap: 12 }}>
             <Link to="/" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
             <Link to="/properties" style={{ color: '#3b82f6', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>Properties</Link>
+            <Link to="/agents" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Agents</Link>
             <Link to="/property-inbox" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Inbox</Link>
           </nav>
         </div>
