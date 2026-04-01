@@ -461,7 +461,7 @@ export default function UserDashboard() {
       <div className="flex-1 max-w-7xl mx-auto w-full px-4 pt-6 pb-20 sm:pb-8 flex gap-6">
 
         {/* ── Sidebar tabs (desktop) ── */}
-        <aside className="hidden lg:flex flex-col gap-1 w-52 shrink-0 pt-1">
+        <aside className="hidden lg:flex flex-col gap-1 w-52 shrink-0 pt-1 sticky top-16 self-start max-h-[calc(100vh-5rem)] overflow-y-auto">
           {TABS.map(t => {
             const badgeCount = t.badge === 'chat' ? unreadChat : t.badge === 'notif' ? unreadNotifs : 0
             return (

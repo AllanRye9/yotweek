@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import socket from '../socket'
 import {
   dmListConversations, dmStartConversation, dmSendMessage, dmGetContacts, dmDeleteConversation,
+  searchUsers,
 } from '../api'
 import DMChat from './DMChat'
 import { playMessageChime } from '../sounds'
@@ -34,9 +35,12 @@ export default function DMInbox({ currentUser }) {
   const [showNewChat,    setShowNewChat]     = useState(false)
   const [contacts,       setContacts]       = useState([])    // previously communicated users
   const [userSearch,     setUserSearch]      = useState('')
+  const [searchResults,  setSearchResults]  = useState([])    // live search results
+  const [searchLoading,  setSearchLoading]  = useState(false)
   const [convSearch,     setConvSearch]      = useState('')
   const [totalUnread,    setTotalUnread]     = useState(0)
   const prevUnreadRef    = useRef(0)
+  const searchTimerRef   = useRef(null)
 
   const myId = currentUser?.user_id
 
@@ -84,12 +88,32 @@ export default function DMInbox({ currentUser }) {
 
   const handleOpenNewChat = async () => {
     setShowNewChat(true)
+    setUserSearch('')
+    setSearchResults([])
     if (contacts.length === 0) {
       try {
         const data = await dmGetContacts()
         setContacts(data.contacts || [])
       } catch { /* ignore */ }
     }
+  }
+
+  const handleUserSearchChange = (val) => {
+    setUserSearch(val)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    if (!val.trim()) {
+      setSearchResults([])
+      return
+    }
+    setSearchLoading(true)
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const data = await searchUsers(val.trim())
+        setSearchResults(data.users || [])
+      } catch { /* ignore */ } finally {
+        setSearchLoading(false)
+      }
+    }, 300)
   }
 
   const handleStartConversation = async (otherUserId) => {
@@ -166,13 +190,11 @@ export default function DMInbox({ currentUser }) {
     )
   }
 
-  // ── Build user list for new chat (previously communicated users only) ──────
-
-  // Previously communicated users from the /api/dm/contacts endpoint
-  // (sorted by most recent interaction, already loaded when picker opens)
-  const filteredUsers = contacts.filter(u =>
-    u.name.toLowerCase().includes(userSearch.toLowerCase())
-  )
+  // ── Build user list for new chat ─────────────────────────────────────────────
+  // If user has typed a search query, show live search results; otherwise show previous contacts
+  const filteredUsers = userSearch.trim()
+    ? searchResults
+    : contacts.filter(u => u.name.toLowerCase().includes(userSearch.toLowerCase()))
 
   // ── Filtered conversation list ────────────────────────────────────────────
 
@@ -226,29 +248,40 @@ export default function DMInbox({ currentUser }) {
           <div className="flex items-center justify-between">
             <p className="text-sm font-semibold text-white">Start a conversation</p>
             <button
-              onClick={() => { setShowNewChat(false); setUserSearch('') }}
+              onClick={() => { setShowNewChat(false); setUserSearch(''); setSearchResults([]) }}
               className="text-gray-500 hover:text-gray-300 text-lg leading-none"
             >
               ✕
             </button>
           </div>
-          <input
-            type="text"
-            placeholder="Search by name…"
-            value={userSearch}
-            onChange={e => setUserSearch(e.target.value)}
-            className="w-full rounded-lg bg-gray-900 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Type a username to search…"
+              value={userSearch}
+              onChange={e => handleUserSearchChange(e.target.value)}
+              autoFocus
+              className="w-full rounded-lg bg-gray-900 border border-gray-600 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {searchLoading && (
+              <span className="absolute right-2.5 top-2.5 text-gray-400 text-xs">⏳</span>
+            )}
+          </div>
           {filteredUsers.length === 0 ? (
             <p className="text-xs text-gray-500 text-center py-2">
-              {contacts.length === 0
-                ? 'No previous contacts. Start a conversation by booking a ride or inquiring about a property.'
-                : 'No contacts match your search.'}
+              {userSearch.trim()
+                ? (searchLoading ? 'Searching…' : 'No users found.')
+                : (contacts.length === 0
+                  ? 'Type a username above to find someone.'
+                  : 'No contacts match your search.')}
             </p>
           ) : (
             <div className="space-y-1 max-h-48 overflow-y-auto">
-              {contacts.length > 0 && !userSearch && (
+              {!userSearch.trim() && contacts.length > 0 && (
                 <p className="text-xs text-gray-500 px-1 pb-0.5">Previously contacted</p>
+              )}
+              {userSearch.trim() && searchResults.length > 0 && (
+                <p className="text-xs text-gray-500 px-1 pb-0.5">Search results</p>
               )}
               {filteredUsers.map((u) => (
                 <button
@@ -291,8 +324,9 @@ export default function DMInbox({ currentUser }) {
           {filteredConversations.map((conv) => {
             const isQR = quickReply?.conv_id === conv.conv_id
             const lastMsg = conv.last_message
+            const senderName = lastMsg?.sender_id === myId ? 'You' : (conv.other_user?.name || 'User')
             const preview = lastMsg
-              ? (lastMsg.sender_id === myId ? 'You: ' : '') + (lastMsg.content || '…')
+              ? `${senderName}: ${lastMsg.content || '…'}`
               : 'No messages yet'
             const lastTs = lastMsg?.ts
 
@@ -301,7 +335,15 @@ export default function DMInbox({ currentUser }) {
                 key={conv.conv_id}
                 className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden hover:bg-gray-800/80 transition-colors"
               >
-                <div className="flex items-center gap-3 px-4 py-3">
+                {/* Clicking the main row opens full chat */}
+                <div
+                  className="flex items-center gap-3 px-4 py-3 cursor-pointer"
+                  onClick={() => setActiveConv(conv)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={e => e.key === 'Enter' && setActiveConv(conv)}
+                  aria-label={`Open chat with ${conv.other_user?.name || 'User'}`}
+                >
                   {/* Avatar */}
                   <div className="w-10 h-10 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
                     {conv.other_user?.name?.charAt(0)?.toUpperCase() || '?'}
@@ -324,8 +366,8 @@ export default function DMInbox({ currentUser }) {
                     </p>
                   </div>
 
-                  {/* Timestamp */}
-                  <div className="flex flex-col items-end gap-1 shrink-0">
+                  {/* Timestamp + actions */}
+                  <div className="flex flex-col items-end gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                     <span className="text-xs text-gray-500">{fmtTime(lastTs)}</span>
                     <div className="flex gap-1">
                       {/* Quick reply button */}
@@ -343,14 +385,6 @@ export default function DMInbox({ currentUser }) {
                         title="Quick reply"
                       >
                         ↩
-                      </button>
-                      {/* Open chat button */}
-                      <button
-                        onClick={() => setActiveConv(conv)}
-                        className="text-xs text-gray-400 hover:text-blue-300 transition-colors px-1.5 py-0.5 rounded border border-gray-700 hover:border-blue-500"
-                        title="Open chat"
-                      >
-                        💬
                       </button>
                       {/* Delete conversation button */}
                       <button
