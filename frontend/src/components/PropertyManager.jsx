@@ -942,7 +942,7 @@ function PropertiesPanel({ properties, setProperties, onSelectOnMap, canPost, on
 function PostPropertyPanel({ onDone }) {
   const [form, setForm] = useState({
     title: '', description: '', price: '', address: '', lat: '', lng: '',
-    status: 'empty', property_type: 'rentals', available_date: '', images: [''],
+    status: 'active', property_type: 'rentals', available_date: '', occupancy_status: '', images: [''],
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState('')
@@ -985,14 +985,15 @@ function PostPropertyPanel({ onDone }) {
     setSubmitting(true)
     try {
       await createProperty({
-        title:          form.title.trim(),
-        description:    form.description.trim(),
-        price:          parseFloat(form.price) || 0,
-        address:        form.address.trim(),
+        title:            form.title.trim(),
+        description:      form.description.trim(),
+        price:            parseFloat(form.price) || 0,
+        address:          form.address.trim(),
         lat, lng,
-        status:         form.status,
-        property_type:  form.property_type,
-        available_date: form.status === 'soon_empty' ? form.available_date.trim() || null : null,
+        status:           form.status,
+        property_type:    form.property_type,
+        occupancy_status: form.occupancy_status,
+        available_date:   form.occupancy_status === 'soon_empty' ? form.available_date.trim() || null : null,
         images,
       })
       setSuccess(true)
@@ -1034,7 +1035,7 @@ function PostPropertyPanel({ onDone }) {
           <input style={inputStyle} type="text" value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. Modern 2-Bed Flat – Shoreditch" maxLength={200} required />
         </div>
 
-        {/* Category + Status */}
+        {/* Category + Status + Occupancy */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div>
             <label style={labelStyle}>Category *</label>
@@ -1045,17 +1046,26 @@ function PostPropertyPanel({ onDone }) {
             </select>
           </div>
           <div>
-            <label style={labelStyle}>Status *</label>
+            <label style={labelStyle}>Listing Status *</label>
             <select style={inputStyle} value={form.status} onChange={e => set('status', e.target.value)}>
-              <option value="empty">Empty</option>
-              <option value="occupied">Occupied</option>
-              <option value="soon_empty">Soon Empty</option>
+              <option value="active">Active</option>
+              <option value="rented">Rented</option>
+              <option value="sold">Sold</option>
             </select>
           </div>
         </div>
+        <div>
+          <label style={labelStyle}>Occupancy Status</label>
+          <select style={inputStyle} value={form.occupancy_status} onChange={e => set('occupancy_status', e.target.value)}>
+            <option value="">Not Set</option>
+            <option value="empty">Empty</option>
+            <option value="occupied">Occupied</option>
+            <option value="soon_empty">Soon Empty</option>
+          </select>
+        </div>
 
-        {/* Available date (only for soon_empty) */}
-        {form.status === 'soon_empty' && (
+        {/* Available date (only for soon_empty occupancy) */}
+        {form.occupancy_status === 'soon_empty' && (
           <div>
             <label style={labelStyle}>Available From Date</label>
             <input style={inputStyle} type="date" value={form.available_date} onChange={e => set('available_date', e.target.value)} />

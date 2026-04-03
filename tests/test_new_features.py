@@ -4251,3 +4251,250 @@ class TestAdminBroadcasts:
         found = next((b for b in bcasts if b["broadcast_id"] == bcast_id), None)
         assert found is not None
         assert found["status"] == "expired"
+
+
+# ===========================================================================
+# Username field and user search by username
+# ===========================================================================
+
+class TestUsernameField:
+    """Tests for the username column on app_users and user search by username."""
+
+    def _register_and_get(self, name="UsernameUser"):
+        resp, email = _register_user(name=name)
+        import json
+        data = json.loads(resp.body)
+        return data, email
+
+    def test_register_returns_username(self):
+        """Registration response includes username derived from email prefix."""
+        import json
+        data, email = self._register_and_get("UsernameReg")
+        assert "username" in data
+        assert data["username"]  # non-empty
+
+    def test_username_derived_from_email(self):
+        """Auto-generated username matches the email prefix."""
+        import json
+        import re as _re
+        resp, email = _register_user(name="UsernameDerive")
+        data = json.loads(resp.body)
+        email_prefix = _re.sub(r"[^a-z0-9_.-]", "", email.split("@")[0].lower())
+        # username should equal the email prefix or start with it (suffix appended for uniqueness)
+        assert data["username"] == email_prefix or data["username"].startswith(email_prefix)
+
+    def test_me_endpoint_returns_username(self):
+        """GET /api/auth/me includes username in response."""
+        import json
+        from api.app import api_user_me, _get_db, _db_lock, USE_POSTGRES, _execute
+        resp, email = _register_user(name="MeUsername")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        me_resp = run(api_user_me(req))
+        assert me_resp.status_code == 200
+        me_data = json.loads(me_resp.body)
+        assert "username" in me_data
+        assert me_data["username"]
+
+    def test_search_users_returns_username(self):
+        """GET /api/users/search returns username field in results."""
+        import json
+        from api.app import api_search_users
+        # Register a searcher and a target
+        searcher_resp, searcher_email = _register_user(name="Searcher")
+        searcher_id = json.loads(searcher_resp.body)["user_id"]
+        target_resp, target_email = _register_user(name="SearchTarget")
+        target_data = json.loads(target_resp.body)
+
+        req = _make_request({"app_user_id": searcher_id})
+        resp = run(api_search_users(req, q=target_data["username"]))
+        assert resp.status_code == 200
+        users = json.loads(resp.body)["users"]
+        found = next((u for u in users if u["user_id"] == target_data["user_id"]), None)
+        assert found is not None
+        assert "username" in found
+
+    def test_search_users_matches_username(self):
+        """User search matches against the username field."""
+        import json
+        from api.app import api_search_users
+        searcher_resp, _ = _register_user(name="UsernameSearcher")
+        searcher_id = json.loads(searcher_resp.body)["user_id"]
+        target_resp, target_email = _register_user(name="TargetByName")
+        target_data = json.loads(target_resp.body)
+        target_username = target_data["username"]
+
+        req = _make_request({"app_user_id": searcher_id})
+        # Search by full username
+        resp = run(api_search_users(req, q=target_username))
+        assert resp.status_code == 200
+        users = json.loads(resp.body)["users"]
+        assert any(u["user_id"] == target_data["user_id"] for u in users)
+
+    def test_search_requires_login(self):
+        """GET /api/users/search without login → 401."""
+        from api.app import api_search_users
+        req = _make_request({})
+        resp = run(api_search_users(req, q="someone"))
+        assert resp.status_code == 401
+
+    def test_search_empty_query_returns_empty(self):
+        """GET /api/users/search with empty q returns empty list."""
+        import json
+        from api.app import api_search_users
+        resp, email = _register_user(name="SearchEmpty")
+        user_id = json.loads(resp.body)["user_id"]
+        req = _make_request({"app_user_id": user_id})
+        resp = run(api_search_users(req, q=""))
+        assert resp.status_code == 200
+        assert json.loads(resp.body)["users"] == []
+
+    def test_dm_conversation_other_user_has_username(self):
+        """DM conversation list includes username in other_user."""
+        import json
+        from api.app import api_dm_list_conversations, api_dm_start_conversation, _DMStartRequest
+        resp_a, email_a = _register_user(name="DM_UsernameA")
+        resp_b, email_b = _register_user(name="DM_UsernameB")
+        uid_a = json.loads(resp_a.body)["user_id"]
+        uid_b = json.loads(resp_b.body)["user_id"]
+
+        req_a = _make_request({"app_user_id": uid_a})
+        run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b)))
+
+        list_resp = run(api_dm_list_conversations(req_a))
+        convs = json.loads(list_resp.body)["conversations"]
+        assert len(convs) > 0
+        conv = convs[0]
+        assert "username" in conv["other_user"]
+        assert conv["other_user"]["username"]
+
+    def test_dm_last_message_has_sender_username(self):
+        """DM conversation last_message includes sender_username after a message is sent."""
+        import json
+        from api.app import (
+            api_dm_list_conversations, api_dm_start_conversation,
+            api_dm_send, _DMStartRequest, _DMSendRequest,
+        )
+        resp_a, email_a = _register_user(name="DM_SenderUsernameA")
+        resp_b, email_b = _register_user(name="DM_SenderUsernameB")
+        uid_a = json.loads(resp_a.body)["user_id"]
+        uid_b = json.loads(resp_b.body)["user_id"]
+
+        req_a = _make_request({"app_user_id": uid_a})
+        conv_data = json.loads(run(api_dm_start_conversation(req_a, _DMStartRequest(other_user_id=uid_b))).body)
+        conv_id = conv_data["conv"]["conv_id"]
+
+        run(api_dm_send(req_a, _DMSendRequest(conv_id=conv_id, content="Hello with username")))
+
+        list_resp = run(api_dm_list_conversations(req_a))
+        convs = json.loads(list_resp.body)["conversations"]
+        found = next((c for c in convs if c["conv_id"] == conv_id), None)
+        assert found is not None
+        assert found["last_message"] is not None
+        assert "sender_username" in found["last_message"]
+        assert found["last_message"]["sender_username"]
+
+
+# ===========================================================================
+# Occupancy status on properties
+# ===========================================================================
+
+class TestPropertyOccupancyStatus:
+    """Tests for the occupancy_status column on properties."""
+
+    def test_list_properties_has_occupancy_status_field(self):
+        """GET /api/properties returns occupancy_status field for each property."""
+        import json
+        from api.app import api_list_properties
+        resp = run(api_list_properties())
+        assert resp.status_code == 200
+        data = json.loads(resp.body)
+        for p in data["properties"]:
+            assert "occupancy_status" in p
+
+    def test_create_property_with_occupancy_status(self):
+        """POST /api/properties can set occupancy_status."""
+        import json
+        from api.app import api_create_property, _PropertyCreateRequest, api_get_property
+        resp_data, email = _register_user(name="OccupPropOwner")
+        user_id = json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_create_property(req, _PropertyCreateRequest(
+            title="Occupancy Test Property",
+            description="Testing occupancy_status field",
+            price=1000.0,
+            address="100 Test Rd, London",
+            lat=51.5, lng=-0.1,
+            status="active",
+            occupancy_status="empty",
+        )))
+        assert resp.status_code == 201
+        data = json.loads(resp.body)
+        assert data["property"]["occupancy_status"] == "empty"
+
+    def test_update_property_occupancy_status(self):
+        """PUT /api/properties/:id can update occupancy_status."""
+        import json
+        from api.app import (
+            api_create_property, api_update_property,
+            _PropertyCreateRequest, _PropertyUpdateRequest,
+        )
+        resp_data, email = _register_user(name="OccupUpdateOwner")
+        user_id = json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
+        session = _login_session(email)
+        req = _make_request(session)
+
+        create_resp = run(api_create_property(req, _PropertyCreateRequest(
+            title="Occupancy Update Property",
+            lat=51.5, lng=-0.1,
+            status="active",
+            occupancy_status="empty",
+        )))
+        property_id = json.loads(create_resp.body)["property"]["property_id"]
+
+        upd_resp = run(api_update_property(req, property_id, _PropertyUpdateRequest(
+            occupancy_status="occupied",
+        )))
+        assert upd_resp.status_code == 200
+        upd_data = json.loads(upd_resp.body)
+        assert upd_data["property"]["occupancy_status"] == "occupied"
+
+    def test_get_property_has_occupancy_status(self):
+        """GET /api/properties/:id returns occupancy_status field."""
+        import json
+        from api.app import api_list_properties, api_get_property
+        props = json.loads(run(api_list_properties()).body)["properties"]
+        pid = props[0]["property_id"]
+        resp = run(api_get_property(pid))
+        data = json.loads(resp.body)
+        assert "occupancy_status" in data["property"]
+
+    def test_create_property_occupancy_status_defaults_to_none(self):
+        """POST /api/properties without occupancy_status sets it to None."""
+        import json
+        from api.app import api_create_property, _PropertyCreateRequest
+        resp_data, email = _register_user(name="OccupDefaultOwner")
+        user_id = json.loads(resp_data.body)["user_id"]
+        _grant_posting_permission(user_id)
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_create_property(req, _PropertyCreateRequest(
+            title="No Occupancy Status",
+            lat=51.5, lng=-0.1,
+            status="active",
+        )))
+        assert resp.status_code == 201
+        data = json.loads(resp.body)
+        assert data["property"]["occupancy_status"] is None
+
+    def test_seeded_properties_have_occupancy_status(self):
+        """Demo seed properties carry occupancy_status values."""
+        import json
+        from api.app import api_list_properties
+        resp = run(api_list_properties())
+        props = json.loads(resp.body)["properties"]
+        with_occ = [p for p in props if p.get("occupancy_status")]
+        assert len(with_occ) > 0

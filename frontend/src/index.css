@@ -1629,6 +1629,18 @@ html:not(.theme-dark) .bg-gradient-to-b {
   }
 }
 
+/* On large screens: fix the sidebars so they stay in place while the page scrolls */
+@media (min-width: 1024px) {
+  .prop-left-sidebar,
+  .prop-right-sidebar {
+    position: sticky !important;
+    top: 0 !important;
+    align-self: flex-start !important;
+    max-height: 100% !important;
+    overflow-y: auto !important;
+  }
+}
+
 /* On tablet: hide right agents sidebar */
 @media (min-width: 768px) and (max-width: 1023px) {
   .prop-right-sidebar {

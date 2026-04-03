@@ -23,10 +23,13 @@ import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow })
 
-const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b' }
-const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented' }
+const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b', empty: '#60a5fa', occupied: '#f87171', soon_empty: '#a78bfa' }
+const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented', empty: 'Empty', occupied: 'Occupied', soon_empty: 'Soon Empty' }
 const AVAIL_COLOR  = { available: '#22c55e', busy: '#f59e0b', offline: 'var(--text-secondary)' }
 const AVAIL_LABEL  = { available: 'Available', busy: 'Busy', offline: 'Offline' }
+
+const OCCUPANCY_COLOR = { empty: '#60a5fa', occupied: '#f87171', soon_empty: '#a78bfa' }
+const OCCUPANCY_LABEL = { empty: 'Empty', occupied: 'Occupied', soon_empty: 'Soon Empty' }
 
 function formatPrice(price) {
   if (!price) return 'Price on Application'
@@ -613,6 +616,19 @@ export default function PropertyDetailPage() {
                   }}>
                     {STATUS_LABEL[property.status] ?? property.status}
                   </span>
+                  {property.occupancy_status && OCCUPANCY_LABEL[property.occupancy_status] && (
+                    <span style={{
+                      background: `${OCCUPANCY_COLOR[property.occupancy_status]}22`,
+                      color: OCCUPANCY_COLOR[property.occupancy_status],
+                      border: `1px solid ${OCCUPANCY_COLOR[property.occupancy_status]}44`,
+                      borderRadius: 9999, padding: '3px 12px', fontSize: '0.78rem', fontWeight: 700,
+                    }}>
+                      {OCCUPANCY_LABEL[property.occupancy_status]}
+                      {property.occupancy_status === 'soon_empty' && property.available_date
+                        ? ` · ${property.available_date}`
+                        : ''}
+                    </span>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>

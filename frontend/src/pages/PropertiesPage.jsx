@@ -25,9 +25,13 @@ delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({ iconRetinaUrl: markerIcon2x, iconUrl: markerIcon, shadowUrl: markerShadow })
 
 // Status colours
-const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b' }
-const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented' }
-const STATUS_BG    = { active: '#22c55e22', sold: '#ef444422', rented: '#f59e0b22' }
+const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b', empty: '#60a5fa', occupied: '#f87171', soon_empty: '#a78bfa' }
+const STATUS_LABEL = { active: 'Active', sold: 'Sold', rented: 'Rented', empty: 'Empty', occupied: 'Occupied', soon_empty: 'Soon Empty' }
+const STATUS_BG    = { active: '#22c55e22', sold: '#ef444422', rented: '#f59e0b22', empty: '#60a5fa22', occupied: '#f8717122', soon_empty: '#a78bfa22' }
+
+// Occupancy status colours
+const OCCUPANCY_COLOR = { empty: '#60a5fa', occupied: '#f87171', soon_empty: '#a78bfa' }
+const OCCUPANCY_LABEL = { empty: '🟢 Empty', occupied: '🔴 Occupied', soon_empty: '🟣 Soon Empty' }
 
 const AVAIL_COLOR = { available: '#22c55e', busy: '#f59e0b', offline: 'var(--text-secondary)' }
 const AVAIL_LABEL = { available: 'Available', busy: 'Busy', offline: 'Offline' }
@@ -192,6 +196,14 @@ function PropertyCard({ property, isSelected, onClick }) {
         {property.address && (
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.78rem', margin: '0 0 8px' }}>
             📍 {property.address}
+          </p>
+        )}
+        {property.occupancy_status && OCCUPANCY_LABEL[property.occupancy_status] && (
+          <p style={{ fontSize: '0.75rem', margin: '0 0 6px', color: OCCUPANCY_COLOR[property.occupancy_status] ?? 'var(--text-secondary)' }}>
+            {OCCUPANCY_LABEL[property.occupancy_status]}
+            {property.occupancy_status === 'soon_empty' && property.available_date
+              ? ` · Available ${property.available_date}`
+              : ''}
           </p>
         )}
         {property.description && (
@@ -545,18 +557,22 @@ export default function PropertiesPage() {
               <option value="active">Active</option>
               <option value="sold">Sold</option>
               <option value="rented">Rented</option>
+              <option value="empty">Empty</option>
+              <option value="occupied">Occupied</option>
+              <option value="soon_empty">Soon Empty</option>
             </select>
           </div>
         </div>
         {/* ── Property type segmented tabs ── */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {[
-            { id: '',          label: 'All' },
-            { id: 'short_stay',label: '🛏 Short Stay' },
-            { id: 'rentals',   label: '🔑 Rentals' },
-            { id: 'purchase',  label: '🏡 Purchase' },
-            { id: 'hotels',    label: '🏨 Hotels' },
-            { id: 'listings',  label: '📋 Listings' },
+            { id: '',           label: 'All' },
+            { id: 'short_stay', label: '🛏 Short Stay' },
+            { id: 'rentals',    label: '🔑 Rentals' },
+            { id: 'sale',       label: '🏷 Sale' },
+            { id: 'purchase',   label: '🏡 Purchase' },
+            { id: 'hotels',     label: '🏨 Hotels' },
+            { id: 'listings',   label: '📋 Listings' },
           ].map(t => (
             <button
               key={t.id}

@@ -706,7 +706,8 @@ def init_db():
                         location_name TEXT,
                         avatar_url TEXT,
                         bio TEXT,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        username TEXT UNIQUE
                     )
                 """)
                 cur.execute("""
@@ -872,7 +873,8 @@ def init_db():
                         property_type TEXT NOT NULL DEFAULT 'rentals',
                         owner_user_id TEXT,
                         created_at TEXT NOT NULL,
-                        available_date TEXT
+                        available_date TEXT,
+                        occupancy_status TEXT
                     )
                 """)
                 cur.execute("""
@@ -974,7 +976,7 @@ def init_db():
                 """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1002,7 +1004,7 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
-                for col, coldef in [("property_type", "TEXT NOT NULL DEFAULT 'listings'"), ("available_date", "TEXT")]:
+                for col, coldef in [("property_type", "TEXT NOT NULL DEFAULT 'listings'"), ("available_date", "TEXT"), ("occupancy_status", "TEXT")]:
                     try:
                         cur.execute(f"ALTER TABLE properties ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1047,7 +1049,8 @@ def init_db():
                         location_name TEXT,
                         avatar_url TEXT,
                         bio TEXT,
-                        created_at TEXT NOT NULL
+                        created_at TEXT NOT NULL,
+                        username TEXT UNIQUE
                     );
                     CREATE TABLE IF NOT EXISTS rides (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1189,7 +1192,8 @@ def init_db():
                         property_type TEXT NOT NULL DEFAULT 'rentals',
                         owner_user_id TEXT,
                         created_at TEXT NOT NULL,
-                        available_date TEXT
+                        available_date TEXT,
+                        occupancy_status TEXT
                     );
                     CREATE TABLE IF NOT EXISTS property_agents (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1276,7 +1280,7 @@ def init_db():
                     );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT")]:
                     try:
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -1296,7 +1300,7 @@ def init_db():
                         conn.execute(f"ALTER TABLE notifications ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
-                for col, coldef in [("property_type", "TEXT DEFAULT 'listings'"), ("available_date", "TEXT")]:
+                for col, coldef in [("property_type", "TEXT DEFAULT 'listings'"), ("available_date", "TEXT"), ("occupancy_status", "TEXT")]:
                     try:
                         conn.execute(f"ALTER TABLE properties ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -7333,14 +7337,14 @@ def _get_app_user(user_id: str) -> dict | None:
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone FROM app_users WHERE user_id=%s", (user_id,))
+                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone,username FROM app_users WHERE user_id=%s", (user_id,))
                 row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone FROM app_users WHERE user_id=?", (user_id,))
+                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone,username FROM app_users WHERE user_id=?", (user_id,))
                 row = cur.fetchone()
             if row is None:
                 return None
-            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties", "phone"]
+            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties", "phone", "username"]
             return dict(zip(keys, row))
         finally:
             conn.close()
@@ -7371,6 +7375,7 @@ class _UserRegisterRequest(BaseModel):
     email:    str
     password: str
     role:     str = "passenger"  # "passenger" | "driver"
+    username: str = ""
 
 
 class _UserLoginRequest(BaseModel):
@@ -7443,6 +7448,11 @@ async def api_user_register(body: _UserRegisterRequest):
     if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
         return JSONResponse({"error": "Invalid email address."}, status_code=400)
 
+    # Derive username from provided value or from email prefix
+    raw_username = (body.username or "").strip() or re.sub(r"[^a-z0-9_.-]", "", email.split("@")[0].lower())
+    if not raw_username:
+        raw_username = "user"
+
     user_id      = str(uuid.uuid4())
     pw_hash      = generate_password_hash(password)
     created_at   = datetime.now(timezone.utc).isoformat()
@@ -7450,24 +7460,37 @@ async def api_user_register(body: _UserRegisterRequest):
     with _db_lock:
         conn = _get_db()
         try:
-            if USE_POSTGRES:
-                cur = conn.cursor()
+            # Ensure username uniqueness by appending a numeric suffix if needed
+            username = raw_username
+            suffix = 0
+            max_attempts = 20
+            while max_attempts > 0:
+                max_attempts -= 1
                 try:
-                    cur.execute(
-                        "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at) VALUES (%s,%s,%s,%s,%s,%s)",
-                        (user_id, name, email, pw_hash, role, created_at),
-                    )
-                except Exception:
+                    if USE_POSTGRES:
+                        cur = conn.cursor()
+                        cur.execute(
+                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                            (user_id, name, email, pw_hash, role, created_at, username),
+                        )
+                    else:
+                        conn.execute(
+                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username) VALUES (?,?,?,?,?,?,?)",
+                            (user_id, name, email, pw_hash, role, created_at, username),
+                        )
+                    break  # success
+                except Exception as _exc:
                     conn.rollback()
+                    exc_msg = str(_exc).lower()
+                    if "unique" in exc_msg and "username" in exc_msg:
+                        # username collision — try with numeric suffix
+                        suffix += 1
+                        username = f"{raw_username}{suffix}"
+                        continue
+                    # Any other uniqueness error (e.g. email duplicate)
                     return JSONResponse({"error": "Email already registered."}, status_code=409)
             else:
-                try:
-                    conn.execute(
-                        "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at) VALUES (?,?,?,?,?,?)",
-                        (user_id, name, email, pw_hash, role, created_at),
-                    )
-                except Exception:
-                    return JSONResponse({"error": "Email already registered."}, status_code=409)
+                return JSONResponse({"error": "Could not generate a unique username."}, status_code=409)
             conn.commit()
         finally:
             conn.close()
@@ -7478,6 +7501,7 @@ async def api_user_register(body: _UserRegisterRequest):
         "name":      name,
         "email":     email,
         "role":      role,
+        "username":  username,
         "created_at": created_at,
     }, status_code=201)
 
@@ -9866,9 +9890,10 @@ _DEMO_PROPERTIES_SEED = [
         "address": "12 Oak Street, London E1",
         "lat": 51.522, "lng": -0.074,
         "images_json": '["https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800","https://images.unsplash.com/photo-1484154218962-a197022b5858?w=800"]',
-        "status": "empty",
+        "status": "active",
         "property_type": "rentals",
         "available_date": None,
+        "occupancy_status": "empty",
         "agent_ids": ["agent-1", "agent-3"],
     },
     {
@@ -9879,9 +9904,10 @@ _DEMO_PROPERTIES_SEED = [
         "address": "8 Maple Avenue, London N1",
         "lat": 51.533, "lng": -0.103,
         "images_json": '["https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=800","https://images.unsplash.com/photo-1570129477492-45c003edd2be?w=800"]',
-        "status": "occupied",
+        "status": "active",
         "property_type": "sale",
         "available_date": None,
+        "occupancy_status": "occupied",
         "agent_ids": ["agent-2", "agent-5"],
     },
     {
@@ -9892,9 +9918,10 @@ _DEMO_PROPERTIES_SEED = [
         "address": "34 Harbour Way, London E14",
         "lat": 51.503, "lng": -0.017,
         "images_json": '["https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=800","https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=800"]',
-        "status": "empty",
+        "status": "active",
         "property_type": "short_stay",
         "available_date": None,
+        "occupancy_status": "empty",
         "agent_ids": ["agent-7"],
     },
     {
@@ -9905,9 +9932,10 @@ _DEMO_PROPERTIES_SEED = [
         "address": "5 Elm Close, Richmond TW10",
         "lat": 51.461, "lng": -0.301,
         "images_json": '["https://images.unsplash.com/photo-1613977257363-707ba9348227?w=800","https://images.unsplash.com/photo-1512917774080-9991f1c4c750?w=800"]',
-        "status": "soon_empty",
+        "status": "active",
         "property_type": "sale",
         "available_date": "2026-06-01",
+        "occupancy_status": "soon_empty",
         "agent_ids": ["agent-8", "agent-6", "agent-1"],
     },
     {
@@ -9918,9 +9946,10 @@ _DEMO_PROPERTIES_SEED = [
         "address": "21 Birch Lane, London SW4",
         "lat": 51.461, "lng": -0.138,
         "images_json": '["https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800","https://images.unsplash.com/photo-1505691938895-1758d7feb511?w=800"]',
-        "status": "occupied",
+        "status": "rented",
         "property_type": "rentals",
         "available_date": None,
+        "occupancy_status": "occupied",
         "agent_ids": ["agent-4", "agent-2"],
     },
     {
@@ -9931,9 +9960,10 @@ _DEMO_PROPERTIES_SEED = [
         "address": "9 Cedar Court, London E20",
         "lat": 51.541, "lng": -0.002,
         "images_json": '["https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=800","https://images.unsplash.com/photo-1554995207-c18c203602cb?w=800"]',
-        "status": "soon_empty",
+        "status": "active",
         "property_type": "short_stay",
         "available_date": "2026-07-15",
+        "occupancy_status": "soon_empty",
         "agent_ids": ["agent-3", "agent-8"],
     },
 ]
@@ -9953,13 +9983,13 @@ def _seed_properties_if_empty():
                     try:
                         if USE_POSTGRES:
                             conn.cursor().execute(
-                                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "rentals"), None, now, p.get("available_date")),
+                                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date,occupancy_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "rentals"), None, now, p.get("available_date"), p.get("occupancy_status")),
                             )
                         else:
                             conn.execute(
-                                "INSERT OR IGNORE INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "rentals"), None, now, p.get("available_date")),
+                                "INSERT OR IGNORE INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date,occupancy_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                (p["property_id"], p["title"], p["description"], p["price"], p["address"], p["lat"], p["lng"], p["images_json"], p["status"], p.get("property_type", "rentals"), None, now, p.get("available_date"), p.get("occupancy_status")),
                             )
                         for pos, agent_id in enumerate(p.get("agent_ids", [])):
                             try:
@@ -10007,12 +10037,12 @@ def _get_property_row(property_id: str, with_agents: bool = False) -> dict | Non
         try:
             cur = _execute(
                 conn,
-                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date FROM properties WHERE property_id=?"
+                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date,occupancy_status FROM properties WHERE property_id=?"
                 if not USE_POSTGRES else
-                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date FROM properties WHERE property_id=%s",
+                "SELECT property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date,occupancy_status FROM properties WHERE property_id=%s",
                 (property_id,),
             )
-            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date"]
+            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date","occupancy_status"]
             row = cur.fetchone()
             if not row:
                 return None
@@ -10040,9 +10070,10 @@ class _PropertyCreateRequest(BaseModel):
     lng: float | None = None
     images: list[str] = []
     agent_ids: list[str] = []
-    status: str = "empty"
+    status: str = "active"
     property_type: str = "rentals"
     available_date: str | None = None
+    occupancy_status: str | None = None
 
 
 class _PropertyUpdateRequest(BaseModel):
@@ -10057,6 +10088,7 @@ class _PropertyUpdateRequest(BaseModel):
     status: str | None = None
     property_type: str | None = None
     available_date: str | None = None
+    occupancy_status: str | None = None
 
 
 @fastapi_app.get("/api/properties")
@@ -10095,7 +10127,7 @@ async def api_list_properties(
                 parts.append(f"lng<={ph}")
                 params.append(max_lng)
             where = (" WHERE " + " AND ".join(parts)) if parts else ""
-            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date"]
+            cols = ["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date","occupancy_status"]
             cur = _execute(conn, f"SELECT {','.join(cols)} FROM properties{where} ORDER BY created_at DESC", params)
             rows = cur.fetchall()
         finally:
@@ -10103,7 +10135,7 @@ async def api_list_properties(
 
     properties = []
     for row in rows:
-        p = dict(zip(["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date"], row))
+        p = dict(zip(["property_id","title","description","price","address","lat","lng","images_json","status","property_type","owner_user_id","created_at","available_date","occupancy_status"], row))
         try:
             p["images"] = json.loads(p["images_json"] or "[]")
         except Exception:
@@ -10253,16 +10285,17 @@ async def api_create_property(request: Request, body: _PropertyCreateRequest):
     now = datetime.now(timezone.utc).isoformat()
     images_json = json.dumps(body.images[:20])
     available_date = body.available_date.strip() if body.available_date else None
+    occupancy_status = body.occupancy_status.strip() if body.occupancy_status else None
 
     with _db_lock:
         conn = _get_db()
         try:
             _execute(
                 conn,
-                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)"
+                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date,occupancy_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)"
                 if not USE_POSTGRES else
-                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                (property_id, title, body.description.strip(), body.price, body.address.strip(), body.lat, body.lng, images_json, body.status, prop_type, user_id, now, available_date),
+                "INSERT INTO properties (property_id,title,description,price,address,lat,lng,images_json,status,property_type,owner_user_id,created_at,available_date,occupancy_status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (property_id, title, body.description.strip(), body.price, body.address.strip(), body.lat, body.lng, images_json, body.status, prop_type, user_id, now, available_date, occupancy_status),
             )
             for pos, agent_id in enumerate(agent_ids):
                 try:
@@ -10306,16 +10339,17 @@ async def api_update_property(request: Request, property_id: str, body: _Propert
         return JSONResponse({"error": f"Invalid property type."}, status_code=400)
 
     updates: dict = {}
-    if body.title         is not None: updates["title"]         = body.title.strip()[:200]
-    if body.description   is not None: updates["description"]   = body.description.strip()
-    if body.price         is not None: updates["price"]         = body.price
-    if body.address       is not None: updates["address"]       = body.address.strip()
-    if body.lat           is not None: updates["lat"]           = body.lat
-    if body.lng           is not None: updates["lng"]           = body.lng
-    if body.status        is not None: updates["status"]        = body.status
-    if body.property_type is not None: updates["property_type"] = body.property_type
-    if body.images        is not None: updates["images_json"]   = json.dumps(body.images[:20])
-    if body.available_date is not None: updates["available_date"] = body.available_date.strip() or None
+    if body.title            is not None: updates["title"]            = body.title.strip()[:200]
+    if body.description      is not None: updates["description"]      = body.description.strip()
+    if body.price            is not None: updates["price"]            = body.price
+    if body.address          is not None: updates["address"]          = body.address.strip()
+    if body.lat              is not None: updates["lat"]              = body.lat
+    if body.lng              is not None: updates["lng"]              = body.lng
+    if body.status           is not None: updates["status"]           = body.status
+    if body.property_type    is not None: updates["property_type"]    = body.property_type
+    if body.images           is not None: updates["images_json"]      = json.dumps(body.images[:20])
+    if body.available_date   is not None: updates["available_date"]   = body.available_date.strip() or None
+    if body.occupancy_status is not None: updates["occupancy_status"] = body.occupancy_status.strip() or None
 
     if updates:
         ph = "%s" if USE_POSTGRES else "?"
@@ -10844,17 +10878,23 @@ async def api_dm_list_conversations(request: Request, search: str | None = None)
             last_msg = dict(zip(["msg_id","sender_id","content","status","reply_to_id","ts"], lm))
 
         other_name = other["name"] if other else other_id
+        other_username = (other.get("username") or other_name) if other else other_id
 
-        # Apply search filter: match participant name or last message content
+        # Apply search filter: match participant name/username or last message content
         if search_lower:
-            name_match = search_lower in other_name.lower()
+            name_match = search_lower in other_name.lower() or search_lower in other_username.lower()
             msg_match  = last_msg and search_lower in (last_msg.get("content") or "").lower()
             if not name_match and not msg_match:
                 continue
 
+        # Augment last_message with sender username for preview display
+        if last_msg:
+            sender = _get_app_user(last_msg["sender_id"])
+            last_msg["sender_username"] = (sender.get("username") or sender.get("name") or last_msg["sender_id"]) if sender else last_msg["sender_id"]
+
         conversations.append({
             "conv_id":      conv["conv_id"],
-            "other_user":   {"user_id": other_id, "name": other_name, "online_status": "offline"},
+            "other_user":   {"user_id": other_id, "name": other_name, "username": other_username, "online_status": "offline"},
             "unread_count": unread,
             "last_message": last_msg,
             "created_at":   conv["created_at"],
@@ -10914,6 +10954,7 @@ async def api_dm_contacts(request: Request):
         contacts.append({
             "user_id":      other_id,
             "name":         other["name"] if other else other_id,
+            "username":     (other.get("username") or other["name"]) if other else other_id,
             "conv_id":      conv_id,
             "last_message_ts": last_ts,
         })
@@ -11128,7 +11169,7 @@ async def api_list_users(request: Request):
 
 @fastapi_app.get("/api/users/search")
 async def api_search_users(request: Request, q: str = ""):
-    """Search users by name for DM autocomplete. Returns up to 15 matches."""
+    """Search users by username or name for DM autocomplete. Returns up to 15 matches."""
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
@@ -11141,15 +11182,15 @@ async def api_search_users(request: Request, q: str = ""):
         try:
             cur = _execute(
                 conn,
-                "SELECT user_id, name FROM app_users WHERE user_id!=? AND name LIKE ? ORDER BY name ASC LIMIT 15"
+                "SELECT user_id, name, username FROM app_users WHERE user_id!=? AND (username LIKE ? OR name LIKE ?) ORDER BY name ASC LIMIT 15"
                 if not USE_POSTGRES else
-                "SELECT user_id, name FROM app_users WHERE user_id!=%s AND name ILIKE %s ORDER BY name ASC LIMIT 15",
-                (user_id, pattern),
+                "SELECT user_id, name, username FROM app_users WHERE user_id!=%s AND (username ILIKE %s OR name ILIKE %s) ORDER BY name ASC LIMIT 15",
+                (user_id, pattern, pattern),
             )
             rows = cur.fetchall()
         finally:
             conn.close()
-    users = [{"user_id": r[0], "name": r[1]} for r in rows]
+    users = [{"user_id": r[0], "name": r[1], "username": r[2] or r[1]} for r in rows]
     return JSONResponse({"users": users})
 
 

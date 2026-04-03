@@ -292,7 +292,12 @@ export default function DMInbox({ currentUser }) {
                   <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
                     {u.name.charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-sm text-white flex-1">{u.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm text-white block truncate">{u.name}</span>
+                    {u.username && u.username !== u.name && (
+                      <span className="text-xs text-gray-400 block truncate">@{u.username}</span>
+                    )}
+                  </div>
                   <span className="text-xs text-gray-500">💬</span>
                 </button>
               ))}
@@ -324,9 +329,11 @@ export default function DMInbox({ currentUser }) {
           {filteredConversations.map((conv) => {
             const isQR = quickReply?.conv_id === conv.conv_id
             const lastMsg = conv.last_message
-            const senderName = lastMsg?.sender_id === myId ? 'You' : (conv.other_user?.name || 'User')
+            const senderUsername = lastMsg?.sender_id === myId
+              ? 'You'
+              : (lastMsg?.sender_username || conv.other_user?.username || conv.other_user?.name || 'User')
             const preview = lastMsg
-              ? `${senderName}: ${lastMsg.content || '…'}`
+              ? `${senderUsername}: ${lastMsg.content || '…'}`
               : 'No messages yet'
             const lastTs = lastMsg?.ts
 
@@ -355,6 +362,9 @@ export default function DMInbox({ currentUser }) {
                       <p className="text-sm font-semibold text-white truncate">
                         {conv.other_user?.name || 'User'}
                       </p>
+                      {conv.other_user?.username && conv.other_user.username !== conv.other_user.name && (
+                        <span className="text-xs text-gray-500 truncate">@{conv.other_user.username}</span>
+                      )}
                       {conv.unread_count > 0 && (
                         <span className="bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full shrink-0">
                           {conv.unread_count}
