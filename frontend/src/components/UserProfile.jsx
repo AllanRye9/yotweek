@@ -46,7 +46,13 @@ function AvatarUpload({ user, onAvatarChange }) {
     }
   }
 
-  const roleIcon = user?.role === 'driver' ? '🚗' : '🧍'
+  const DefaultAvatar = () => (
+    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+      <circle cx="20" cy="20" r="20" fill="#1e3a5f"/>
+      <circle cx="20" cy="15" r="7" fill="#60a5fa"/>
+      <ellipse cx="20" cy="34" rx="12" ry="8" fill="#60a5fa"/>
+    </svg>
+  )
 
   return (
     <div className="relative w-16 h-16 shrink-0">
@@ -58,7 +64,7 @@ function AvatarUpload({ user, onAvatarChange }) {
         {preview ? (
           <img src={preview} alt="avatar" className="w-full h-full object-cover" />
         ) : (
-          <span className="text-3xl">{roleIcon}</span>
+          <DefaultAvatar />
         )}
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-full">
@@ -67,11 +73,11 @@ function AvatarUpload({ user, onAvatarChange }) {
         )}
       </div>
       <button
-        className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-blue-600 border border-gray-800 flex items-center justify-center text-white text-xs hover:bg-blue-500 transition-colors"
+        className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-blue-600 border border-gray-800 flex items-center justify-center text-white text-xs hover:bg-blue-500 transition-colors shadow-lg"
         onClick={() => inputRef.current?.click()}
-        title="Upload avatar"
+        title="Upload avatar photo"
       >
-        +
+        📷
       </button>
       <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
       {error && <p className="absolute top-full mt-1 text-red-400 text-xs whitespace-nowrap">{error}</p>}

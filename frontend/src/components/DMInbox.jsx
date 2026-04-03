@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import socket from '../socket'
 import {
   dmListConversations, dmStartConversation, dmSendMessage, dmGetContacts, dmDeleteConversation,
-  searchUsers,
+  searchUsers, getRideChatInbox,
 } from '../api'
 import DMChat from './DMChat'
 import { playMessageChime } from '../sounds'
@@ -25,8 +26,13 @@ import { playMessageChime } from '../sounds'
  *  currentUser - logged-in user object { user_id, name }
  */
 
+const CLICK_ANIMATION_DURATION = 200
+
 export default function DMInbox({ currentUser }) {
+  const navigate = useNavigate()
   const [conversations,  setConversations]  = useState([])
+  const [rideChats,      setRideChats]      = useState([])
+  const [rideChatsLoading, setRideChatsLoading] = useState(true)
   const [loading,        setLoading]        = useState(true)
   const [activeConv,     setActiveConv]     = useState(null)   // open full chat
   const [quickReply,     setQuickReply]     = useState(null)   // conv open for quick-reply
@@ -39,10 +45,29 @@ export default function DMInbox({ currentUser }) {
   const [searchLoading,  setSearchLoading]  = useState(false)
   const [convSearch,     setConvSearch]      = useState('')
   const [totalUnread,    setTotalUnread]     = useState(0)
+  const [clickedConv,    setClickedConv]    = useState(null)  // for click animation
   const prevUnreadRef    = useRef(0)
   const searchTimerRef   = useRef(null)
 
   const myId = currentUser?.user_id
+
+  // ── Load ride chat conversations ──────────────────────────────────────────
+
+  const loadRideChats = useCallback(async () => {
+    try {
+      const data = await getRideChatInbox()
+      setRideChats(data.conversations || [])
+    } catch {
+      // ignore
+    } finally {
+      setRideChatsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!myId) return
+    loadRideChats()
+  }, [myId, loadRideChats])
 
   // ── Load conversations ────────────────────────────────────────────────────
 
@@ -75,14 +100,20 @@ export default function DMInbox({ currentUser }) {
   useEffect(() => {
     if (!myId) return
 
-    const onNotif = (data) => {
-      // Reload conversations to get updated preview + unread count
+    const onNotif = () => {
       loadConversations()
+    }
+    const onRideNotif = () => {
+      loadRideChats()
     }
 
     socket.on('dm_notification', onNotif)
-    return () => socket.off('dm_notification', onNotif)
-  }, [myId, loadConversations])
+    socket.on('ride_chat_notification', onRideNotif)
+    return () => {
+      socket.off('dm_notification', onNotif)
+      socket.off('ride_chat_notification', onRideNotif)
+    }
+  }, [myId, loadConversations, loadRideChats])
 
   // ── Start new conversation ────────────────────────────────────────────────
 
@@ -306,6 +337,54 @@ export default function DMInbox({ currentUser }) {
         </div>
       )}
 
+      {/* ── Ride Share Conversations (shown first) ── */}
+      {!rideChatsLoading && rideChats.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide flex items-center gap-1">
+            🚗 Ride Share Messages
+          </p>
+          {rideChats.map((conv, i) => (
+            <div
+              key={conv.msg_id || i}
+              className="flex items-start gap-3 rounded-xl px-3 py-2.5 bg-amber-900/10 border border-amber-700/30 hover:bg-amber-900/20 transition-all cursor-pointer"
+              style={{
+                transform: clickedConv === `ride-${i}` ? 'scale(0.97)' : '',
+                transition: `transform ${CLICK_ANIMATION_DURATION}ms ease, background 0.2s`,
+              }}
+              onClick={() => {
+                setClickedConv(`ride-${i}`)
+                setTimeout(() => setClickedConv(null), CLICK_ANIMATION_DURATION)
+                navigate('/rides')
+              }}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => e.key === 'Enter' && navigate('/rides')}
+              aria-label={`Ride chat: ${conv.ride_info?.origin || 'Ride'} to ${conv.ride_info?.destination || '…'}`}
+            >
+              <div className="w-9 h-9 rounded-full bg-amber-800 flex items-center justify-center text-sm font-bold text-amber-200 shrink-0">🚗</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <p className="text-xs font-semibold text-amber-200 truncate">
+                    {conv.ride_info?.origin || 'Ride'} → {conv.ride_info?.destination || '…'}
+                  </p>
+                  <span className="text-xs text-gray-500 shrink-0">
+                    {conv.ts ? new Date(conv.ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-300 truncate">
+                  {conv.is_mine ? 'You: ' : `${conv.sender_name || 'Driver'}: `}{conv.text || '[message]'}
+                </p>
+              </div>
+            </div>
+          ))}
+          <div className="border-t border-gray-700/50 pt-2">
+            <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide flex items-center gap-1">
+              💬 Direct Messages
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Conversations list */}
       {loading ? (
         <div className="text-center py-8">
@@ -341,11 +420,18 @@ export default function DMInbox({ currentUser }) {
               <div
                 key={conv.conv_id}
                 className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden hover:bg-gray-800/80 transition-colors"
+                style={{
+                  transform: clickedConv === conv.conv_id ? 'scale(0.98)' : '',
+                  transition: `transform ${CLICK_ANIMATION_DURATION}ms ease, background 0.2s`,
+                }}
               >
                 {/* Clicking the main row opens full chat */}
                 <div
                   className="flex items-center gap-3 px-4 py-3 cursor-pointer"
-                  onClick={() => setActiveConv(conv)}
+                  onClick={() => {
+                    setClickedConv(conv.conv_id)
+                    setTimeout(() => { setClickedConv(null); setActiveConv(conv) }, CLICK_ANIMATION_DURATION)
+                  }}
                   role="button"
                   tabIndex={0}
                   onKeyDown={e => e.key === 'Enter' && setActiveConv(conv)}

@@ -296,7 +296,7 @@ const SERVICE_CARDS = [
 ]
 
 /** Three animated service cards with glowing borders that randomly interchange. */
-function ServiceCards({ activeTab, onSelectTab }) {
+function ServiceCards({ activeTab, onSelectTab, onNavigateRides }) {
   const [order, setOrder] = useState([0, 1, 2])
   const cardRefs = useRef({})
   const positionsRef = useRef({})
@@ -376,7 +376,7 @@ function ServiceCards({ activeTab, onSelectTab }) {
             role="tab"
             aria-selected={isActive}
             className={'service-card' + (isActive ? ' service-card-active' : '')}
-            onClick={() => onSelectTab(c.id)}
+            onClick={() => { if (c.id === 'rides') { onNavigateRides?.() } else { onSelectTab(c.id) } }}
           >
             <span className="service-card-icon" aria-hidden="true">{c.icon}</span>
             <div className="service-card-title">{c.title}</div>
@@ -526,7 +526,11 @@ export default function Home() {
                   {appUser.avatar_url ? (
                     <img src={appUser.avatar_url} alt="" className="w-full h-full rounded-full object-cover" />
                   ) : (
-                    <span>{appUser.role === 'driver' ? '🚗' : '🧍'}</span>
+                    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full rounded-full">
+                      <circle cx="20" cy="20" r="20" fill="#1e3a5f"/>
+                      <circle cx="20" cy="15" r="7" fill="#60a5fa"/>
+                      <ellipse cx="20" cy="34" rx="12" ry="8" fill="#60a5fa"/>
+                    </svg>
                   )}
                 </button>
               ) : (
@@ -618,7 +622,7 @@ export default function Home() {
       {/* ── Main Content ── */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-[15px] sm:pt-[19px] pb-20 sm:pb-8">
         {/* Animated service cards — glowing borders, random interchange */}
-        <ServiceCards activeTab={tab} onSelectTab={handleSelectTab} />
+        <ServiceCards activeTab={tab} onSelectTab={handleSelectTab} onNavigateRides={() => navigate('/rides')} />
 
         {/* Ride Share & Driver Alerts — dedicated page link */}
         <div className="mt-2 flex justify-center gap-3 flex-wrap">

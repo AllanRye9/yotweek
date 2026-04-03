@@ -4,7 +4,6 @@ import { getUserProfile, userLogout, uploadAvatar } from '../api'
 import UserProfile from '../components/UserProfile'
 import UserAuth from '../components/UserAuth'
 import ThemeSelector from '../components/ThemeSelector'
-import AgentRegistration from '../components/AgentRegistration'
 import { useAuth } from '../App'
 
 /**
@@ -129,21 +128,25 @@ export default function ProfilePage() {
               <div className="profile-avatar-ring relative shrink-0">
                 <div className="profile-avatar-ring-pulse absolute inset-0 rounded-full" />
                 <div
-                  className="w-20 h-20 rounded-full overflow-hidden border-3 border-blue-500 bg-blue-900 flex items-center justify-center text-4xl z-10 relative cursor-pointer hover:opacity-80 transition-opacity"
+                  className="w-20 h-20 rounded-full overflow-hidden border-3 border-blue-500 bg-blue-900 flex items-center justify-center z-10 relative cursor-pointer hover:opacity-80 transition-opacity"
                   title="Click to change avatar"
                   onClick={() => document.getElementById('hero-avatar-input')?.click()}
                 >
                   {appUser.avatar_url ? (
                     <img src={appUser.avatar_url} alt="avatar" className="w-full h-full object-cover" />
                   ) : (
-                    <span>{appUser.role === 'driver' ? '🚗' : '🧍'}</span>
+                    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                      <circle cx="20" cy="20" r="20" fill="#1e3a5f"/>
+                      <circle cx="20" cy="15" r="7" fill="#60a5fa"/>
+                      <ellipse cx="20" cy="34" rx="12" ry="8" fill="#60a5fa"/>
+                    </svg>
                   )}
                 </div>
                 <button
-                  className="absolute -bottom-1 -right-1 w-6 h-6 rounded-full bg-blue-600 border border-gray-900 flex items-center justify-center text-white text-xs hover:bg-blue-500 z-20"
-                  title="Upload avatar"
+                  className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-blue-600 border border-gray-900 flex items-center justify-center text-white text-xs hover:bg-blue-500 z-20 shadow-lg"
+                  title="Upload avatar photo"
                   onClick={() => document.getElementById('hero-avatar-input')?.click()}
-                >+</button>
+                >📷</button>
                 <input
                   id="hero-avatar-input"
                   type="file"
@@ -237,28 +240,6 @@ export default function ProfilePage() {
             />
           </div>
 
-          {/* ── Agent / Property Registration ── */}
-          <div
-            style={{
-              opacity: statsVisible ? 1 : 0,
-              transform: statsVisible ? 'translateY(0)' : 'translateY(20px)',
-              transition: 'opacity 0.5s ease 0.4s, transform 0.5s ease 0.4s',
-            }}
-          >
-            <div className="rounded-2xl border border-gray-700/60 overflow-hidden" style={{ background: 'var(--bg-surface)' }}>
-              <div className="px-5 py-4 border-b border-gray-700/60 flex items-center gap-3">
-                <span className="text-xl">🏢</span>
-                <div>
-                  <h2 className="text-base font-bold text-white">Property Agent Registration</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Apply to become a verified agent and post property listings.</p>
-                </div>
-              </div>
-              <div className="p-5">
-                <AgentRegistration />
-              </div>
-            </div>
-          </div>
-
           {/* ── Quick links ── */}
           <div
             className="grid grid-cols-2 gap-3"
@@ -270,7 +251,7 @@ export default function ProfilePage() {
             {[
               { to: '/rides',      icon: '✈️', label: 'Airport Rides',  desc: 'View & book rides' },
               { to: '/dashboard',  icon: '📊', label: 'Dashboard',      desc: 'Full control panel' },
-              { to: '/properties', icon: '🏢', label: 'Properties',     desc: 'Browse listings'   },
+              { to: '/tourist-sites', icon: '🗺️', label: 'Tourist Sites', desc: 'Explore attractions' },
               { to: '/',           icon: '🏠', label: 'Home',           desc: 'Back to main page'  },
             ].map(link => (
               <Link

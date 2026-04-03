@@ -29,19 +29,45 @@ const CATEGORIES = [
 
 // Fallback attractions for when API / location is unavailable
 const FALLBACK_ATTRACTIONS = [
-  { id: 'f1', name: 'The Colosseum', category: 'historic', country: 'Italy', description: 'Ancient Roman amphitheatre and iconic historic site.', emoji: '🏛', wiki: 'Colosseum' },
-  { id: 'f2', name: 'Eiffel Tower', category: 'viewpoint', country: 'France', description: 'Iron lattice tower on the Champ de Mars in Paris.', emoji: '🗼', wiki: 'Eiffel_Tower' },
-  { id: 'f3', name: 'Serengeti National Park', category: 'park', country: 'Tanzania', description: 'Vast plains famous for the annual wildebeest migration.', emoji: '🦁', wiki: 'Serengeti_National_Park' },
-  { id: 'f4', name: 'Great Wall of China', category: 'historic', country: 'China', description: 'Ancient fortification stretching thousands of kilometers.', emoji: '🏯', wiki: 'Great_Wall_of_China' },
-  { id: 'f5', name: 'Machu Picchu', category: 'historic', country: 'Peru', description: 'Inca citadel set high in the Andes Mountains.', emoji: '🏔', wiki: 'Machu_Picchu' },
-  { id: 'f6', name: 'Louvre Museum', category: 'museum', country: 'France', description: "World's largest art museum and home of the Mona Lisa.", emoji: '🎨', wiki: 'Louvre' },
-  { id: 'f7', name: 'Angkor Wat', category: 'religious', country: 'Cambodia', description: 'Largest religious monument in the world.', emoji: '🕌', wiki: 'Angkor_Wat' },
-  { id: 'f8', name: 'Sydney Opera House', category: 'entertainment', country: 'Australia', description: 'Multi-venue performing arts centre and global icon.', emoji: '🎭', wiki: 'Sydney_Opera_House' },
-  { id: 'f9', name: 'Table Mountain', category: 'viewpoint', country: 'South Africa', description: 'Flat-topped mountain with panoramic views of Cape Town.', emoji: '🔭', wiki: 'Table_Mountain' },
-  { id: 'f10', name: 'Petra', category: 'historic', country: 'Jordan', description: 'Archaeological city famous for rock-cut architecture.', emoji: '🏺', wiki: 'Petra' },
-  { id: 'f11', name: 'Galápagos Islands', category: 'park', country: 'Ecuador', description: 'Volcanic islands home to extraordinary wildlife diversity.', emoji: '🐢', wiki: 'Galápagos_Islands' },
-  { id: 'f12', name: 'Hagia Sophia', category: 'religious', country: 'Turkey', description: 'Former cathedral and mosque, now a historic museum.', emoji: '🕌', wiki: 'Hagia_Sophia' },
+  { id: 'f1',  name: 'The Colosseum',          category: 'historic',      country: 'Italy',        description: 'Ancient Roman amphitheatre and iconic historic site.',        emoji: '🏛', wiki: 'Colosseum',                img: 'https://picsum.photos/seed/colosseum/400/200' },
+  { id: 'f2',  name: 'Eiffel Tower',            category: 'viewpoint',     country: 'France',       description: 'Iron lattice tower on the Champ de Mars in Paris.',           emoji: '🗼', wiki: 'Eiffel_Tower',              img: 'https://picsum.photos/seed/eiffel/400/200'    },
+  { id: 'f3',  name: 'Serengeti National Park', category: 'park',          country: 'Tanzania',     description: 'Vast plains famous for the annual wildebeest migration.',      emoji: '🦁', wiki: 'Serengeti_National_Park',   img: 'https://picsum.photos/seed/serengeti/400/200' },
+  { id: 'f4',  name: 'Great Wall of China',     category: 'historic',      country: 'China',        description: 'Ancient fortification stretching thousands of kilometers.',    emoji: '🏯', wiki: 'Great_Wall_of_China',       img: 'https://picsum.photos/seed/greatwall/400/200' },
+  { id: 'f5',  name: 'Machu Picchu',            category: 'historic',      country: 'Peru',         description: 'Inca citadel set high in the Andes Mountains.',               emoji: '🏔', wiki: 'Machu_Picchu',              img: 'https://picsum.photos/seed/machu/400/200'     },
+  { id: 'f6',  name: 'Louvre Museum',           category: 'museum',        country: 'France',       description: "World's largest art museum and home of the Mona Lisa.",      emoji: '🎨', wiki: 'Louvre',                    img: 'https://picsum.photos/seed/louvre/400/200'    },
+  { id: 'f7',  name: 'Angkor Wat',              category: 'religious',     country: 'Cambodia',     description: 'Largest religious monument in the world.',                    emoji: '🕌', wiki: 'Angkor_Wat',                img: 'https://picsum.photos/seed/angkor/400/200'    },
+  { id: 'f8',  name: 'Sydney Opera House',      category: 'entertainment', country: 'Australia',    description: 'Multi-venue performing arts centre and global icon.',          emoji: '🎭', wiki: 'Sydney_Opera_House',        img: 'https://picsum.photos/seed/sydney/400/200'    },
+  { id: 'f9',  name: 'Table Mountain',          category: 'viewpoint',     country: 'South Africa', description: 'Flat-topped mountain with panoramic views of Cape Town.',      emoji: '🔭', wiki: 'Table_Mountain',            img: 'https://picsum.photos/seed/tablemtn/400/200'  },
+  { id: 'f10', name: 'Petra',                   category: 'historic',      country: 'Jordan',       description: 'Archaeological city famous for rock-cut architecture.',       emoji: '🏺', wiki: 'Petra',                     img: 'https://picsum.photos/seed/petra/400/200'     },
+  { id: 'f11', name: 'Galápagos Islands',       category: 'park',          country: 'Ecuador',      description: 'Volcanic islands home to extraordinary wildlife diversity.',   emoji: '🐢', wiki: 'Galápagos_Islands',         img: 'https://picsum.photos/seed/galapagos/400/200' },
+  { id: 'f12', name: 'Hagia Sophia',            category: 'religious',     country: 'Turkey',       description: 'Former cathedral and mosque, now a historic museum.',         emoji: '🕌', wiki: 'Hagia_Sophia',              img: 'https://picsum.photos/seed/hagiasophia/400/200' },
 ]
+
+// ─── Category image by type ────────────────────────────────────────────────────
+
+const CATEGORY_IMAGES = {
+  museum:        'https://picsum.photos/seed/museum42/400/200',
+  park:          'https://picsum.photos/seed/park77/400/200',
+  historic:      'https://picsum.photos/seed/ruins33/400/200',
+  religious:     'https://picsum.photos/seed/church88/400/200',
+  viewpoint:     'https://picsum.photos/seed/view55/400/200',
+  entertainment: 'https://picsum.photos/seed/entertain19/400/200',
+  default:       'https://picsum.photos/seed/tourist01/400/200',
+}
+
+function _categoryFromTags(tags = {}) {
+  const t = tags.tourism || ''
+  const h = tags.historic || ''
+  const l = tags.leisure || ''
+  const a = tags.amenity || ''
+  if (t === 'museum' || t === 'gallery' || t === 'artwork') return 'museum'
+  if (t === 'castle' || t === 'ruins' || t === 'monument' || h) return 'historic'
+  if (t === 'viewpoint' || t === 'attraction') return 'viewpoint'
+  if (t === 'zoo' || t === 'aquarium' || t === 'theme_park' || l === 'stadium') return 'entertainment'
+  if (l === 'park' || l === 'nature_reserve') return 'park'
+  if (a === 'place_of_worship') return 'religious'
+  return 'default'
+}
 
 // ─── Haversine distance ────────────────────────────────────────────────────────
 
@@ -105,6 +131,7 @@ out body 80;
       lng: el.lon,
       tags: el.tags,
       emoji: _tourismEmoji(el.tags),
+      category: _categoryFromTags(el.tags),
       description: el.tags.description || el.tags['description:en'] || el.tags.wikipedia?.replace(/_/g, ' ') || '',
       wikidata: el.tags.wikidata,
       wikipedia: el.tags.wikipedia,
@@ -132,6 +159,9 @@ function AttractionCard({ attraction, userLat, userLng }) {
     ? `https://en.wikipedia.org/wiki/${attraction.wiki}`
     : null
 
+  const imgSrc = attraction.img || CATEGORY_IMAGES[attraction.category] || CATEGORY_IMAGES.default
+  const [imgErr, setImgErr] = useState(false)
+
   return (
     <div style={{
       background: 'var(--bg-card)',
@@ -149,18 +179,38 @@ function AttractionCard({ attraction, userLat, userLng }) {
       {/* Hero banner */}
       <div style={{
         height: 130,
-        background: 'linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-input) 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontSize: '4rem',
         position: 'relative',
         flexShrink: 0,
+        overflow: 'hidden',
+        background: 'linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-input) 100%)',
       }}>
-        {attraction.emoji}
+        {!imgErr ? (
+          <img
+            src={imgSrc}
+            alt={attraction.name}
+            onError={() => setImgErr(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+        ) : (
+          <div style={{
+            width: '100%', height: '100%',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: '4rem',
+          }}>
+            {attraction.emoji}
+          </div>
+        )}
+        {/* Emoji badge overlay */}
+        <div style={{
+          position: 'absolute', bottom: 8, left: 10,
+          background: 'rgba(0,0,0,0.55)', borderRadius: 9999,
+          padding: '2px 8px', fontSize: '1.1rem',
+        }}>
+          {attraction.emoji}
+        </div>
         {distKm != null && (
           <span style={{
-            position: 'absolute', top: 10, right: 10,
+            position: 'absolute', top: 8, right: 8,
             background: distKm < 5 ? '#14532d' : 'rgba(0,0,0,0.6)',
             color: distKm < 5 ? '#86efac' : '#d1d5db',
             border: `1px solid ${distKm < 5 ? '#16a34a' : 'transparent'}`,
@@ -171,7 +221,7 @@ function AttractionCard({ attraction, userLat, userLng }) {
         )}
         {attraction.country && !attraction.lat && (
           <span style={{
-            position: 'absolute', top: 10, right: 10,
+            position: 'absolute', top: 8, right: 8,
             background: 'rgba(0,0,0,0.6)', color: '#d1d5db',
             borderRadius: 9999, padding: '3px 10px', fontSize: '0.72rem',
           }}>
