@@ -346,7 +346,7 @@ export default function DMInbox({ currentUser }) {
           {rideChats.map((conv, i) => (
             <div
               key={conv.msg_id || i}
-              className="flex items-start gap-3 rounded-xl px-3 py-2.5 bg-amber-900/10 border border-amber-700/30 hover:bg-amber-900/20 transition-all cursor-pointer active:scale-[0.98]"
+              className="flex items-start gap-3 rounded-xl px-3 py-2.5 bg-amber-900/10 border border-amber-700/30 hover:bg-amber-900/20 transition-all cursor-pointer"
               style={{
                 transform: clickedConv === `ride-${i}` ? 'scale(0.97)' : '',
                 transition: `transform ${CLICK_ANIMATION_DURATION}ms ease, background 0.2s`,
