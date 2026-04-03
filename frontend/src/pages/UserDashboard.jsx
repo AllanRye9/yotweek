@@ -9,28 +9,24 @@ import DocConverter from '../components/DocConverter'
 import RideShare from '../components/RideShare'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
-import PropertyManager from '../components/PropertyManager'
 import DMInbox from '../components/DMInbox'
 import {
-  getUserProfile, userLogout, getStats, getNotifications,
+  getUserProfile, userLogout, getNotifications,
   markAllNotificationsRead, markNotificationRead, clearAllNotifications,
   getRideHistory, getRideChatInbox, listPropertyConversations,
   driverApply, getDriverApplication,
 } from '../api'
 import socket from '../socket'
-import AgentRegistration from '../components/AgentRegistration'
 
 // ─── Dashboard tabs ────────────────────────────────────────────────────────────
 
 const TABS = [
   { id: 'overview',    label: '🏠 Overview',          icon: '🏠' },
-  { id: 'properties',  label: '🏢 Properties',         icon: '🏢' },
-  { id: 'agents',      label: '🧑‍💼 Agents',            icon: '🧑‍💼' },
+  { id: 'tourist_sites', label: '🗺️ Tourist Sites',   icon: '🗺️' },
   { id: 'rides',       label: '🚗 Rides',              icon: '🚗' },
   { id: 'inbox',       label: '💬 Inbox',              icon: '💬', badge: 'chat' },
   { id: 'notifications', label: '🔔 Notifications',   icon: '🔔', badge: 'notif' },
   { id: 'history',     label: '📋 History',            icon: '📋' },
-  { id: 'stats',       label: '📊 Stats',              icon: '📊' },
   { id: 'driver_reg',  label: '🚕 Driver Reg.',         icon: '🚕' },
   { id: 'download',    label: '⬇ Download',            icon: '⬇' },
   { id: 'cv',          label: '📄 CV Builder',          icon: '📄' },
@@ -97,7 +93,7 @@ function OverviewPanel({ user, dashStats, onSelectTab, onNavigate }) {
             { icon: '📄', title: 'Build a CV',        desc: 'PDF with ATS scan',      action: () => onSelectTab('cv') },
             { icon: '🔄', title: 'Convert Docs',      desc: 'PDF, Word & more',       action: () => onSelectTab('convert') },
             { icon: '🚗', title: 'Share a Ride',       desc: 'Post or find rides',    action: () => onSelectTab('rides') },
-            { icon: '🏢', title: 'Properties',         desc: 'Map & agent finder',    action: () => onSelectTab('properties') },
+            { icon: '🗺️', title: 'Tourist Sites',     desc: 'Attractions near you',  action: () => onSelectTab('tourist_sites') },
             { icon: '✈️', title: 'Airport Pickup',    desc: 'Book a driver now',      action: () => onNavigate ? onNavigate('/rides') : onSelectTab('rides') },
           ].map(tile => (
             <button
@@ -164,7 +160,6 @@ export default function UserDashboard() {
   const [appUser,     setAppUser]     = useState(null)   // null=loading, false=not authed, object=authed
   const [userLoading, setUserLoading] = useState(true)
   const [tab,         setTab]         = useState('overview')
-  const [stats,       setStats]       = useState(null)
   const [dashStats,   setDashStats]   = useState(null)
   const [connected,   setConnected]   = useState(false)
   const [fileListVersion, setFileListVersion] = useState(0)
@@ -194,12 +189,7 @@ export default function UserDashboard() {
         // Fetch dashboard stats once we know the user
         return fetch('/api/user/dashboard', { credentials: 'include' })
           .then(r => r.ok ? r.json() : null)
-          .then(d => {
-            if (d) {
-              // Merge in global site stats
-              getStats().then(s => setDashStats({ ...d, site_stats: s })).catch(() => setDashStats(d))
-            }
-          })
+          .then(d => { if (d) setDashStats(d) })
           .catch(() => {})
       })
       .catch(() => {
@@ -231,14 +221,6 @@ export default function UserDashboard() {
       socket.off('ride_chat_notification', onChatNotif)
       socket.off('dm_notification',        onDmNotif)
     }
-  }, [])
-
-  // Poll global stats
-  useEffect(() => {
-    const fetchStats = () => getStats().then(setStats).catch(() => {})
-    fetchStats()
-    const id = setInterval(fetchStats, 30_000)
-    return () => clearInterval(id)
   }, [])
 
   // Poll unread notification count
@@ -338,16 +320,6 @@ export default function UserDashboard() {
           <span className="hidden sm:inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-blue-900/50 border border-blue-700/60 text-blue-300">
             Dashboard
           </span>
-
-          {/* Stats badges */}
-          <div className="hidden md:flex items-center gap-3 text-xs ml-2">
-            {stats && (
-              <>
-                <span className="badge-info">{stats.active_downloads ?? 0} active</span>
-                <span className="badge-gray">{stats.file_count ?? 0} files</span>
-              </>
-            )}
-          </div>
 
           <div className="flex-1" />
 
@@ -513,21 +485,24 @@ export default function UserDashboard() {
               <OverviewPanel user={appUser} dashStats={dashStats} onSelectTab={handleSelectTab} onNavigate={navigate} />
             )}
 
-            {tab === 'properties' && (
-              <div className="card">
-                <PropertyManager
-                  userLocation={appUser?.lat != null ? { lat: appUser.lat, lng: appUser.lng } : null}
-                />
-              </div>
-            )}
-
-            {tab === 'agents' && (
+            {tab === 'tourist_sites' && (
               <div className="card">
                 <div className="mb-4">
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🧑‍💼 Agents</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Register as a property agent or check your application status.</p>
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🗺️ Tourist Sites</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">Discover tourist attractions, landmarks and places of interest near you.</p>
                 </div>
-                <AgentRegistration />
+                <div className="flex flex-col items-center gap-4 py-4">
+                  <div className="text-5xl">🗺️</div>
+                  <p className="text-sm text-gray-400 text-center max-w-sm">
+                    Browse tourist attractions based on your current location — museums, parks, historic sites, viewpoints and more.
+                  </p>
+                  <a
+                    href="/tourist-sites"
+                    className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors"
+                  >
+                    🌐 Open Tourist Sites
+                  </a>
+                </div>
               </div>
             )}
 
@@ -612,33 +587,6 @@ export default function UserDashboard() {
                 >
                   ↺ Refresh
                 </button>
-              </div>
-            )}
-
-            {/* ── Stats tab ── */}
-            {tab === 'stats' && (
-              <div className="card space-y-6">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">📊 Your Stats</h2>
-                {dashStats ? (
-                  <>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                      <div className="rounded-xl border border-blue-800/40 bg-blue-900/20 p-4 text-center">
-                        <p className="text-3xl font-bold text-blue-300">{dashStats.stats?.total_rides ?? 0}</p>
-                        <p className="text-xs text-gray-400 mt-1">Total Rides</p>
-                      </div>
-                      <div className="rounded-xl border border-green-800/40 bg-green-900/20 p-4 text-center">
-                        <p className="text-3xl font-bold text-green-300">{dashStats.stats?.open_rides ?? 0}</p>
-                        <p className="text-xs text-gray-400 mt-1">Open Rides</p>
-                      </div>
-                      <div className="rounded-xl border border-amber-800/40 bg-amber-900/20 p-4 text-center">
-                        <p className="text-3xl font-bold text-amber-300">{dashStats.stats?.taken_rides ?? 0}</p>
-                        <p className="text-xs text-gray-400 mt-1">Taken Rides</p>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex justify-center py-8"><div className="spinner w-8 h-8" /></div>
-                )}
               </div>
             )}
 

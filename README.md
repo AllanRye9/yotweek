@@ -1,28 +1,31 @@
-# yot_downloader — Airport Pickup Platform
+# yotweek — All-in-One Free Platform
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/e5663d6c-8ee6-4439-a3db-d08c407dfadf" alt="yot_downloader logo" width="180"/>
+  <img src="https://github.com/user-attachments/assets/e5663d6c-8ee6-4439-a3db-d08c407dfadf" alt="yotweek logo" width="180"/>
 </p>
 
 <p align="center">
-  This platform bridges airport travelers with verified drivers through intelligent matching, real-time tracking, and transparent fare calculation. Built for reliability, trust, and seamless mobile experience.
+  yotweek is your all-in-one free platform for ride sharing, tourist site discovery, video downloads, CV building, and document conversion — all in one place, no subscription required.
 </p>
 
 ---
 
 ## Overview
 
-Book an airport pickup in seconds: clients select their airport and destination, the system auto-calculates the fare, and the nearest verified driver is matched instantly. Every driver is registered, reviewed, and marked with a verification badge before appearing on the live map. Real-time WebSocket tracking keeps clients informed as their driver moves, while an auto-response messaging flow ensures all booking details are collected without back-and-forth friction — all in a mobile-first layout that works perfectly on any device.
+yotweek combines everyday productivity tools with local travel discovery. Drivers post rides with auto-calculated fares; passengers find and book in seconds. Explore tourist attractions near your location on the Tourist Sites page — filtered by category and powered by live OpenStreetMap data. Download videos from 1,000+ sites, build a professional CV with ATS scoring, or convert documents between formats — everything is free and requires only a free account.
 
 ---
 
 ## Core Features
 
-- **Smart Fare Engine** — Distance-based auto-calculation using the Haversine formula between the pickup airport and the client's destination. No hidden fees, no surprises — the fare is shown before booking is confirmed.
-- **Verified Driver Network** — Drivers complete a registration form (personal details, vehicle info, document upload) and receive admin approval before participating. A visible ✓ verification badge appears on each approved driver's profile and map marker, building trust at a glance.
-- **Real-Time Map** — An interactive OpenStreetMap view shows all verified, available drivers with animated pulse markers. Clients can see drivers moving in real time and book the nearest one directly from the map.
-- **Auto-Response Messaging** — When a client sends their first booking message, the system immediately replies with a structured prompt: *"Please share your current location, full name, and contact number to complete your booking."* This collects all necessary details in one step, reducing friction for both sides.
-- **Mobile-First Layout** — Sticky sidebars, a scrollable central map, and a responsive design that stacks gracefully on smaller screens. Touch targets meet the 44×44 px minimum and map interactions are optimised for fingers.
+- **🚗 Ride Share** — Drivers post airport or city rides; fares are calculated automatically from origin and destination coordinates. Passengers see animated ride cards, sort by fare or departure time, and book via real-time chat. Verified drivers can broadcast their empty-car location to nearby passengers.
+- **🗺️ Tourist Sites** — Location-aware discovery of tourist attractions, museums, parks, and historic landmarks near the user. Fetches live data from OpenStreetMap's Overpass API, displayed in a clean card grid with category filters.
+- **💬 Animated Inbox** — A persistent animated inbox button at the top of every page shows unread message counts. Clicking it reveals direct messages, ride chat threads, and real estate conversations in a single unified view.
+- **⬇ Video Downloader** — Download audio and video from YouTube, Instagram, TikTok, and 1,000+ other sites via yt-dlp. Supports playlists, audio-only extraction, and format selection.
+- **📄 CV Builder** — Generate a professional PDF CV with built-in ATS (Applicant Tracking System) scoring and keyword analysis.
+- **🔄 Document Converter** — Convert between PDF, Word, Excel, PowerPoint, and image formats.
+- **🔔 Real-Time Notifications** — WebSocket-powered notifications for new messages, ride updates, and driver arrival alerts, delivered as animated toasts without page reloads.
+- **📱 Mobile-First Layout** — Responsive design that stacks gracefully on phones and tablets. Available as a Flutter app for iOS and Android.
 
 ---
 
@@ -33,8 +36,8 @@ Book an airport pickup in seconds: clients select their airport and destination,
 | Frontend | React + Vite + Tailwind CSS |
 | Backend | Python + FastAPI + Socket.IO |
 | Database | PostgreSQL (production) / SQLite (development) |
-| Real-time tracking | WebSocket via Socket.IO |
-| Map integration | Leaflet + OpenStreetMap (CartoDB Voyager / OSM tiles) |
+| Real-time | WebSocket via Socket.IO |
+| Maps | Leaflet + OpenStreetMap / Overpass API |
 | Mobile | Flutter (iOS & Android) |
 | Downloader | yt-dlp + ffmpeg |
 
@@ -42,15 +45,13 @@ Book an airport pickup in seconds: clients select their airport and destination,
 
 ## Flutter Directory
 
-> **Flutter structure reorganized — see `/lib/features/ride_sharing` for airport pickup modules, map widgets, and driver tracking logic.**
-
 ```
 flutter_app/lib/
 ├── features/
 │   └── ride_sharing/
 │       ├── airport_pickup/
 │       │   ├── booking_screen.dart        # Client booking flow (airport → destination)
-│       │   ├── fare_calculator.dart       # Distance-based fare engine
+│       │   ├── fare_calculator.dart       # Distance-based fare engine (Haversine)
 │       │   └── auto_response_service.dart # Structured prompt auto-reply
 │       ├── driver_tracking/
 │       │   ├── driver_registration.dart   # Registration form + document upload
@@ -83,8 +84,8 @@ flutter_app/lib/
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/AllanRye9/yot_downloader.git
-cd yot_downloader
+git clone https://github.com/AllanRye9/yotweek.git
+cd yotweek
 
 # 2. Create and activate a virtual environment
 python -m venv venv
@@ -94,10 +95,11 @@ source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # 4. Configure environment variables (copy and edit as needed)
-#    FARE_PER_KM=1.5          — base fare rate per km
-#    MAP_API_KEY=<key>         — optional map tile API key
+#    FARE_PER_KM=1.0          — base fare rate per km
 #    DATABASE_URL=<postgres>   — PostgreSQL connection string (omit for SQLite)
 #    SECRET_KEY=<secret>       — session secret (set in production)
+#    SMTP_HOST / SMTP_PORT     — email sending (optional)
+#    NOMINATIM_URL             — custom Nominatim geocoder (optional)
 
 # 5. Start the server
 python api/app.py
@@ -130,25 +132,39 @@ flutter run
 | `POST` | `/cancel/<id>` | Cancel an in-progress download |
 | `GET` | `/health` | Health check |
 
-### Airport Pickup Service
+### Ride Share
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | `GET` | `/api/rides/calculate_fare` | Auto-calculate fare (`?origin_lat=&origin_lng=&dest_lat=&dest_lng=`) |
-| `POST` | `/api/rides/post` | Post a pickup request (includes `fare`, `dest_lat`, `dest_lng`) |
-| `GET` | `/api/rides/list` | List all pickup requests (includes `fare` in response) |
+| `GET` | `/api/rides/estimate_fare` | Geocode-based fare estimate (`?start=&destination=&seats=`) |
+| `POST` | `/api/rides/post` | Post a ride (driver only; fare auto-calculated from coordinates) |
+| `GET` | `/api/rides/list` | List all rides (includes `fare`, `per_seat_cost`, `ride_type`) |
 | `POST` | `/api/driver/location` | Broadcast driver location (verified drivers only) |
 | `GET` | `/api/driver/locations` | All active verified driver locations |
+
+### Messaging & Notifications
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/dm/conversations` | List DM conversations (supports `?search=`) |
+| `GET` | `/api/dm/contacts` | Previously communicated users |
+| `POST` | `/api/dm/send` | Send a direct message |
+| `GET` | `/api/notifications` | Fetch notifications (with `unread` count) |
+| `PUT` | `/api/notifications/read_all` | Mark all notifications read |
 
 ### Socket.IO Events
 
 | Direction | Event | Description |
 |-----------|-------|-------------|
 | Server → Client | `progress` | yt-dlp download progress |
-| Server → Client | `ride_chat_message` | New chat message (including auto-response system prompts) |
-| Server → Client | `driver_nearby` | Real-time driver location update |
+| Server → Client | `new_ride` | New ride posted (real-time) |
+| Server → Client | `ride_chat_message` | New chat message |
+| Server → Client | `driver_nearby` | Driver location broadcast |
+| Server → Client | `driver_arrived` | Driver arrival alert to passengers |
+| Server → Client | `dm_notification` | New direct message received |
 | Client → Server | `join_ride_chat` | Join a ride's chat room |
-| Client → Server | `ride_chat_message` | Send a chat message |
+| Client → Server | `identify` | Register socket with user ID |
 
 ---
 
@@ -160,16 +176,18 @@ flutter run
 | `DOWNLOAD_FOLDER` | `downloads` | Directory for saved files |
 | `ALLOWED_ORIGINS` | `*` | CORS origins — restrict in production |
 | `PORT` | `5000` | Server port |
-| `FARE_PER_KM` | `1.5` | Base fare rate (USD) per kilometre |
+| `FARE_PER_KM` | `1.0` | Base fare rate (USD) per kilometre |
 | `DATABASE_URL` | *(SQLite)* | PostgreSQL connection string |
+| `SMTP_HOST` | — | SMTP server for email notifications |
+| `NOMINATIM_URL` | public OSM | Custom Nominatim geocoder URL |
 
 ---
 
 ## Docker
 
 ```bash
-docker build -t yot_downloader .
-docker run -p 5000:5000 yot_downloader
+docker build -t yotweek .
+docker run -p 5000:5000 yotweek
 ```
 
 ---
@@ -178,19 +196,30 @@ docker run -p 5000:5000 yot_downloader
 
 ### ❌ Bot detection / "This video cannot be downloaded right now"
 
-YouTube may challenge automated requests. The app automatically retries with alternative player clients (`web_embedded`, `tv`, `mweb`). If retries fail, upload a `cookies.txt` file via **Admin → Cookies**.
+YouTube may challenge automated requests. The app automatically retries with alternative player clients (`web_embedded`, `tv`, `android_vr`). If retries fail, upload a `cookies.txt` file via **Admin → Cookies**.
 
 See the [yt-dlp cookies FAQ](https://github.com/yt-dlp/yt-dlp/wiki/FAQ#how-do-i-pass-cookies-to-yt-dlp) for export instructions.
 
 ### ❌ HTTP 403 Forbidden
 
-The downloader retries with cookieless CDN clients and falls back to `gallery-dl`, `you-get`, and `streamlink` before reporting failure. Supplying a `cookies.txt` file resolves most persistent 403 errors.
+The downloader retries with cookieless CDN clients before reporting failure. Supplying a `cookies.txt` file resolves most persistent 403 errors.
+
+### ❌ Tourist Sites not loading
+
+Tourist site discovery uses the public Overpass API. If you see no results, allow location access in your browser and try zooming out the search radius. If the Overpass API is temporarily unavailable, a fallback list of popular global landmarks is shown.
 
 ---
 
-## Impact Statement
+## Platform Sections
 
-Designed to make airport travel effortless — one tap, verified driver, clear fare, live tracking. Travelers gain trust and transparency through driver verification badges and auto-calculated fares. Drivers receive credibility through structured onboarding and a visible verification badge. The map-first layout keeps essential actions visible while exploration stays fluid. Mobile responsiveness ensures the service works where it matters most — on the go. The Flutter directory restructuring sets a scalable foundation for future enhancements across the ride-sharing platform.
+| Section | Route | Description |
+|---------|-------|-------------|
+| Home | `/` | Overview, quick tools, ride share embed |
+| Dashboard | `/dashboard` | Personal hub: downloads, rides, inbox, history |
+| Ride Share | `/rides` | Post rides (drivers) and find available rides (passengers) |
+| Tourist Sites | `/tourist-sites` | Location-based tourist attraction discovery |
+| Profile | `/profile` | Account settings, avatar, location, driver status |
+| Admin | `/admin/dashboard` | Platform analytics (admin only) |
 
 ---
 
