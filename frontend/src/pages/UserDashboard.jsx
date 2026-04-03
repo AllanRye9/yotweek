@@ -10,6 +10,7 @@ import RideShare from '../components/RideShare'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import DMInbox from '../components/DMInbox'
+import TouristSitesContent from '../components/TouristSitesContent'
 import {
   getUserProfile, userLogout, getNotifications,
   markAllNotificationsRead, markNotificationRead, clearAllNotifications,
@@ -169,7 +170,6 @@ export default function UserDashboard() {
   const [notifications, setNotifications] = useState([])
   const [rideHistory, setRideHistory] = useState([])
   const [chatInbox,   setChatInbox]   = useState([])
-  const [inboxTab, setInboxTab]       = useState('dm')  // 'dm' | 'rides'
   const [driverApp,   setDriverApp]   = useState(null)
   const [driverForm,  setDriverForm]  = useState({ vehicle_make:'', vehicle_model:'', vehicle_year:'', vehicle_color:'', license_plate:'' })
   const [driverApplying, setDriverApplying] = useState(false)
@@ -489,18 +489,7 @@ export default function UserDashboard() {
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">🗺️ Tourist Sites</h2>
                   <p className="text-xs text-gray-400 mt-0.5">Discover tourist attractions, landmarks and places of interest near you.</p>
                 </div>
-                <div className="flex flex-col items-center gap-4 py-4">
-                  <div className="text-5xl">🗺️</div>
-                  <p className="text-sm text-gray-400 text-center max-w-sm">
-                    Browse tourist attractions based on your current location — museums, parks, historic sites, viewpoints and more.
-                  </p>
-                  <Link
-                    to="/tourist-sites"
-                    className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-semibold text-sm transition-colors"
-                  >
-                    🌐 Open Tourist Sites
-                  </Link>
-                </div>
+                <TouristSitesContent />
               </div>
             )}
 
@@ -590,69 +579,52 @@ export default function UserDashboard() {
 
             {/* ── Inbox tab ── */}
             {tab === 'inbox' && (
-              <div className="card space-y-0 overflow-hidden p-0">
-                {/* Tab bar */}
-                <div className="flex border-b border-gray-700">
-                  {[
-                    { key: 'dm',     label: '💬 Direct Messages',      color: 'border-blue-500',    textActive: 'text-blue-300'    },
-                    { key: 'rides',  label: '🚗 Ride Share Messages',   color: 'border-amber-500',   textActive: 'text-amber-300'   },
-                  ].map(t => (
-                    <button
-                      key={t.key}
-                      onClick={() => setInboxTab(t.key)}
-                      className={`flex-1 py-3 px-2 text-xs font-semibold border-b-2 transition-colors ${
-                        inboxTab === t.key
-                          ? `${t.color} ${t.textActive} bg-gray-800/40`
-                          : 'border-transparent text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
+              <div className="space-y-4">
+                {/* ── Direct Messages (blue) ── */}
+                <div className="card border-l-4 border-blue-500">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block shrink-0" />
+                    <h2 className="text-sm font-bold text-blue-300 uppercase tracking-wide">💬 Direct Messages</h2>
+                  </div>
+                  <DMInbox currentUser={appUser} />
                 </div>
 
-                {/* Tab content */}
-                <div className="p-4">
-                  {/* ── Direct Messages ── */}
-                  {inboxTab === 'dm' && (
-                    <DMInbox currentUser={appUser} />
-                  )}
-
-                  {/* ── Ride Share Chat ── */}
-                  {inboxTab === 'rides' && (
-                    <div>
-                      <div className="flex justify-end mb-2">
-                        <button
-                          onClick={() => getRideChatInbox().then(d => setChatInbox(d.conversations || [])).catch(() => {})}
-                          className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
-                        >
-                          ↺ Refresh
-                        </button>
-                      </div>
-                      {chatInbox.length === 0 ? (
-                        <p className="text-sm text-gray-500 text-center py-6">No ride chat messages yet.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {chatInbox.map((conv, i) => (
-                            <div key={conv.msg_id || i} className="flex items-start gap-3 rounded-xl px-3 py-2.5 bg-amber-900/10 border border-amber-700/30 hover:bg-amber-900/20 transition-colors">
-                              <div className="w-9 h-9 rounded-full bg-amber-800 flex items-center justify-center text-sm font-bold text-amber-200 shrink-0">🚗</div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-0.5">
-                                  <p className="text-xs font-semibold text-amber-200 truncate">
-                                    {conv.ride_info?.origin || 'Ride'} → {conv.ride_info?.destination || '…'}
-                                  </p>
-                                  <span className="text-xs text-gray-500 shrink-0">
-                                    {conv.ts ? new Date(conv.ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-gray-300 truncate">
-                                  {conv.is_mine ? 'You: ' : `${conv.sender_name}: `}{conv.text || '[media]'}
-                                </p>
-                              </div>
+                {/* ── Ride Share Chat (amber) ── */}
+                <div className="card border-l-4 border-amber-500">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block shrink-0" />
+                      <h2 className="text-sm font-bold text-amber-300 uppercase tracking-wide">🚗 Ride Share Messages</h2>
+                    </div>
+                    <button
+                      onClick={() => getRideChatInbox().then(d => setChatInbox(d.conversations || [])).catch(() => {})}
+                      className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                    >
+                      ↺ Refresh
+                    </button>
+                  </div>
+                  {chatInbox.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">No ride chat messages yet.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {chatInbox.map((conv, i) => (
+                        <div key={conv.msg_id || i} className="flex items-start gap-3 rounded-xl px-3 py-2.5 bg-amber-900/10 border border-amber-700/30 hover:bg-amber-900/20 transition-colors">
+                          <div className="w-9 h-9 rounded-full bg-amber-800 flex items-center justify-center text-sm font-bold text-amber-200 shrink-0">🚗</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <p className="text-xs font-semibold text-amber-200 truncate">
+                                {conv.ride_info?.origin || 'Ride'} → {conv.ride_info?.destination || '…'}
+                              </p>
+                              <span className="text-xs text-gray-500 shrink-0">
+                                {conv.ts ? new Date(conv.ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                              </span>
                             </div>
-                          ))}
+                            <p className="text-xs text-gray-300 truncate">
+                              {conv.is_mine ? 'You: ' : `${conv.sender_name}: `}{conv.text || '[media]'}
+                            </p>
+                          </div>
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
                 </div>

@@ -424,17 +424,6 @@ export default function PropertiesPage() {
               <option value="occupied">Occupied</option>
               <option value="soon_empty">Soon Empty</option>
             </select>
-            <Link
-              to="/agents"
-              style={{
-                background: 'transparent', color: 'var(--text-secondary)',
-                border: '1px solid var(--border-color)', borderRadius: 8,
-                padding: '6px 12px', fontSize: '0.78rem', fontWeight: 600,
-                cursor: 'pointer', whiteSpace: 'nowrap', textDecoration: 'none',
-              }}
-            >
-              🧑‍💼 Become an Agent
-            </Link>
           </div>
         </div>
 

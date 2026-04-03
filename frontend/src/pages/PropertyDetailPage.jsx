@@ -8,7 +8,6 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../App'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
-import AgentRegistration from '../components/AgentRegistration'
 import { getProperty, startPropertyConversation, getUserProfile, getNearbyAgents } from '../api'
 
 const STATUS_COLOR = { active: '#22c55e', sold: '#ef4444', rented: '#f59e0b', empty: '#60a5fa', occupied: '#f87171', soon_empty: '#a78bfa' }
@@ -234,7 +233,6 @@ export default function PropertyDetailPage() {
   const [appUser, setAppUser]             = useState(null)
   const [userLoading, setUserLoading]     = useState(true)
   const [showAuthModal, setShowAuthModal] = useState(false)
-  const [showAgentModal, setShowAgentModal] = useState(false)
   const [profileOpen, setProfileOpen]     = useState(false)
   const profileRef = useRef(null)
 
@@ -333,21 +331,6 @@ export default function PropertyDetailPage() {
         />
       )}
 
-      {/* ── Agent Registration Modal ── */}
-      {showAgentModal && (
-        <div
-          style={{
-            position: 'fixed', inset: 0, zIndex: 500,
-            background: 'rgba(0,0,0,0.65)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: '20px',
-          }}
-          onClick={e => { if (e.target === e.currentTarget) setShowAgentModal(false) }}
-        >
-          <AgentRegistration onClose={() => setShowAgentModal(false)} />
-        </div>
-      )}
-
       {/* ── Navbar ── */}
       <header style={{
         background: 'var(--bg-surface)', borderBottom: '1px solid var(--border-color)',
@@ -365,21 +348,6 @@ export default function PropertyDetailPage() {
           </nav>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {/* Register as Agent button — always visible in top-right */}
-          <button
-            type="button"
-            onClick={() => appUser ? setShowAgentModal(true) : setShowAuthModal(true)}
-            style={{
-              background: 'transparent', color: 'var(--text-secondary)',
-              border: '1px solid var(--border-color)', borderRadius: 8,
-              padding: '6px 12px', fontSize: '0.78rem', fontWeight: 600,
-              cursor: 'pointer', whiteSpace: 'nowrap',
-            }}
-            title="Register as a property agent"
-          >
-            🏢 Become an Agent
-          </button>
-
           <div ref={profileRef} style={{ position: 'relative' }}>
           {userLoading ? null : appUser ? (
             <div>
