@@ -26,6 +26,8 @@ import { playMessageChime } from '../sounds'
  *  currentUser - logged-in user object { user_id, name }
  */
 
+const CLICK_ANIMATION_DURATION = 200
+
 export default function DMInbox({ currentUser }) {
   const navigate = useNavigate()
   const [conversations,  setConversations]  = useState([])
@@ -347,11 +349,11 @@ export default function DMInbox({ currentUser }) {
               className="flex items-start gap-3 rounded-xl px-3 py-2.5 bg-amber-900/10 border border-amber-700/30 hover:bg-amber-900/20 transition-all cursor-pointer active:scale-[0.98]"
               style={{
                 transform: clickedConv === `ride-${i}` ? 'scale(0.97)' : '',
-                transition: 'transform 0.15s ease, background 0.2s',
+                transition: `transform ${CLICK_ANIMATION_DURATION}ms ease, background 0.2s`,
               }}
               onClick={() => {
                 setClickedConv(`ride-${i}`)
-                setTimeout(() => setClickedConv(null), 300)
+                setTimeout(() => setClickedConv(null), CLICK_ANIMATION_DURATION)
                 navigate('/rides')
               }}
               role="button"
@@ -420,7 +422,7 @@ export default function DMInbox({ currentUser }) {
                 className="bg-gray-800/50 border border-gray-700 rounded-xl overflow-hidden hover:bg-gray-800/80 transition-colors"
                 style={{
                   transform: clickedConv === conv.conv_id ? 'scale(0.98)' : '',
-                  transition: 'transform 0.15s ease, background 0.2s',
+                  transition: `transform ${CLICK_ANIMATION_DURATION}ms ease, background 0.2s`,
                 }}
               >
                 {/* Clicking the main row opens full chat */}
@@ -428,7 +430,7 @@ export default function DMInbox({ currentUser }) {
                   className="flex items-center gap-3 px-4 py-3 cursor-pointer"
                   onClick={() => {
                     setClickedConv(conv.conv_id)
-                    setTimeout(() => { setClickedConv(null); setActiveConv(conv) }, 150)
+                    setTimeout(() => { setClickedConv(null); setActiveConv(conv) }, CLICK_ANIMATION_DURATION)
                   }}
                   role="button"
                   tabIndex={0}
