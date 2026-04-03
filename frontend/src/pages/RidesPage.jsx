@@ -6,17 +6,22 @@ import DMInbox from '../components/DMInbox'
 import ThemeSelector from '../components/ThemeSelector'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
-import { getUserProfile } from '../api'
+import { getUserProfile, getNotifications } from '../api'
+import socket from '../socket'
 
 export default function RidesPage() {
   const { admin } = useAuth()
-  const [appUser, setAppUser]         = useState(null)   // null=loading, false=not logged in, object=logged in
+  const [appUser, setAppUser]         = useState(null)
   const [userLoading, setUserLoading] = useState(true)
   const [showAuthModal, setShowAuthModal] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
   const [rides, setRides]             = useState([])
+  // Inbox dropdown state
+  const [inboxOpen, setInboxOpen]     = useState(false)
+  const [unreadChat, setUnreadChat]   = useState(0)
+  const inboxRef                      = useRef(null)
   // State for opening chat from the map with a pre-filled default message
-  const [mapChatRequest, setMapChatRequest] = useState(null) // { ride, defaultMsg }
+  const [mapChatRequest, setMapChatRequest] = useState(null)
   const profileRef = useRef(null)
 
   // Load platform user session
@@ -27,12 +32,31 @@ export default function RidesPage() {
       .finally(() => setUserLoading(false))
   }, [])
 
+  // Poll unread message count
+  useEffect(() => {
+    const fetchUnread = () =>
+      getNotifications().then(d => setUnreadChat(d.unread || 0)).catch(() => {})
+    fetchUnread()
+    const id = setInterval(fetchUnread, 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Real-time DM / chat notification
+  useEffect(() => {
+    const onNotif = () => setUnreadChat(c => c + 1)
+    socket.on('dm_notification',        onNotif)
+    socket.on('ride_chat_notification', onNotif)
+    return () => {
+      socket.off('dm_notification',        onNotif)
+      socket.off('ride_chat_notification', onNotif)
+    }
+  }, [])
+
   // Close profile dropdown when clicking outside
   useEffect(() => {
     const handler = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) {
-        setProfileOpen(false)
-      }
+      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false)
+      if (inboxRef.current && !inboxRef.current.contains(e.target)) setInboxOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -74,7 +98,51 @@ export default function RidesPage() {
 
           <ThemeSelector />
 
-          {/* User profile avatar (shown in navbar when not logged in or loading) */}
+          {/* ── Animated 💬 Inbox button ── */}
+          {appUser && (
+            <div ref={inboxRef} style={{ position: 'relative' }}>
+              <button
+                onClick={() => { setInboxOpen(o => !o); setUnreadChat(0) }}
+                className="relative text-gray-400 hover:text-white transition-colors"
+                title="Inbox"
+                aria-label="Chat Inbox"
+              >
+                <span className="text-xl">💬</span>
+                {unreadChat > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full bg-green-500 border border-gray-950 flex items-center justify-center text-white text-[9px] font-bold px-0.5 pointer-events-none notif-badge-green">
+                    {unreadChat > 9 ? '9+' : unreadChat}
+                  </span>
+                )}
+              </button>
+
+              {/* Inbox dropdown */}
+              {inboxOpen && (
+                <div style={{
+                  position: 'absolute', right: 0, top: 'calc(100% + 8px)',
+                  width: 320, maxHeight: '70vh',
+                  background: 'var(--bg-surface)', border: '1px solid var(--border-color)',
+                  borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                  display: 'flex', flexDirection: 'column',
+                  overflow: 'hidden', zIndex: 200,
+                  animation: 'ride-card-in 0.25s cubic-bezier(0.34,1.56,0.64,1) both',
+                }}>
+                  <div style={{
+                    padding: '10px 14px', borderBottom: '1px solid var(--border-color)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  }}>
+                    <span style={{ color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.85rem' }}>💬 Messages</span>
+                    <button onClick={() => setInboxOpen(false)}
+                      style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.9rem' }}>✕</button>
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: 10 }}>
+                    <DMInbox currentUser={appUser} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* User profile avatar */}
           {!userLoading && !appUser && (
             <button
               onClick={() => setShowAuthModal(true)}
@@ -133,12 +201,12 @@ export default function RidesPage() {
           </div>
         </div>
       ) : (
-        /* ── 3-column authenticated layout ── */
+        /* ── 2-column authenticated layout ── */
         <div className="rides-page-layout" style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden', position: 'relative' }}>
 
-          {/* ── Left: Inbox & Chat (fixed) ── */}
+          {/* ── Left: Post Ride — Drivers Only ── */}
           <aside className="rides-left-sidebar" style={{
-            width: 280, flexShrink: 0,
+            width: 300, flexShrink: 0,
             borderRight: '1px solid var(--border-color)',
             background: 'var(--bg-surface)',
             height: '100%',
@@ -146,23 +214,8 @@ export default function RidesPage() {
             display: 'flex', flexDirection: 'column',
           }}>
             <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
-              <div style={{ color: 'var(--text-primary)', fontSize: '0.82rem', fontWeight: 700 }}>💬 Inbox</div>
-            </div>
-            <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
-              <DMInbox currentUser={appUser} />
-            </div>
-          </aside>
-
-          {/* ── Center: Post Ride (compact) ── */}
-          <main className="rides-center-col" style={{
-            flexBasis: '25%', flexShrink: 0,
-            overflowY: 'auto',
-            background: 'var(--bg-page)',
-            display: 'flex', flexDirection: 'column',
-            borderRight: '1px solid var(--border-color)',
-          }}>
-            <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-color)', flexShrink: 0 }}>
               <div style={{ color: 'var(--text-primary)', fontSize: '0.82rem', fontWeight: 700 }}>🚗 Post Ride — Drivers Only</div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', marginTop: 2 }}>Verified drivers: set your route, fare is auto-calculated.</div>
             </div>
             <div style={{ flex: 1, padding: '10px', overflowY: 'auto' }}>
               <RideShare
@@ -170,10 +223,10 @@ export default function RidesPage() {
                 onRidesChange={() => {}}
                 requestedRide={mapChatRequest}
                 onRequestedRideHandled={() => setMapChatRequest(null)}
-                showSections={{ form: true, dashboard: false, driverBroadcast: false, list: false }}
+                showSections={{ form: true, dashboard: false, driverBroadcast: true, list: false }}
               />
             </div>
-          </main>
+          </aside>
 
           {/* ── Right: All Rides (expanded) ── */}
           <aside className="rides-right-sidebar" style={{
@@ -227,7 +280,7 @@ export default function RidesPage() {
             <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid var(--border-color)', flexShrink: 0, paddingRight: 180 }}>
               <div style={{ color: 'var(--text-primary)', fontSize: '0.85rem', fontWeight: 700 }}>🗺️ All Rides</div>
               <div style={{ color: 'var(--text-secondary)', fontSize: '0.72rem', marginTop: 2 }}>
-                {rides.filter(r => r.status === 'open').length} open · fares shown per person for shared rides
+                {openRides.length} open · fares shown per person for shared rides
               </div>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', padding: '10px' }}>

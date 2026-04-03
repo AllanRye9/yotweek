@@ -122,6 +122,7 @@ function FareCalculator({ ride }) {
 export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections }) {
   const sections = { ...DEFAULT_SECTIONS, ...(showSections || {}) }
   const isDriver = user?.role === 'driver'
+  const PAGE_SIZE = 12
   const [rides, setRides] = useState([])
   const [loading, setLoading] = useState(false)
   const [posting, setPosting] = useState(false)
@@ -168,9 +169,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [rideTypeFilter, setRideTypeFilter] = useState('all')  // 'all' | 'airport' | 'standard'
   const [sortBy, setSortBy] = useState('departure')             // 'departure' | 'fare_asc' | 'fare_desc'
   const [postRideType, setPostRideType] = useState('airport')   // for the post form
-  // Pagination
-  const PAGE_SIZE = 12
-  const [page, setPage] = useState(1)
+  const [newRideIds, setNewRideIds] = useState(new Set())
 
   // Fare estimation panel (input search + estimate)
   const [estimateStart, setEstimateStart]       = useState('')
@@ -313,7 +312,13 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
 
 
   useEffect(() => {
-    const onNewRide = (ride) => { setRides(prev => [ride, ...prev]); playNewRideSound() }
+    const onNewRide = (ride) => {
+      setRides(prev => [ride, ...prev])
+      playNewRideSound()
+      // Mark this ride as freshly posted for highlight animation
+      setNewRideIds(prev => new Set([...prev, ride.ride_id]))
+      setTimeout(() => setNewRideIds(prev => { const s = new Set(prev); s.delete(ride.ride_id); return s }), 8000)
+    }
     const onCancelled = ({ ride_id }) => setRides(prev => prev.map(r => r.ride_id === ride_id ? { ...r, status: 'cancelled' } : r))
     const onTaken = ({ ride_id }) => { setRides(prev => prev.map(r => r.ride_id === ride_id ? { ...r, status: 'taken' } : r)); playRideTakenSound() }
     const onDriverNearby = (data) => {
@@ -542,52 +547,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         </div>
       )}
 
-      {/* ── Dashboard ── */}
-      {sections.dashboard && (
-      <div className="ride-dashboard rounded-xl border border-gray-700 bg-gray-900/50 p-4 space-y-3">
-        <h3 className="font-semibold text-gray-200 text-sm flex items-center gap-2">📊 Ride Dashboard</h3>
-        <div className="grid grid-cols-3 gap-2">
-          <div className="ride-stat-card rounded-lg bg-green-900/25 border border-green-700/40 p-3 text-center">
-            <p className="text-2xl font-bold text-green-400">{statsOpen}</p>
-            <p className="text-xs text-green-300/80 mt-0.5">Open</p>
-          </div>
-          <div className="ride-stat-card rounded-lg bg-amber-900/25 border border-amber-700/40 p-3 text-center">
-            <p className="text-2xl font-bold text-amber-400">{statsTaken}</p>
-            <p className="text-xs text-amber-300/80 mt-0.5">Taken</p>
-          </div>
-          <div className="ride-stat-card rounded-lg bg-red-900/20 border border-red-800/40 p-3 text-center">
-            <p className="text-2xl font-bold text-red-400">{statsCancelled}</p>
-            <p className="text-xs text-red-300/80 mt-0.5">Cancelled</p>
-          </div>
-        </div>
-        {alertLog.length > 0 && (
-          <div className="space-y-1.5">
-            <p className="text-xs text-gray-400 font-medium flex items-center gap-1.5">
-              <span className="driver-pulse-icon">🚗</span> Recent Driver Alerts
-            </p>
-            <div className="space-y-1 max-h-28 overflow-y-auto pr-1">
-              {alertLog.map((a, i) => (
-                <div key={i} className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs border ${
-                  a.isVeryClose
-                    ? 'bg-emerald-900/30 border-emerald-700/50'
-                    : 'bg-green-900/20 border-green-700/30'
-                }`}>
-                  <span className={`font-medium truncate ${a.isVeryClose ? 'text-emerald-300' : 'text-green-300'}`}>
-                    🚗 {a.driver_name || 'Driver'} — {a.empty ? 'empty car' : 'occupied'}
-                    {a.isVeryClose && a.distKm != null && (
-                      <span className="ml-1 text-emerald-400 font-bold">
-                        · 📍{a.distKm < 1 ? `${(a.distKm * 1000).toFixed(0)}m` : `${a.distKm.toFixed(1)}km`}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-gray-500 shrink-0">{new Date(a.receivedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-      )}
+
 
       {/* ── Driver broadcast ── */}
       {sections.driverBroadcast && isDriver && (
@@ -933,9 +893,11 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           return (
           <div key={ride.ride_id}
             className={`ride-card ride-card-enter rounded-xl border p-3 sm:p-4 space-y-2 transition-all ${
-              ride.status === 'taken'     ? 'border-amber-700/60 bg-amber-900/10'
-            : ride.status === 'cancelled' ? 'border-red-800/40 bg-red-900/10 opacity-60'
-            : 'border-gray-700 bg-gray-800/60 hover:border-gray-600'}`}>
+              newRideIds.has(ride.ride_id)
+                ? 'border-blue-400 bg-blue-900/20 ride-card-new'
+              : ride.status === 'taken'     ? 'border-amber-700/60 bg-amber-900/10'
+              : ride.status === 'cancelled' ? 'border-red-800/40 bg-red-900/10 opacity-60'
+              : 'border-gray-700 bg-gray-800/60 hover:border-gray-600'}`}>
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1">

@@ -589,7 +589,7 @@ export default function Home() {
             <span className="gradient-text">yotweek</span> — Your All-in-One Free Platform
           </h1>
           <p className="text-gray-400 text-xs sm:text-sm">
-            Build a CV · Convert Docs · Share Rides · Browse Properties — All Free.
+            Build a CV · Convert Docs · Share Rides · Discover Tourist Sites — All Free.
           </p>
           <p className="text-gray-500 text-xs mt-1">
             Also available as a Flutter app.
@@ -629,16 +629,10 @@ export default function Home() {
             🚗 Ride Share &amp; Driver Alerts
           </Link>
           <Link
-            to="/properties"
+            to="/tourist-sites"
             className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-blue-700 hover:border-blue-600 hover:text-blue-100"
           >
-            🏠 Property Discovery
-          </Link>
-          <Link
-            to="/agents"
-            className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-purple-700 hover:border-purple-600 hover:text-purple-100"
-          >
-            🧑‍💼 Agents
+            🗺️ Tourist Sites
           </Link>
         </div>
 
