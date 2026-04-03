@@ -170,6 +170,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [sortBy, setSortBy] = useState('departure')             // 'departure' | 'fare_asc' | 'fare_desc'
   const [postRideType, setPostRideType] = useState('airport')   // for the post form
   const [newRideIds, setNewRideIds] = useState(new Set())
+  const [page, setPage] = useState(1)
 
   // Fare estimation panel (input search + estimate)
   const [estimateStart, setEstimateStart]       = useState('')

@@ -9,8 +9,6 @@ import UserDashboard from './pages/UserDashboard'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import TouristSitesPage from './pages/TouristSitesPage'
-import PropertyDetailPage from './pages/PropertyDetailPage'
-import PropertyInboxPage from './pages/PropertyInboxPage'
 import UnifiedMapPage from './pages/UnifiedMapPage'
 import ProfilePage from './pages/ProfilePage'
 
@@ -118,11 +116,11 @@ export default function App() {
             <Route path="/dashboard" element={<UserDashboard />} />
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/tourist-sites" element={<TouristSitesPage />} />
-            {/* Legacy /properties redirect to tourist-sites */}
+            {/* Legacy redirects — real estate / property features removed */}
             <Route path="/properties" element={<Navigate to="/tourist-sites" replace />} />
-            <Route path="/properties/:propertyId" element={<PropertyDetailPage />} />
+            <Route path="/properties/:propertyId" element={<Navigate to="/tourist-sites" replace />} />
             <Route path="/agents" element={<Navigate to="/" replace />} />
-            <Route path="/property-inbox" element={<PropertyInboxPage />} />
+            <Route path="/property-inbox" element={<Navigate to="/" replace />} />
             <Route path="/map" element={<UnifiedMapPage />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin/register" element={<AdminLogin register />} />
