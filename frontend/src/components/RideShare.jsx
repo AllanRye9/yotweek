@@ -119,7 +119,7 @@ function FareCalculator({ ride }) {
   )
 }
 
-export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections }) {
+export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections, openChatRideId, onChatOpened }) {
   const sections = { ...DEFAULT_SECTIONS, ...(showSections || {}) }
   const isDriver = user?.role === 'driver'
   const PAGE_SIZE = 12
@@ -138,6 +138,9 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [seats, setSeats] = useState(1)
   const [notes, setNotes] = useState('')
   const [contact, setContact] = useState('')
+  const [vehicleColor, setVehicleColor] = useState('')
+  const [vehicleType, setVehicleType] = useState('')
+  const [plateNumber, setPlateNumber] = useState('')
   const [geoLoading, setGeoLoading] = useState(false)
   const [originLat, setOriginLat] = useState(null)
   const [originLng, setOriginLng] = useState(null)
@@ -209,6 +212,17 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       onRequestedRideHandled?.()
     }
   }, [requestedRide]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Deep-link: open chat for a specific ride_id (from notification click)
+  useEffect(() => {
+    if (!openChatRideId || rides.length === 0) return
+    const ride = rides.find(r => r.ride_id === openChatRideId)
+    if (ride) {
+      setChatRide(ride)
+      setChatDefaultMsg('')
+      onChatOpened?.()
+    }
+  }, [openChatRideId, rides]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Filtered + sorted ride list
   const filteredRides = useMemo(() => {
@@ -393,9 +407,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     try {
       const notesTrimmed = notes.trim()
       const notesWithContact = contact.trim() ? `${notesTrimmed}${notesTrimmed ? ' | ' : ''}Contact: ${contact.trim()}` : notesTrimmed
-      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare, postRideType)
+      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare, postRideType, vehicleColor, vehicleType, plateNumber)
       setPostOk(`Ride posted! ID: ${data.ride_id.slice(0, 8)}…`)
       setOrigin(''); setDest(''); setDeparture(''); setSeats(1); setNotes(''); setContact('')
+      setVehicleColor(''); setVehicleType(''); setPlateNumber('')
       setOriginLat(null); setOriginLng(null); setDestLat(null); setDestLng(null); setFare(null)
     } catch (err) { setPostError(err.message || 'Failed to post ride.') }
     finally { setPosting(false) }
@@ -684,6 +699,27 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 rows={1} className={`${inputCls('notes')} resize-none`} />
             </div>
 
+            {/* Vehicle details row */}
+            <div className="grid grid-cols-3 gap-1.5">
+              <input type="text" placeholder="🎨 Vehicle Color" value={vehicleColor}
+                onChange={e => setVehicleColor(e.target.value)}
+                className={inputCls('vehicleColor')} />
+              <select value={vehicleType} onChange={e => setVehicleType(e.target.value)}
+                className={`${inputCls('vehicleType')} bg-gray-800`}>
+                <option value="">🚗 Type</option>
+                <option value="Sedan">Sedan</option>
+                <option value="SUV">SUV</option>
+                <option value="Minivan">Minivan</option>
+                <option value="Hatchback">Hatchback</option>
+                <option value="Truck">Truck</option>
+                <option value="Bus">Bus</option>
+                <option value="Other">Other</option>
+              </select>
+              <input type="text" placeholder="🔢 Plate No." value={plateNumber}
+                onChange={e => setPlateNumber(e.target.value)}
+                className={inputCls('plateNumber')} />
+            </div>
+
             {postError && <p className="text-red-400 text-xs bg-red-900/30 border border-red-800 rounded-lg px-2.5 py-1.5">{postError}</p>}
             {postOk    && <p className="text-green-400 text-xs bg-green-900/30 border border-green-800 rounded-lg px-2.5 py-1.5">✅ {postOk}</p>}
 
@@ -927,6 +963,13 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 <p className="text-xs text-gray-400 leading-relaxed">
                   🕐 {new Date(ride.departure).toLocaleString()} · 💺 {ride.seats} seat{ride.seats !== 1 ? 's' : ''} · 👤 {ride.driver_name}
                 </p>
+                {(ride.vehicle_color || ride.vehicle_type || ride.plate_number) && (
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    {ride.vehicle_type && <span className="mr-2">🚗 {ride.vehicle_type}</span>}
+                    {ride.vehicle_color && <span className="mr-2">🎨 {ride.vehicle_color}</span>}
+                    {ride.plate_number && <span>🔢 {ride.plate_number}</span>}
+                  </p>
+                )}
                 {ride.origin_lat != null && ride.origin_lng != null && (
                   <a
                     href={`https://www.google.com/maps?q=${ride.origin_lat},${ride.origin_lng}`}

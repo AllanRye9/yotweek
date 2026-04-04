@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import socket from '../socket'
+import { confirmJourney, getConfirmedUsers, proximityNotify } from '../api'
 
 /**
  * RideChat — Live chat panel for a single ride.
@@ -37,6 +38,26 @@ export default function RideChat({ ride, user, onClose, defaultMessage = '' }) {
   const audioChunksRef              = useRef([])
   const [recording,  setRecording]  = useState(false)
   const [mediaError, setMediaError] = useState('')
+
+  // ── Journey Confirmation state ────────────────────────────────────────────
+  const [showConfirmForm,   setShowConfirmForm]   = useState(false)
+  const [confirmName,       setConfirmName]       = useState(user?.name || '')
+  const [confirmContact,    setConfirmContact]    = useState('')
+  const [confirmLoading,    setConfirmLoading]    = useState(false)
+  const [confirmError,      setConfirmError]      = useState('')
+  const [confirmOk,         setConfirmOk]         = useState(false)
+
+  // ── Confirmed Users (driver view) ─────────────────────────────────────────
+  const [showConfirmedUsers, setShowConfirmedUsers] = useState(false)
+  const [confirmedUsers,     setConfirmedUsers]     = useState([])
+  const [confirmedLoading,   setConfirmedLoading]   = useState(false)
+
+  // ── Proximity Notify state (driver) ──────────────────────────────────────
+  const [showProximity,    setShowProximity]    = useState(false)
+  const [proximityDist,    setProximityDist]    = useState(1)
+  const [proximityUnit,    setProximityUnit]    = useState('km')
+  const [proximityLoading, setProximityLoading] = useState(false)
+  const [proximityMsg,     setProximityMsg]     = useState('')
 
   const senderName  = user?.name   || 'Passenger'
   const isDriver    = user?.role   === 'driver'
@@ -246,7 +267,55 @@ export default function RideChat({ ride, user, onClose, defaultMessage = '' }) {
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
   }
 
-  // ── Receipt icon ───────────────────────────────────────────────────────────
+  // ── Journey confirmation handlers ─────────────────────────────────────────
+
+  const handleConfirmJourney = async (e) => {
+    e.preventDefault()
+    setConfirmError('')
+    if (!confirmName.trim() || !confirmContact.trim()) {
+      setConfirmError('Both real name and contact are required.')
+      return
+    }
+    setConfirmLoading(true)
+    try {
+      await confirmJourney(ride.ride_id, confirmName.trim(), confirmContact.trim())
+      setConfirmOk(true)
+      setShowConfirmForm(false)
+    } catch (err) {
+      setConfirmError(err.message || 'Failed to confirm journey.')
+    } finally {
+      setConfirmLoading(false)
+    }
+  }
+
+  const handleLoadConfirmedUsers = async () => {
+    setConfirmedLoading(true)
+    try {
+      const data = await getConfirmedUsers(ride.ride_id)
+      setConfirmedUsers(data.confirmed_users || [])
+      setShowConfirmedUsers(true)
+    } catch (err) {
+      setConfirmedUsers([])
+    } finally {
+      setConfirmedLoading(false)
+    }
+  }
+
+  const handleProximityNotify = async (e) => {
+    e.preventDefault()
+    setProximityLoading(true)
+    setProximityMsg('')
+    try {
+      const data = await proximityNotify(ride.ride_id, Number(proximityDist), proximityUnit)
+      setProximityMsg(`✅ Notified ${data.notified} passenger${data.notified !== 1 ? 's' : ''}.`)
+    } catch (err) {
+      setProximityMsg(`❌ ${err.message || 'Failed to send.'}`)
+    } finally {
+      setProximityLoading(false)
+    }
+  }
+
+
 
   const ReceiptIcon = ({ status }) => {
     const received = status === 'read' || status === 'delivered'
@@ -406,6 +475,101 @@ export default function RideChat({ ride, user, onClose, defaultMessage = '' }) {
       {mediaError && (
         <div className="px-3 py-1 text-xs text-red-400 bg-red-900/20 border-t border-red-800/40">
           {mediaError}
+        </div>
+      )}
+
+      {/* ── Journey Confirmation (passenger) ── */}
+      {!isPoster && !isDriver && joined && (
+        <div className="px-3 py-2 border-t border-gray-700/60 bg-gray-800/30">
+          {confirmOk ? (
+            <p className="text-xs text-green-400 flex items-center gap-1">✅ Journey confirmed! Driver has your details.</p>
+          ) : showConfirmForm ? (
+            <form onSubmit={handleConfirmJourney} className="space-y-1.5">
+              <p className="text-xs font-semibold text-green-400">✅ Confirm Your Journey</p>
+              <div className="flex gap-1.5">
+                <input type="text" placeholder="Your real name" value={confirmName}
+                  onChange={e => setConfirmName(e.target.value)}
+                  className="flex-1 rounded-lg bg-gray-700 border border-gray-600 text-gray-100 text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500" />
+                <input type="text" placeholder="Phone/email" value={confirmContact}
+                  onChange={e => setConfirmContact(e.target.value)}
+                  className="flex-1 rounded-lg bg-gray-700 border border-gray-600 text-gray-100 text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-green-500" />
+              </div>
+              {confirmError && <p className="text-red-400 text-xs">{confirmError}</p>}
+              <div className="flex gap-1.5">
+                <button type="submit" disabled={confirmLoading}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-green-700 hover:bg-green-600 text-white font-semibold disabled:opacity-50 transition-colors">
+                  {confirmLoading ? 'Confirming…' : '✅ Confirm'}
+                </button>
+                <button type="button" onClick={() => setShowConfirmForm(false)}
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          ) : (
+            <button onClick={() => setShowConfirmForm(true)}
+              className="text-xs px-3 py-1.5 rounded-lg bg-green-800/60 hover:bg-green-700/60 border border-green-700/50 text-green-300 font-semibold transition-colors">
+              ✅ Confirm My Journey
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ── Confirmed Users + Proximity Notify (driver/poster) ── */}
+      {isPoster && joined && (
+        <div className="px-3 py-2 border-t border-gray-700/60 bg-gray-800/30 space-y-2">
+          {/* Confirmed users toggle */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={showConfirmedUsers ? () => setShowConfirmedUsers(false) : handleLoadConfirmedUsers}
+              disabled={confirmedLoading}
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-800/60 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-300 font-semibold transition-colors disabled:opacity-50">
+              {confirmedLoading ? '…' : `👥 Confirmed Users${confirmedUsers.length > 0 ? ` (${confirmedUsers.length})` : ''}`}
+            </button>
+            <button onClick={() => setShowProximity(v => !v)}
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-orange-800/60 hover:bg-orange-700/60 border border-orange-700/50 text-orange-300 font-semibold transition-colors">
+              📍 Notify Distance
+            </button>
+          </div>
+
+          {/* Confirmed users list */}
+          {showConfirmedUsers && (
+            <div className="space-y-1">
+              {confirmedUsers.length === 0 ? (
+                <p className="text-xs text-gray-500 italic">No confirmed passengers yet.</p>
+              ) : confirmedUsers.map(cu => (
+                <div key={cu.confirmation_id} className="flex items-center justify-between bg-gray-700/40 rounded-lg px-2.5 py-1.5">
+                  <div>
+                    <p className="text-xs text-white font-medium">{cu.real_name}</p>
+                    <p className="text-xs text-blue-400">{cu.contact}</p>
+                  </div>
+                  <span className="text-xs text-green-400">✅ Confirmed</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Proximity notification form */}
+          {showProximity && (
+            <form onSubmit={handleProximityNotify} className="space-y-1.5">
+              <p className="text-xs font-semibold text-orange-400">📍 Send Proximity Alert to Confirmed Passengers</p>
+              <div className="flex gap-1.5 items-center">
+                <input type="number" min={0.1} step={0.1} value={proximityDist}
+                  onChange={e => setProximityDist(e.target.value)}
+                  className="w-20 rounded-lg bg-gray-700 border border-gray-600 text-gray-100 text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-500" />
+                <select value={proximityUnit} onChange={e => setProximityUnit(e.target.value)}
+                  className="rounded-lg bg-gray-700 border border-gray-600 text-gray-100 text-xs px-2 py-1.5 focus:outline-none">
+                  <option value="km">km</option>
+                  <option value="miles">miles</option>
+                </select>
+                <button type="submit" disabled={proximityLoading}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-orange-700 hover:bg-orange-600 text-white font-semibold disabled:opacity-50 transition-colors">
+                  {proximityLoading ? 'Sending…' : '📤 Send'}
+                </button>
+              </div>
+              {proximityMsg && <p className="text-xs text-gray-300">{proximityMsg}</p>}
+            </form>
+          )}
         </div>
       )}
 

@@ -51,6 +51,20 @@ from api.app import (
     api_get_ride_chat,
     api_ride_chat_inbox,
     api_ride_alert_clients,
+    api_ride_confirm_journey,
+    api_ride_confirmed_users,
+    api_ride_proximity_notify,
+    api_create_ride_request,
+    api_list_ride_requests,
+    api_accept_ride_request,
+    api_cancel_ride_request,
+    api_create_travel_companion,
+    api_list_travel_companions,
+    api_delete_travel_companion,
+    _JourneyConfirmRequest,
+    _ProximityNotifyRequest,
+    _RideRequestCreate,
+    _TravelCompanionCreate,
 )
 
 
@@ -4498,3 +4512,488 @@ class TestPropertyOccupancyStatus:
         props = json.loads(resp.body)["properties"]
         with_occ = [p for p in props if p.get("occupancy_status")]
         assert len(with_occ) > 0
+
+
+# ---------------------------------------------------------------------------
+# Vehicle fields in ride posting
+# ---------------------------------------------------------------------------
+
+class TestRideVehicleFields:
+    def test_post_ride_with_vehicle_fields(self):
+        """Posting a ride with vehicle_color, vehicle_type, plate_number stores them."""
+        import json
+        resp_data, email = _register_driver("VehicleFieldsDriver")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_post(req, _RidePostRequest(
+            origin="London Heathrow",
+            destination="Central London",
+            departure="2030-08-01T10:00",
+            seats=4,
+            vehicle_color="Silver",
+            vehicle_type="Sedan",
+            plate_number="AB12 CDE",
+        )))
+        body = json.loads(resp.body)
+        assert resp.status_code == 201
+        assert body["ok"] is True
+
+    def test_rides_list_returns_vehicle_fields(self):
+        """GET /api/rides/list returns vehicle_color, vehicle_type, plate_number."""
+        import json
+        resp_data, email = _register_driver("VehicleListDriver")
+        user_id = json.loads(resp_data.body)["user_id"]
+        session = _login_session(email)
+        req = _make_request(session)
+        run(api_ride_post(req, _RidePostRequest(
+            origin="Manchester Airport",
+            destination="Manchester City",
+            departure="2030-09-01T08:00",
+            seats=2,
+            vehicle_color="Black",
+            vehicle_type="SUV",
+            plate_number="XY99 ZZZ",
+        )))
+        list_resp = run(api_rides_list())
+        rides = json.loads(list_resp.body)["rides"]
+        # Find the ride by driver matching user
+        matching = [r for r in rides if r.get("vehicle_color") == "Black" or r.get("plate_number") == "XY99 ZZZ"]
+        assert len(matching) >= 1
+        ride = matching[0]
+        assert ride["vehicle_color"] == "Black"
+        assert ride["vehicle_type"] == "SUV"
+        assert ride["plate_number"] == "XY99 ZZZ"
+
+
+# ---------------------------------------------------------------------------
+# Journey Confirmation
+# ---------------------------------------------------------------------------
+
+class TestJourneyConfirmation:
+    def test_confirm_journey_ok(self):
+        """Passenger can confirm journey for a ride."""
+        import json
+        from api.app import api_ride_confirm_journey, api_ride_confirmed_users, _JourneyConfirmRequest
+
+        # Create driver + ride
+        resp_data, d_email = _register_driver("JourneyDriver")
+        d_uid = json.loads(resp_data.body)["user_id"]
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        ride_resp = run(api_ride_post(d_req, _RidePostRequest(
+            origin="Airport", destination="Hotel",
+            departure="2030-10-01T12:00", seats=3,
+        )))
+        ride_id = json.loads(ride_resp.body)["ride_id"]
+
+        # Create passenger + confirm
+        p_resp, p_email = _register_user("JourneyPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        conf_resp = run(api_ride_confirm_journey(p_req, ride_id, _JourneyConfirmRequest(
+            real_name="John Doe",
+            contact="07700900000",
+        )))
+        body = json.loads(conf_resp.body)
+        assert conf_resp.status_code == 200
+        assert body["ok"] is True
+
+    def test_confirm_journey_requires_login(self):
+        """Unauthenticated user gets 401."""
+        import json
+        from api.app import api_ride_confirm_journey, _JourneyConfirmRequest
+        req = _make_request({})
+        resp = run(api_ride_confirm_journey(req, "fake-ride-id", _JourneyConfirmRequest(
+            real_name="Test", contact="test@test.com"
+        )))
+        assert resp.status_code == 401
+
+    def test_confirm_journey_missing_fields(self):
+        """Empty real_name or contact returns 400."""
+        import json
+        from api.app import api_ride_confirm_journey, _JourneyConfirmRequest
+        _, email = _register_user("MissingFieldsPassenger")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_confirm_journey(req, "any-ride-id", _JourneyConfirmRequest(
+            real_name="", contact=""
+        )))
+        assert resp.status_code == 400
+
+    def test_get_confirmed_users_by_driver(self):
+        """Driver can fetch the list of confirmed passengers for their ride."""
+        import json
+        from api.app import api_ride_confirm_journey, api_ride_confirmed_users, _JourneyConfirmRequest
+
+        resp_data, d_email = _register_driver("ConfirmedListDriver")
+        d_uid = json.loads(resp_data.body)["user_id"]
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        ride_resp = run(api_ride_post(d_req, _RidePostRequest(
+            origin="Station", destination="Hotel",
+            departure="2030-11-01T09:00", seats=4,
+        )))
+        ride_id = json.loads(ride_resp.body)["ride_id"]
+
+        # Passenger confirms
+        p_resp, p_email = _register_user("ConfirmedPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        run(api_ride_confirm_journey(p_req, ride_id, _JourneyConfirmRequest(
+            real_name="Jane Smith", contact="jane@example.com"
+        )))
+
+        # Driver lists confirmed users
+        users_resp = run(api_ride_confirmed_users(d_req, ride_id))
+        body = json.loads(users_resp.body)
+        assert "confirmed_users" in body
+        assert len(body["confirmed_users"]) == 1
+        assert body["confirmed_users"][0]["real_name"] == "Jane Smith"
+        assert body["confirmed_users"][0]["contact"] == "jane@example.com"
+
+    def test_confirmed_users_unauthorized_for_non_driver(self):
+        """Non-owner passenger cannot view confirmed users list."""
+        import json
+        from api.app import api_ride_confirm_journey, api_ride_confirmed_users, _JourneyConfirmRequest
+
+        resp_data, d_email = _register_driver("AuthConfirmedDriver")
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        ride_resp = run(api_ride_post(d_req, _RidePostRequest(
+            origin="Airport", destination="City",
+            departure="2030-12-01T09:00", seats=2,
+        )))
+        ride_id = json.loads(ride_resp.body)["ride_id"]
+
+        # Another passenger tries to view confirmed users
+        p_resp, p_email = _register_user("UnauthorizedPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        resp = run(api_ride_confirmed_users(p_req, ride_id))
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Proximity Notification
+# ---------------------------------------------------------------------------
+
+class TestProximityNotify:
+    def test_proximity_notify_requires_driver(self):
+        """Non-driver user gets 403."""
+        import json
+        from api.app import api_ride_proximity_notify, _ProximityNotifyRequest
+        _, email = _register_user("NotADriver")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_ride_proximity_notify(req, "fake-ride-id", _ProximityNotifyRequest(distance_km=2.0)))
+        assert resp.status_code == 403
+
+    def test_proximity_notify_ok(self):
+        """Driver can send proximity notification; returns notified count."""
+        import json
+        from api.app import api_ride_confirm_journey, api_ride_proximity_notify, _JourneyConfirmRequest, _ProximityNotifyRequest
+
+        resp_data, d_email = _register_driver("ProximityDriver")
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        ride_resp = run(api_ride_post(d_req, _RidePostRequest(
+            origin="Depot", destination="Airport",
+            departure="2031-01-01T06:00", seats=2,
+        )))
+        ride_id = json.loads(ride_resp.body)["ride_id"]
+
+        # Passenger confirms
+        p_resp, p_email = _register_user("ProximityPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        run(api_ride_confirm_journey(p_req, ride_id, _JourneyConfirmRequest(
+            real_name="Near Passenger", contact="near@example.com"
+        )))
+
+        # Driver sends proximity alert
+        notify_resp = run(api_ride_proximity_notify(d_req, ride_id, _ProximityNotifyRequest(distance_km=3.5)))
+        body = json.loads(notify_resp.body)
+        assert notify_resp.status_code == 200
+        assert body["ok"] is True
+        assert body["notified"] == 1
+        assert "3.5 km" in body["message"]
+
+    def test_proximity_notify_miles_unit(self):
+        """Proximity notify with miles unit uses miles in message."""
+        import json
+        from api.app import api_ride_proximity_notify, _ProximityNotifyRequest
+
+        resp_data, d_email = _register_driver("MilesDriver")
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        ride_resp = run(api_ride_post(d_req, _RidePostRequest(
+            origin="Depot B", destination="Airport B",
+            departure="2031-02-01T06:00", seats=2,
+        )))
+        ride_id = json.loads(ride_resp.body)["ride_id"]
+
+        notify_resp = run(api_ride_proximity_notify(d_req, ride_id, _ProximityNotifyRequest(
+            distance_km=5.0, distance_miles=3.1, unit="miles"
+        )))
+        body = json.loads(notify_resp.body)
+        assert body["ok"] is True
+        assert "miles" in body["message"]
+
+
+# ---------------------------------------------------------------------------
+# Ride Requests (Supply & Demand)
+# ---------------------------------------------------------------------------
+
+class TestRideRequests:
+    def test_create_ride_request_ok(self):
+        """Passenger can create a ride request."""
+        import json
+        from api.app import api_create_ride_request, api_list_ride_requests, _RideRequestCreate
+
+        p_resp, p_email = _register_user("RequestPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+
+        resp = run(api_create_ride_request(p_req, _RideRequestCreate(
+            origin="Manchester Airport",
+            destination="City Centre",
+            desired_date="2031-03-10T10:00",
+            passengers=2,
+            price_min=10.0,
+            price_max=30.0,
+        )))
+        body = json.loads(resp.body)
+        assert resp.status_code == 201
+        assert body["ok"] is True
+        assert "request_id" in body
+
+    def test_list_ride_requests_shows_open(self):
+        """GET /api/ride_requests returns open requests."""
+        import json
+        from api.app import api_create_ride_request, api_list_ride_requests, _RideRequestCreate
+
+        p_resp, p_email = _register_user("ListRequestPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        run(api_create_ride_request(p_req, _RideRequestCreate(
+            origin="Leeds", destination="Sheffield",
+            desired_date="2031-04-01T09:00", passengers=1,
+        )))
+        list_resp = run(api_list_ride_requests())
+        requests = json.loads(list_resp.body)["requests"]
+        assert len(requests) >= 1
+
+    def test_create_ride_request_requires_login(self):
+        """Unauthenticated user gets 401."""
+        import json
+        from api.app import api_create_ride_request, _RideRequestCreate
+        req = _make_request({})
+        resp = run(api_create_ride_request(req, _RideRequestCreate(
+            origin="A", destination="B",
+            desired_date="2031-01-01T00:00", passengers=1,
+        )))
+        assert resp.status_code == 401
+
+    def test_driver_accepts_ride_request(self):
+        """Driver can accept an open ride request."""
+        import json
+        from api.app import api_create_ride_request, api_accept_ride_request, _RideRequestCreate
+
+        p_resp, p_email = _register_user("AcceptRequestPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        create_resp = run(api_create_ride_request(p_req, _RideRequestCreate(
+            origin="Bristol", destination="Bath",
+            desired_date="2031-05-01T11:00", passengers=1,
+        )))
+        request_id = json.loads(create_resp.body)["request_id"]
+
+        d_resp, d_email = _register_driver("AcceptRequestDriver")
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        accept_resp = run(api_accept_ride_request(d_req, request_id))
+        body = json.loads(accept_resp.body)
+        assert accept_resp.status_code == 200
+        assert body["ok"] is True
+        assert "conv_id" in body
+
+    def test_non_driver_cannot_accept_request(self):
+        """Passenger cannot accept a ride request."""
+        import json
+        from api.app import api_create_ride_request, api_accept_ride_request, _RideRequestCreate
+
+        p_resp, p_email = _register_user("CannotAcceptPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        create_resp = run(api_create_ride_request(p_req, _RideRequestCreate(
+            origin="Oxford", destination="Cambridge",
+            desired_date="2031-06-01T10:00", passengers=1,
+        )))
+        request_id = json.loads(create_resp.body)["request_id"]
+
+        p2_resp, p2_email = _register_user("CannotAcceptPassenger2")
+        p2_session = _login_session(p2_email)
+        p2_req = _make_request(p2_session)
+        resp = run(api_accept_ride_request(p2_req, request_id))
+        assert resp.status_code == 403
+
+    def test_cancel_ride_request(self):
+        """Passenger can cancel their own open request."""
+        import json
+        from api.app import api_create_ride_request, api_cancel_ride_request, _RideRequestCreate
+
+        p_resp, p_email = _register_user("CancelRequestPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        create_resp = run(api_create_ride_request(p_req, _RideRequestCreate(
+            origin="Brighton", destination="London",
+            desired_date="2031-07-01T08:00", passengers=1,
+        )))
+        request_id = json.loads(create_resp.body)["request_id"]
+
+        cancel_resp = run(api_cancel_ride_request(p_req, request_id))
+        assert json.loads(cancel_resp.body)["ok"] is True
+
+    def test_cannot_accept_already_accepted(self):
+        """Accepting an already-accepted request returns 409."""
+        import json
+        from api.app import api_create_ride_request, api_accept_ride_request, _RideRequestCreate
+
+        p_resp, p_email = _register_user("DoubleAcceptPassenger")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        create_resp = run(api_create_ride_request(p_req, _RideRequestCreate(
+            origin="York", destination="Leeds",
+            desired_date="2031-08-01T07:00", passengers=1,
+        )))
+        request_id = json.loads(create_resp.body)["request_id"]
+
+        d_resp, d_email = _register_driver("DoubleAcceptDriver1")
+        d_session = _login_session(d_email)
+        d_req = _make_request(d_session)
+        run(api_accept_ride_request(d_req, request_id))
+
+        # Second driver tries to accept
+        d2_resp, d2_email = _register_driver("DoubleAcceptDriver2")
+        d2_session = _login_session(d2_email)
+        d2_req = _make_request(d2_session)
+        resp2 = run(api_accept_ride_request(d2_req, request_id))
+        assert resp2.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Travel Companions
+# ---------------------------------------------------------------------------
+
+class TestTravelCompanions:
+    def test_create_companion_ok(self):
+        """User can post a travel companion listing."""
+        import json
+        from api.app import api_create_travel_companion, api_list_travel_companions, _TravelCompanionCreate
+
+        p_resp, p_email = _register_user("CompanionPoster")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+
+        resp = run(api_create_travel_companion(p_req, _TravelCompanionCreate(
+            origin_country="United Kingdom",
+            destination_country="France",
+            origin_city="London",
+            destination_city="Paris",
+            travel_date="2031-09-15",
+            notes="Looking for company",
+        )))
+        body = json.loads(resp.body)
+        assert resp.status_code == 201
+        assert body["ok"] is True
+        assert "companion_id" in body
+
+    def test_list_companions_returns_active(self):
+        """GET /api/travel_companions returns active listings."""
+        import json
+        from api.app import api_create_travel_companion, api_list_travel_companions, _TravelCompanionCreate
+
+        p_resp, p_email = _register_user("CompanionLister")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        run(api_create_travel_companion(p_req, _TravelCompanionCreate(
+            origin_country="Germany",
+            destination_country="Spain",
+            travel_date="2031-10-01",
+        )))
+        resp = run(api_list_travel_companions())
+        companions = json.loads(resp.body)["companions"]
+        assert len(companions) >= 1
+
+    def test_list_companions_filter_by_country(self):
+        """GET /api/travel_companions?origin_country=Italy filters results."""
+        import json
+        from api.app import api_create_travel_companion, api_list_travel_companions, _TravelCompanionCreate
+
+        p_resp, p_email = _register_user("FilterCompanion")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+        run(api_create_travel_companion(p_req, _TravelCompanionCreate(
+            origin_country="Italy",
+            destination_country="Greece",
+            travel_date="2031-11-01",
+        )))
+        resp = run(api_list_travel_companions(origin_country="Italy"))
+        companions = json.loads(resp.body)["companions"]
+        assert all("italy" in c["origin_country"].lower() for c in companions)
+
+    def test_create_companion_requires_login(self):
+        """Unauthenticated user gets 401."""
+        import json
+        from api.app import api_create_travel_companion, _TravelCompanionCreate
+        req = _make_request({})
+        resp = run(api_create_travel_companion(req, _TravelCompanionCreate(
+            origin_country="UK", destination_country="US",
+            travel_date="2032-01-01",
+        )))
+        assert resp.status_code == 401
+
+    def test_delete_companion_ok(self):
+        """User can remove their own companion listing (marks inactive)."""
+        import json
+        from api.app import api_create_travel_companion, api_delete_travel_companion, api_list_travel_companions, _TravelCompanionCreate
+
+        p_resp, p_email = _register_user("CompanionDeleter")
+        p_session = _login_session(p_email)
+        p_req = _make_request(p_session)
+
+        create_resp = run(api_create_travel_companion(p_req, _TravelCompanionCreate(
+            origin_country="Norway",
+            destination_country="Sweden",
+            travel_date="2032-02-01",
+        )))
+        companion_id = json.loads(create_resp.body)["companion_id"]
+
+        del_resp = run(api_delete_travel_companion(p_req, companion_id))
+        assert json.loads(del_resp.body)["ok"] is True
+
+        # Should not appear in active list
+        list_resp = run(api_list_travel_companions(origin_country="Norway"))
+        companions = json.loads(list_resp.body)["companions"]
+        assert not any(c["companion_id"] == companion_id for c in companions)
+
+    def test_cannot_delete_others_companion(self):
+        """User cannot delete another user's companion listing."""
+        import json
+        from api.app import api_create_travel_companion, api_delete_travel_companion, _TravelCompanionCreate
+
+        owner_resp, owner_email = _register_user("CompanionOwner")
+        owner_session = _login_session(owner_email)
+        owner_req = _make_request(owner_session)
+        create_resp = run(api_create_travel_companion(owner_req, _TravelCompanionCreate(
+            origin_country="Denmark",
+            destination_country="Netherlands",
+            travel_date="2032-03-01",
+        )))
+        companion_id = json.loads(create_resp.body)["companion_id"]
+
+        other_resp, other_email = _register_user("CompanionThief")
+        other_session = _login_session(other_email)
+        other_req = _make_request(other_session)
+        resp = run(api_delete_travel_companion(other_req, companion_id))
+        assert resp.status_code == 403

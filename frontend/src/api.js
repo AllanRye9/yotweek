@@ -356,8 +356,8 @@ export const getRideChatInbox = () => request('GET', '/api/rides/chat/inbox')
 
 // ── Ride Sharing ──────────────────────────────────────────────────────────────
 
-export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null, dest_lat = null, dest_lng = null, fare = null, ride_type = 'airport') =>
-  request('POST', '/api/rides/post', { origin, destination, departure, seats, notes, origin_lat, origin_lng, dest_lat, dest_lng, fare, ride_type })
+export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null, dest_lat = null, dest_lng = null, fare = null, ride_type = 'airport', vehicle_color = '', vehicle_type = '', plate_number = '') =>
+  request('POST', '/api/rides/post', { origin, destination, departure, seats, notes, origin_lat, origin_lng, dest_lat, dest_lng, fare, ride_type, vehicle_color, vehicle_type, plate_number })
 
 export const calculateFare = (origin_lat, origin_lng, dest_lat, dest_lng) =>
   request('GET', `/api/rides/calculate_fare?origin_lat=${origin_lat}&origin_lng=${origin_lng}&dest_lat=${dest_lat}&dest_lng=${dest_lng}`)
@@ -380,7 +380,47 @@ export const takeRide = (rideId) => request('POST', `/api/rides/${encodeURICompo
 
 export const alertRideClients = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/alert_clients`, {})
 
+export const confirmJourney = (rideId, real_name, contact) =>
+  request('POST', `/api/rides/${encodeURIComponent(rideId)}/confirm_journey`, { real_name, contact })
+
+export const getConfirmedUsers = (rideId) =>
+  request('GET', `/api/rides/${encodeURIComponent(rideId)}/confirmed_users`)
+
+export const proximityNotify = (rideId, distance_km, unit = 'km') =>
+  request('POST', `/api/rides/${encodeURIComponent(rideId)}/proximity_notify`, { distance_km, unit })
+
 export const getAdminRides = () => request('GET', '/api/admin/rides')
+
+// ── Ride Requests (Supply & Demand) ──────────────────────────────────────────
+
+export const createRideRequest = (origin, destination, desired_date, passengers = 1, price_min = null, price_max = null) =>
+  request('POST', '/api/ride_requests', { origin, destination, desired_date, passengers, price_min, price_max })
+
+export const listRideRequests = (status = 'open') =>
+  request('GET', `/api/ride_requests${status !== 'open' ? `?status=${encodeURIComponent(status)}` : ''}`)
+
+export const acceptRideRequest = (requestId) =>
+  request('POST', `/api/ride_requests/${encodeURIComponent(requestId)}/accept`, {})
+
+export const cancelRideRequest = (requestId) =>
+  request('DELETE', `/api/ride_requests/${encodeURIComponent(requestId)}`)
+
+// ── Travel Companions ─────────────────────────────────────────────────────────
+
+export const createTravelCompanion = (origin_country, destination_country, travel_date, origin_city = '', destination_city = '', notes = '') =>
+  request('POST', '/api/travel_companions', { origin_country, destination_country, travel_date, origin_city, destination_city, notes })
+
+export const listTravelCompanions = (origin_country = null, destination_country = null, travel_date = null) => {
+  const params = new URLSearchParams()
+  if (origin_country) params.set('origin_country', origin_country)
+  if (destination_country) params.set('destination_country', destination_country)
+  if (travel_date) params.set('travel_date', travel_date)
+  const qs = params.toString()
+  return request('GET', `/api/travel_companions${qs ? `?${qs}` : ''}`)
+}
+
+export const deleteTravelCompanion = (companionId) =>
+  request('DELETE', `/api/travel_companions/${encodeURIComponent(companionId)}`)
 
 // ── Driver Geolocation ────────────────────────────────────────────────────────
 
