@@ -8962,31 +8962,26 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
     vehicle_type  = body.vehicle_type.strip()
     plate_number  = body.plate_number.strip()
 
-    # If plate_number not provided, attempt to pull from driver's registration
-    if not plate_number:
-        with _db_lock:
-            conn = _get_db()
-            try:
-                if USE_POSTGRES:
-                    cur2 = conn.cursor()
-                    cur2.execute("SELECT license_plate FROM driver_applications WHERE user_id=%s AND status='approved'", (user_id,))
-                    row2 = cur2.fetchone()
-                else:
-                    cur2 = conn.execute("SELECT license_plate FROM driver_applications WHERE user_id=? AND status='approved'", (user_id,))
-                    row2 = cur2.fetchone()
-                if row2:
-                    plate_number = row2[0]
-            except Exception:
-                pass
-            finally:
-                conn.close()
-
     ride_id    = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
 
     with _db_lock:
         conn = _get_db()
         try:
+            # If plate_number not provided, attempt to pull from driver's registration
+            if not plate_number:
+                try:
+                    if USE_POSTGRES:
+                        _cur = conn.cursor()
+                        _cur.execute("SELECT license_plate FROM driver_applications WHERE user_id=%s AND status='approved'", (user_id,))
+                        _row = _cur.fetchone()
+                    else:
+                        _cur = conn.execute("SELECT license_plate FROM driver_applications WHERE user_id=? AND status='approved'", (user_id,))
+                        _row = _cur.fetchone()
+                    if _row:
+                        plate_number = _row[0]
+                except Exception:
+                    pass  # plate lookup is best-effort
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
@@ -9583,7 +9578,7 @@ async def api_ride_confirmed_users(request: Request, ride_id: str):
                 ride_row = cur.fetchone()
             if not ride_row:
                 return JSONResponse({"error": "Ride not found."}, status_code=404)
-            if ride_row[0] != user_id and user.get("role") not in ("driver", "admin"):
+            if ride_row[0] != user_id and user.get("role") != "admin":
                 return JSONResponse({"error": "Not authorised."}, status_code=403)
 
             cols = ["confirmation_id", "ride_id", "user_id", "real_name", "contact", "created_at"]
