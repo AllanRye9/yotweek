@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { userRegister, userLogin, storePublicKey } from '../api'
+import { userRegister, userLogin, storePublicKey, forgotPassword } from '../api'
 import { generateKeyPair, getStoredPublicKeyJwk } from '../crypto'
 
 // ─── Password-strength helper ───────────────────────────────────────────────
@@ -30,12 +30,13 @@ function isValidEmail(email) {
  * Props:
  *   onSuccess(userObj) — called when authentication succeeds
  *   onClose()          — called when the modal is dismissed
- *   defaultTab         — 'signin' | 'register' (default: 'signin')
+ *   defaultTab         — 'signin' | 'register' | 'forgot' (default: 'signin')
  */
 export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) {
-  const [tab, setTab]             = useState(defaultTab) // 'signin' | 'register'
+  const [tab, setTab]             = useState(defaultTab) // 'signin' | 'register' | 'forgot'
   const [name, setName]           = useState('')
   const [email, setEmail]         = useState('')
+  const [phone, setPhone]         = useState('')
   const [password, setPass]       = useState('')
   const [role, setRole]           = useState('passenger')
   const [rememberMe, setRemember] = useState(false)
@@ -60,7 +61,7 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
   }, [onClose])
 
   const reset = () => {
-    setError(''); setSuccess(''); setName(''); setEmail(''); setPass('')
+    setError(''); setSuccess(''); setName(''); setEmail(''); setPass(''); setPhone('')
     setEmailTouched(false); setPassTouched(false)
   }
 
@@ -78,7 +79,7 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
     try {
       let user
       if (tab === 'register') {
-        await userRegister(name.trim(), email.trim(), password, role)
+        await userRegister(name.trim(), email.trim(), password, role, phone.trim())
         user = await userLogin(email.trim(), password, rememberMe)
       } else {
         user = await userLogin(email.trim(), password, rememberMe)
@@ -97,6 +98,21 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
       onSuccess?.(user)
     } catch (err) {
       setError(err.message || 'Authentication failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async (e) => {
+    e.preventDefault()
+    setError('')
+    if (!emailOk) return setError('Please enter a valid email address.')
+    setLoading(true)
+    try {
+      const data = await forgotPassword(email.trim())
+      setSuccess(data.message || 'If that address is registered, a reset link has been sent.')
+    } catch (err) {
+      setError(err.message || 'Failed to send reset link.')
     } finally {
       setLoading(false)
     }
@@ -195,6 +211,14 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
               >
                 {loading ? '…' : 'Sign In'}
               </button>
+
+              <button
+                type="button"
+                onClick={() => switchTab('forgot')}
+                className="w-full text-xs text-blue-400 hover:text-blue-300 text-center mt-1"
+              >
+                Forgot password?
+              </button>
             </form>
           )}
 
@@ -227,6 +251,15 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
                   <p className="text-red-400 text-xs mt-1">Enter a valid email address.</p>
                 )}
               </div>
+
+              {/* Phone (optional) */}
+              <input
+                type="tel"
+                placeholder="Phone number (optional)"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
 
               {/* Password with strength meter */}
               <div>
@@ -297,6 +330,48 @@ export default function UserAuth({ onSuccess, onClose, defaultTab = 'signin' }) 
                 className="w-full py-2.5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {loading ? '…' : 'Create Account'}
+              </button>
+            </form>
+          )}
+
+          {/* ── Forgot Password form ── */}
+          {tab === 'forgot' && (
+            <form onSubmit={handleForgotPassword} className="space-y-3">
+              <p className="text-sm text-gray-400">Enter your email address and we'll send you a password reset link.</p>
+              <div>
+                <input
+                  type="email"
+                  placeholder="Email address"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  onBlur={() => setEmailTouched(true)}
+                  required
+                  className={`w-full rounded-lg bg-gray-800 border text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                    emailTouched && !emailOk ? 'border-red-500' : 'border-gray-600'
+                  }`}
+                />
+                {emailTouched && !emailOk && (
+                  <p className="text-red-400 text-xs mt-1">Enter a valid email address.</p>
+                )}
+              </div>
+
+              {error   && <p className="text-red-400 text-xs bg-red-900/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>}
+              {success && <p className="text-green-400 text-xs bg-green-900/30 border border-green-800 rounded-lg px-3 py-2">{success}</p>}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-2.5 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {loading ? '…' : 'Send Reset Link'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => switchTab('signin')}
+                className="w-full text-xs text-blue-400 hover:text-blue-300 text-center"
+              >
+                ← Back to Sign In
               </button>
             </form>
           )}

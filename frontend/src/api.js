@@ -292,8 +292,8 @@ export const scanATS = (cvText, jobDescription, file = null) => {
 
 // ── User Auth ─────────────────────────────────────────────────────────────────
 
-export const userRegister = (name, email, password, role = 'passenger') =>
-  request('POST', '/api/auth/register', { name, email, password, role })
+export const userRegister = (name, email, password, role = 'passenger', phone = '') =>
+  request('POST', '/api/auth/register', { name, email, password, role, phone })
 
 export const userLogin = (email, password, remember_me = false) =>
   request('POST', '/api/auth/login', { email, password, remember_me })
@@ -319,6 +319,12 @@ export const uploadAvatar = (file) => {
 
 export const deleteAvatar = () =>
   request('DELETE', '/api/auth/profile/avatar')
+
+export const forgotPassword = (email) =>
+  request('POST', '/api/auth/forgot_password', { email })
+
+export const resetPassword = (token, new_password) =>
+  request('POST', '/api/auth/reset_password', { token, new_password })
 
 export const getNotifications = () => request('GET', '/api/notifications')
 
@@ -349,6 +355,8 @@ export const approveDriverApplication = (appId, approved) =>
 
 export const getRideHistory = () => request('GET', '/api/rides/history')
 
+export const getDriverDashboard = () => request('GET', '/api/driver/dashboard')
+
 export const getRideChatMessages = (rideId) =>
   request('GET', `/api/rides/${encodeURIComponent(rideId)}/chat`)
 
@@ -373,6 +381,9 @@ export const estimateFare = (start, destination, seats = 1) =>
 
 export const listRides = (status = null) =>
   request('GET', `/api/rides/list${status ? `?status=${encodeURIComponent(status)}` : ''}`)
+
+export const getRide = (rideId) =>
+  request('GET', `/api/rides/${encodeURIComponent(rideId)}`)
 
 export const cancelRide = (rideId) => request('DELETE', `/api/rides/${encodeURIComponent(rideId)}`)
 

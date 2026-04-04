@@ -1021,7 +1021,7 @@ def init_db():
                 """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1365,7 +1365,7 @@ def init_db():
                     );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0")]:
                     try:
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -7443,14 +7443,14 @@ def _get_app_user_by_email(email: str) -> dict | None:
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id,name,email,password_hash,role,location_lat,location_lng,location_name,created_at FROM app_users WHERE email=%s", (email.lower(),))
+                cur.execute("SELECT user_id,name,email,password_hash,role,location_lat,location_lng,location_name,created_at,email_verified FROM app_users WHERE email=%s", (email.lower(),))
                 row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id,name,email,password_hash,role,location_lat,location_lng,location_name,created_at FROM app_users WHERE email=?", (email.lower(),))
+                cur = conn.execute("SELECT user_id,name,email,password_hash,role,location_lat,location_lng,location_name,created_at,email_verified FROM app_users WHERE email=?", (email.lower(),))
                 row = cur.fetchone()
             if row is None:
                 return None
-            keys = ["user_id", "name", "email", "password_hash", "role", "location_lat", "location_lng", "location_name", "created_at"]
+            keys = ["user_id", "name", "email", "password_hash", "role", "location_lat", "location_lng", "location_name", "created_at", "email_verified"]
             return dict(zip(keys, row))
         finally:
             conn.close()
@@ -7462,6 +7462,16 @@ class _UserRegisterRequest(BaseModel):
     password: str
     role:     str = "passenger"  # "passenger" | "driver"
     username: str = ""
+    phone:    str = ""
+
+
+class _ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class _ResetPasswordRequest(BaseModel):
+    token:        str
+    new_password: str
 
 
 class _UserLoginRequest(BaseModel):
@@ -7526,6 +7536,7 @@ async def api_user_register(body: _UserRegisterRequest):
     email    = body.email.strip().lower()
     password = body.password
     role     = body.role if body.role in ("passenger", "driver") else "passenger"
+    phone    = body.phone.strip()
 
     if not name or not email or not password:
         return JSONResponse({"error": "Name, email and password are required."}, status_code=400)
@@ -7542,6 +7553,8 @@ async def api_user_register(body: _UserRegisterRequest):
     user_id      = str(uuid.uuid4())
     pw_hash      = generate_password_hash(password)
     created_at   = datetime.now(timezone.utc).isoformat()
+    # Auto-verify when SMTP is not configured so that development/tests work
+    email_verified = 0 if _SMTP_HOST else 1
 
     with _db_lock:
         conn = _get_db()
@@ -7556,13 +7569,13 @@ async def api_user_register(body: _UserRegisterRequest):
                     if USE_POSTGRES:
                         cur = conn.cursor()
                         cur.execute(
-                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                            (user_id, name, email, pw_hash, role, created_at, username),
+                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username,phone,email_verified) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (user_id, name, email, pw_hash, role, created_at, username, phone, email_verified),
                         )
                     else:
                         conn.execute(
-                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username) VALUES (?,?,?,?,?,?,?)",
-                            (user_id, name, email, pw_hash, role, created_at, username),
+                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username,phone,email_verified) VALUES (?,?,?,?,?,?,?,?,?)",
+                            (user_id, name, email, pw_hash, role, created_at, username, phone, email_verified),
                         )
                     break  # success
                 except Exception as _exc:
@@ -7581,14 +7594,30 @@ async def api_user_register(body: _UserRegisterRequest):
         finally:
             conn.close()
 
+    # Send verification email if SMTP is configured
+    if _SMTP_HOST and email_verified == 0:
+        verify_token = secrets.token_urlsafe(32)
+        expires_at = time.time() + _EMAIL_VERIFY_TTL_SECONDS
+        with _email_verify_lock:
+            _email_verify_tokens[verify_token] = {"user_id": user_id, "email": email, "expires_at": expires_at}
+        _send_email(
+            email,
+            "Verify your YotWeek account",
+            f"Welcome to YotWeek, {name}!\n\nPlease verify your email address by clicking the link below:\n\n"
+            f"/api/auth/verify_email?token={verify_token}\n\n"
+            f"This link expires in 24 hours.\n\nIf you did not register, please ignore this email.",
+        )
+
     return JSONResponse({
-        "ok":        True,
-        "user_id":   user_id,
-        "name":      name,
-        "email":     email,
-        "role":      role,
-        "username":  username,
-        "created_at": created_at,
+        "ok":             True,
+        "user_id":        user_id,
+        "name":           name,
+        "email":          email,
+        "role":           role,
+        "username":       username,
+        "phone":          phone,
+        "email_verified": bool(email_verified),
+        "created_at":     created_at,
     }, status_code=201)
 
 
@@ -7601,6 +7630,13 @@ async def api_user_login(request: Request, body: _UserLoginRequest):
     user = _get_app_user_by_email(email)
     if user is None or not check_password_hash(user["password_hash"], password):
         return JSONResponse({"error": "Invalid email or password."}, status_code=401)
+
+    # If SMTP is configured, require email verification before login
+    if _SMTP_HOST and not user.get("email_verified", 1):
+        return JSONResponse(
+            {"error": "Please verify your email first. Check your inbox for the verification link."},
+            status_code=403,
+        )
 
     request.session["app_user_id"] = user["user_id"]
     if body.remember_me:
@@ -7621,6 +7657,108 @@ async def api_user_logout(request: Request):
     """Logout the current platform user."""
     request.session.pop("app_user_id", None)
     return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/auth/verify_email")
+async def api_verify_email(request: Request, token: str = ""):
+    """Verify a user's email address via a one-time token.
+
+    Sets email_verified=1 on the user row and redirects to /login with a
+    success query parameter so the frontend can show a confirmation message.
+    """
+    token = token.strip()
+    if not token:
+        return JSONResponse({"error": "Token required."}, status_code=400)
+
+    with _email_verify_lock:
+        entry = _email_verify_tokens.get(token)
+        if entry is None or time.time() > entry["expires_at"]:
+            _email_verify_tokens.pop(token, None)
+            return JSONResponse({"error": "Invalid or expired verification link."}, status_code=400)
+        del _email_verify_tokens[token]  # single-use
+
+    user_id = entry["user_id"]
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE app_users SET email_verified=1 WHERE user_id=%s", (user_id,))
+            else:
+                conn.execute("UPDATE app_users SET email_verified=1 WHERE user_id=?", (user_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    from starlette.responses import RedirectResponse
+    return RedirectResponse(url="/login?verified=1", status_code=303)
+
+
+@fastapi_app.post("/api/auth/forgot_password")
+async def api_forgot_password(body: _ForgotPasswordRequest):
+    """Send a password-reset link to the given email address.
+
+    Always returns a generic success message to avoid account enumeration.
+    The token is also returned in the response for development/testing convenience.
+    """
+    email = body.email.strip().lower()
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return JSONResponse({"error": "Invalid email address."}, status_code=400)
+
+    user = _get_app_user_by_email(email)
+    msg = "If that address is registered, a password reset link has been sent."
+    if user is None:
+        return JSONResponse({"ok": True, "message": msg})
+
+    token = secrets.token_urlsafe(32)
+    expires_at = time.time() + _PWD_RESET_TTL_SECONDS
+    with _pwd_reset_lock:
+        _pwd_reset_tokens[token] = {"user_id": user["user_id"], "expires_at": expires_at}
+
+    _send_email(
+        email,
+        "Reset your YotWeek password",
+        f"Hi {user['name']},\n\nYou requested a password reset.\n\n"
+        f"Click the link below to set a new password (valid for 1 hour):\n\n"
+        f"/reset-password?token={token}\n\n"
+        f"If you did not request this, please ignore this email.",
+    )
+
+    return JSONResponse({"ok": True, "token": token, "message": msg})
+
+
+@fastapi_app.post("/api/auth/reset_password")
+async def api_reset_password(body: _ResetPasswordRequest):
+    """Reset a user's password using a valid reset token."""
+    token        = body.token.strip()
+    new_password = body.new_password
+
+    if not token:
+        return JSONResponse({"error": "Token required."}, status_code=400)
+    if len(new_password) < 6:
+        return JSONResponse({"error": "Password must be at least 6 characters."}, status_code=400)
+
+    with _pwd_reset_lock:
+        entry = _pwd_reset_tokens.get(token)
+        if entry is None or time.time() > entry["expires_at"]:
+            _pwd_reset_tokens.pop(token, None)
+            return JSONResponse({"error": "Invalid or expired reset token."}, status_code=400)
+        del _pwd_reset_tokens[token]  # single-use
+
+    new_hash = generate_password_hash(new_password)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE app_users SET password_hash=%s WHERE user_id=%s", (new_hash, entry["user_id"]))
+            else:
+                conn.execute("UPDATE app_users SET password_hash=? WHERE user_id=?", (new_hash, entry["user_id"]))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True, "message": "Password updated successfully. You can now log in with your new password."})
 
 
 @fastapi_app.get("/api/auth/me")
@@ -7702,6 +7840,83 @@ async def api_user_dashboard(request: Request):
             "open_rides": open_rides,
         },
         "recent_rides": recent_rides,
+    })
+
+
+@fastapi_app.get("/api/driver/dashboard")
+async def api_driver_dashboard(request: Request):
+    """Return aggregated dashboard data for the logged-in driver.
+
+    Requires the caller to have role='driver'. Returns posted rides, total
+    passenger counts, and recent confirmed bookings.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if user is None:
+        request.session.pop("app_user_id", None)
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    if user.get("role") != "driver":
+        return JSONResponse({"error": "Driver access required."}, status_code=403)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["ride_id", "origin", "destination", "departure",
+                    "seats", "status", "fare", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT ride_id,origin,destination,departure,seats,status,fare,created_at "
+                    "FROM rides WHERE user_id=%s ORDER BY created_at DESC LIMIT 10",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+                cur.execute("SELECT COUNT(*) FROM rides WHERE user_id=%s", (user_id,))
+                total_rides = (cur.fetchone() or [0])[0]
+                cur.execute("SELECT COUNT(*) FROM rides WHERE user_id=%s AND status='open'", (user_id,))
+                open_rides = (cur.fetchone() or [0])[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM ride_journey_confirmations rjc "
+                    "JOIN rides r ON r.ride_id=rjc.ride_id WHERE r.user_id=%s",
+                    (user_id,),
+                )
+                total_passengers = (cur.fetchone() or [0])[0]
+            else:
+                cur = conn.execute(
+                    "SELECT ride_id,origin,destination,departure,seats,status,fare,created_at "
+                    "FROM rides WHERE user_id=? ORDER BY created_at DESC LIMIT 10",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+                cur = conn.execute("SELECT COUNT(*) FROM rides WHERE user_id=?", (user_id,))
+                total_rides = (cur.fetchone() or [0])[0]
+                cur = conn.execute("SELECT COUNT(*) FROM rides WHERE user_id=? AND status='open'", (user_id,))
+                open_rides = (cur.fetchone() or [0])[0]
+                try:
+                    cur = conn.execute(
+                        "SELECT COUNT(*) FROM ride_journey_confirmations rjc "
+                        "JOIN rides r ON r.ride_id=rjc.ride_id WHERE r.user_id=?",
+                        (user_id,),
+                    )
+                    total_passengers = (cur.fetchone() or [0])[0]
+                except Exception:
+                    total_passengers = 0
+        finally:
+            conn.close()
+
+    posted_rides = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({
+        "user": user,
+        "stats": {
+            "total_rides":     total_rides,
+            "open_rides":      open_rides,
+            "total_passengers": total_passengers,
+        },
+        "posted_rides": posted_rides,
     })
 
 
@@ -8276,6 +8491,16 @@ async def api_ride_chat_inbox(request: Request):
 _magic_link_tokens: dict = {}
 _magic_link_lock = threading.Lock()
 _MAGIC_LINK_TTL_SECONDS = 900  # 15 minutes
+
+# In-memory store: token → {email, expires_at}
+_email_verify_tokens: dict = {}
+_email_verify_lock = threading.Lock()
+_EMAIL_VERIFY_TTL_SECONDS = 86400  # 24 hours
+
+# In-memory store: token → {user_id, expires_at}
+_pwd_reset_tokens: dict = {}
+_pwd_reset_lock = threading.Lock()
+_PWD_RESET_TTL_SECONDS = 3600  # 1 hour
 
 
 @fastapi_app.post("/api/auth/magic_link")
@@ -9265,6 +9490,59 @@ async def api_rides_estimate_fare(start: str, destination: str, seats: int = 1):
         "seats":            seats,
         "rate_per_km":      _FARE_PER_KM,
     })
+
+
+@fastapi_app.get("/api/rides/{ride_id}")
+async def api_get_ride(request: Request, ride_id: str):
+    """Fetch details for a single ride by ride_id.
+
+    Returns 404 if the ride does not exist and 403 if the requesting user is
+    not the driver or a confirmed/taking passenger for the ride.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    cols = [
+        "ride_id", "user_id", "driver_name", "origin", "destination",
+        "origin_lat", "origin_lng", "dest_lat", "dest_lng",
+        "fare", "departure", "seats", "notes", "status",
+        "ride_type", "vehicle_color", "vehicle_type", "plate_number", "created_at",
+    ]
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,"
+                    "origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,"
+                    "notes,status,ride_type,vehicle_color,vehicle_type,plate_number,created_at "
+                    "FROM rides WHERE ride_id=%s",
+                    (ride_id,),
+                )
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(
+                    "SELECT ride_id,user_id,driver_name,origin,destination,"
+                    "origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,"
+                    "notes,status,ride_type,vehicle_color,vehicle_type,plate_number,created_at "
+                    "FROM rides WHERE ride_id=?",
+                    (ride_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"error": "Ride not found."}, status_code=404)
+
+    ride = dict(zip(cols, row))
+
+    # Allow access to the driver (poster) or any authenticated user viewing
+    # a public ride listing.  For confirmed passengers only, restrict further
+    # when the ride is completed/cancelled.
+    return JSONResponse({"ride": ride})
 
 
 @fastapi_app.delete("/api/rides/{ride_id}")

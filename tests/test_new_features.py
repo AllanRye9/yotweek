@@ -65,6 +65,13 @@ from api.app import (
     _ProximityNotifyRequest,
     _RideRequestCreate,
     _TravelCompanionCreate,
+    api_driver_dashboard,
+    api_get_ride,
+    api_verify_email,
+    api_forgot_password,
+    api_reset_password,
+    _ForgotPasswordRequest,
+    _ResetPasswordRequest,
 )
 
 
@@ -4997,3 +5004,271 @@ class TestTravelCompanions:
         other_req = _make_request(other_session)
         resp = run(api_delete_travel_companion(other_req, companion_id))
         assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Feature 1.1 – Registration: phone field
+# ---------------------------------------------------------------------------
+
+class TestUserRegisterPhone:
+    def test_register_with_phone(self):
+        import json
+        email = _unique_email("phonereg")
+        resp = run(api_user_register(_UserRegisterRequest(
+            name="PhoneUser",
+            email=email,
+            password="Secure1!",
+            role="passenger",
+            phone="+44 7911 123456",
+        )))
+        assert resp.status_code == 201
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+        assert body["phone"] == "+44 7911 123456"
+
+    def test_register_without_phone_defaults_empty(self):
+        import json
+        email = _unique_email("nophone")
+        resp = run(api_user_register(_UserRegisterRequest(
+            name="NoPhone",
+            email=email,
+            password="Secure1!",
+        )))
+        assert resp.status_code == 201
+        body = json.loads(resp.body)
+        assert body.get("phone", "") == ""
+
+    def test_register_returns_email_verified_flag(self):
+        import json
+        email = _unique_email("verifyflag")
+        resp = run(api_user_register(_UserRegisterRequest(
+            name="VerifyFlag",
+            email=email,
+            password="Secure1!",
+        )))
+        assert resp.status_code == 201
+        body = json.loads(resp.body)
+        # email_verified should be present in the response
+        assert "email_verified" in body
+
+
+# ---------------------------------------------------------------------------
+# Feature 1.3 – Password Reset
+# ---------------------------------------------------------------------------
+
+class TestForgotPassword:
+    def test_forgot_password_unknown_email_still_ok(self):
+        """Should not reveal whether the email is registered."""
+        import json
+        from api.app import api_forgot_password, _ForgotPasswordRequest
+        resp = run(api_forgot_password(_ForgotPasswordRequest(email="nobody@nowhere.test")))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+
+    def test_forgot_password_invalid_email_returns_400(self):
+        from api.app import api_forgot_password, _ForgotPasswordRequest
+        resp = run(api_forgot_password(_ForgotPasswordRequest(email="not-an-email")))
+        assert resp.status_code == 400
+
+    def test_forgot_password_known_email_returns_token(self):
+        """For demo purposes the token is included in the response."""
+        import json
+        from api.app import api_forgot_password, _ForgotPasswordRequest
+        _, email = _register_user("ForgotPwUser")
+        resp = run(api_forgot_password(_ForgotPasswordRequest(email=email)))
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+        assert "token" in body
+        assert len(body["token"]) > 10
+
+
+class TestResetPassword:
+    def test_reset_password_ok(self):
+        import json
+        from api.app import api_forgot_password, api_reset_password, _ForgotPasswordRequest, _ResetPasswordRequest
+        _, email = _register_user("ResetPwUser")
+        # Get reset token
+        forgot_resp = run(api_forgot_password(_ForgotPasswordRequest(email=email)))
+        token = json.loads(forgot_resp.body)["token"]
+        # Reset the password
+        resp = run(api_reset_password(_ResetPasswordRequest(token=token, new_password="NewPass1!")))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+
+    def test_reset_password_allows_login_with_new_password(self):
+        import json
+        from api.app import api_forgot_password, api_reset_password, _ForgotPasswordRequest, _ResetPasswordRequest
+        _, email = _register_user("ResetLoginUser")
+        forgot_resp = run(api_forgot_password(_ForgotPasswordRequest(email=email)))
+        token = json.loads(forgot_resp.body)["token"]
+        run(api_reset_password(_ResetPasswordRequest(token=token, new_password="BrandNew1!")))
+        # Should be able to log in with the new password
+        session = {}
+        req = _make_request(session)
+        resp = run(api_user_login(req, _UserLoginRequest(email=email, password="BrandNew1!")))
+        body = json.loads(resp.body)
+        assert body["ok"] is True
+
+    def test_reset_password_invalid_token_returns_400(self):
+        from api.app import api_reset_password, _ResetPasswordRequest
+        resp = run(api_reset_password(_ResetPasswordRequest(token="notarealtoken", new_password="NewPass1!")))
+        assert resp.status_code == 400
+
+    def test_reset_password_token_single_use(self):
+        """Using the same token twice should fail on the second attempt."""
+        import json
+        from api.app import api_forgot_password, api_reset_password, _ForgotPasswordRequest, _ResetPasswordRequest
+        _, email = _register_user("SingleUseToken")
+        forgot_resp = run(api_forgot_password(_ForgotPasswordRequest(email=email)))
+        token = json.loads(forgot_resp.body)["token"]
+        run(api_reset_password(_ResetPasswordRequest(token=token, new_password="First1!")))
+        resp2 = run(api_reset_password(_ResetPasswordRequest(token=token, new_password="Second1!")))
+        assert resp2.status_code == 400
+
+    def test_reset_password_short_password_returns_400(self):
+        import json
+        from api.app import api_forgot_password, api_reset_password, _ForgotPasswordRequest, _ResetPasswordRequest
+        _, email = _register_user("ShortResetPw")
+        forgot_resp = run(api_forgot_password(_ForgotPasswordRequest(email=email)))
+        token = json.loads(forgot_resp.body)["token"]
+        resp = run(api_reset_password(_ResetPasswordRequest(token=token, new_password="abc")))
+        assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Feature 1.5 – Driver Dashboard API
+# ---------------------------------------------------------------------------
+
+class TestDriverDashboard:
+    def test_driver_dashboard_requires_login(self):
+        from api.app import api_driver_dashboard
+        req = _make_request({})
+        resp = run(api_driver_dashboard(req))
+        assert resp.status_code == 401
+
+    def test_driver_dashboard_returns_data_for_driver(self):
+        import json
+        from api.app import api_driver_dashboard
+        _, email = _register_driver("DashDriver")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_driver_dashboard(req))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert "user" in body
+        assert "stats" in body
+        assert "posted_rides" in body
+
+    def test_driver_dashboard_forbidden_for_passenger(self):
+        from api.app import api_driver_dashboard
+        _, email = _register_user("PassengerDash")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_driver_dashboard(req))
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Feature 2.3 – GET /api/rides/{ride_id}
+# ---------------------------------------------------------------------------
+
+class TestGetRideById:
+    def test_get_ride_returns_ride(self):
+        import json
+        from api.app import api_get_ride, api_ride_post, _RidePostRequest
+        _, driver_email = _register_driver("GetRideDriver")
+        session = _login_session(driver_email)
+        req = _make_request(session)
+        post_resp = run(api_ride_post(req, _RidePostRequest(
+            origin="City A", destination="Airport", departure="2035-01-01 08:00",
+            seats=3, fare=25.0,
+        )))
+        ride_id = json.loads(post_resp.body)["ride_id"]
+        # Fetch single ride
+        resp = run(api_get_ride(req, ride_id))
+        assert resp.status_code == 200
+        body = json.loads(resp.body)
+        assert body["ride"]["ride_id"] == ride_id
+        assert body["ride"]["origin"] == "City A"
+
+    def test_get_ride_not_found_returns_404(self):
+        from api.app import api_get_ride
+        _, email = _register_user("GetRideNotFound")
+        session = _login_session(email)
+        req = _make_request(session)
+        resp = run(api_get_ride(req, "nonexistent-ride-id"))
+        assert resp.status_code == 404
+
+    def test_get_ride_requires_login(self):
+        from api.app import api_get_ride
+        req = _make_request({})
+        resp = run(api_get_ride(req, "some-ride-id"))
+        assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Feature 1.1 – Email verification token flow
+# ---------------------------------------------------------------------------
+
+class TestEmailVerification:
+    def test_verify_email_invalid_token_returns_400(self):
+        from api.app import api_verify_email
+        req = _make_request({})
+        resp = run(api_verify_email(req, token="badtoken"))
+        assert resp.status_code == 400
+
+    def test_verify_email_missing_token_returns_400(self):
+        from api.app import api_verify_email
+        req = _make_request({})
+        resp = run(api_verify_email(req, token=""))
+        assert resp.status_code == 400
+
+    def test_verify_email_valid_token_marks_user_verified(self):
+        """Simulate the verification flow directly via the token store."""
+        import json, time
+        from api.app import (
+            api_verify_email, _email_verify_tokens, _email_verify_lock,
+            _get_app_user, _get_db, _db_lock, USE_POSTGRES,
+        )
+        # Register a user (they'll be auto-verified in test env without SMTP)
+        _, email = _register_user("VerifyEmailUser")
+        # Manually insert a verification token
+        email_lower = email.lower()
+        # Look up user_id
+        from api.app import _get_app_user_by_email
+        user = _get_app_user_by_email(email_lower)
+        assert user is not None
+        user_id = user["user_id"]
+
+        # Force email_verified to 0
+        with _db_lock:
+            conn = _get_db()
+            try:
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute("UPDATE app_users SET email_verified=0 WHERE user_id=%s", (user_id,))
+                else:
+                    conn.execute("UPDATE app_users SET email_verified=0 WHERE user_id=?", (user_id,))
+                conn.commit()
+            finally:
+                conn.close()
+
+        import secrets
+        token = secrets.token_urlsafe(32)
+        with _email_verify_lock:
+            _email_verify_tokens[token] = {
+                "user_id": user_id,
+                "email": email_lower,
+                "expires_at": time.time() + 3600,
+            }
+
+        req = _make_request({})
+        resp = run(api_verify_email(req, token=token))
+        # Should redirect (303) or return success
+        assert resp.status_code in (200, 303)
+
+        # Verify the token is consumed (single-use)
+        with _email_verify_lock:
+            assert token not in _email_verify_tokens

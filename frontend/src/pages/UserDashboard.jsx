@@ -448,10 +448,15 @@ export default function UserDashboard() {
   const scrollTimerRef = useRef(null)
   const tabPanelRef    = useRef(null)
 
-  // Load current user; redirect to home if not logged in
+  // Load current user; redirect to login if not logged in, or driver dashboard if role=driver
   useEffect(() => {
     getUserProfile()
       .then(u => {
+        // Drivers belong on the driver dashboard
+        if (u.role === 'driver') {
+          navigate('/driver/dashboard', { replace: true })
+          return
+        }
         setAppUser(u)
         // Fetch dashboard stats once we know the user
         return fetch('/api/user/dashboard', { credentials: 'include' })
@@ -460,8 +465,8 @@ export default function UserDashboard() {
           .catch(() => {})
       })
       .catch(() => {
-        // Not logged in — go back to home
-        navigate('/', { replace: true })
+        // Not logged in — redirect to login page
+        navigate('/login', { replace: true })
       })
       .finally(() => setUserLoading(false))
   }, [navigate])
@@ -554,7 +559,7 @@ export default function UserDashboard() {
 
   const handleLogout = async () => {
     try { await userLogout() } catch {}
-    navigate('/', { replace: true })
+    navigate('/login', { replace: true })
   }
 
   // Loading state

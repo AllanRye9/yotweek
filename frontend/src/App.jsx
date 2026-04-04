@@ -6,6 +6,10 @@ import { SESSION_ID } from './session'
 import Home from './pages/Home'
 import RidesPage from './pages/RidesPage'
 import UserDashboard from './pages/UserDashboard'
+import DriverDashboard from './pages/DriverDashboard'
+import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import AdminLogin from './pages/AdminLogin'
 import AdminDashboard from './pages/AdminDashboard'
 import TouristSitesPage from './pages/TouristSitesPage'
@@ -13,6 +17,8 @@ import UnifiedMapPage from './pages/UnifiedMapPage'
 import ProfilePage from './pages/ProfilePage'
 import InboxPage from './pages/InboxPage'
 import AgentsPage from './pages/AgentsPage'
+import RideChatPage from './pages/RideChatPage'
+import RequestsPage from './pages/RequestsPage'
 
 // ─── Auth Context ────────────────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -114,8 +120,21 @@ export default function App() {
         <AuthProvider>
           <Routes>
             <Route path="/" element={<Home />} />
+            {/* Auth pages */}
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            {/* Rides */}
             <Route path="/rides" element={<RidesPage />} />
-            <Route path="/dashboard" element={<UserDashboard />} />
+            <Route path="/rides/:rideId/chat" element={<RideChatPage />} />
+            {/* Requests */}
+            <Route path="/requests" element={<RequestsPage />} />
+            {/* Dashboards — each page handles its own auth + role checks */}
+            <Route path="/user/dashboard" element={<UserDashboard />} />
+            <Route path="/driver/dashboard" element={<DriverDashboard />} />
+            {/* Legacy /dashboard → /user/dashboard */}
+            <Route path="/dashboard" element={<Navigate to="/user/dashboard" replace />} />
+            {/* Other pages */}
             <Route path="/profile" element={<ProfilePage />} />
             <Route path="/tourist-sites" element={<TouristSitesPage />} />
             {/* Legacy redirects — real estate / property features removed */}

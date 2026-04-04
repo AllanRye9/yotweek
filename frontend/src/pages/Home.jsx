@@ -8,6 +8,7 @@ import DocConverter from '../components/DocConverter'
 import UserAuth from '../components/UserAuth'
 import RideShare from '../components/RideShare'
 import { getUserProfile } from '../api'
+import { getDashboardPath } from '../routing'
 import socket from '../socket'
 
 function RideShareEmbed({ user }) {
@@ -467,8 +468,8 @@ export default function Home() {
     getUserProfile()
       .then(u => {
         setAppUser(u)
-        // Already logged in — send to personal dashboard
-        navigate('/dashboard', { replace: true })
+        // Already logged in — send to the correct role-based dashboard
+        navigate(getDashboardPath(u), { replace: true })
       })
       .catch(() => setAppUser(false))
       .finally(() => setUserLoading(false))
@@ -487,7 +488,7 @@ export default function Home() {
       {/* Global auth modal — accessible from hero CTA and navbar */}
       {showAuthModal && !appUser && (
         <UserAuth
-          onSuccess={(u) => { setAppUser(u); setShowAuthModal(false); navigate('/dashboard', { replace: true }) }}
+          onSuccess={(u) => { setAppUser(u); setShowAuthModal(false); navigate(getDashboardPath(u), { replace: true }) }}
           onClose={() => setShowAuthModal(false)}
         />
       )}
