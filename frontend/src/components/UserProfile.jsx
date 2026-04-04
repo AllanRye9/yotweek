@@ -547,7 +547,6 @@ function InboxTab({ user, unreadCount, onUnreadChange }) {
                       </div>
                     </div>
                   </div>
-                  </div>
                 </div>
               ))}
             </div>
