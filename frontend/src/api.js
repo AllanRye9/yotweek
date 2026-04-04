@@ -410,6 +410,9 @@ export const createRideRequest = (origin, destination, desired_date, passengers 
 export const listRideRequests = (status = 'open') =>
   request('GET', `/api/ride_requests${status !== 'open' ? `?status=${encodeURIComponent(status)}` : ''}`)
 
+// Backward-compatible alias for pages/components still using the old name.
+export const getRideRequests = (status = 'open') => listRideRequests(status)
+
 export const acceptRideRequest = (requestId) =>
   request('POST', `/api/ride_requests/${encodeURIComponent(requestId)}/accept`, {})
 
