@@ -572,3 +572,19 @@ export const downloadReceiptPdf = async (receiptId) => {
   const blob = await res.blob()
   triggerBlobDownload(blob, `receipt-${receiptId}.pdf`)
 }
+
+// ── Aliased DM helpers (used by InboxPage) ────────────────────────────────────
+
+export const getDmConversations = (search = '') =>
+  request('GET', `/api/dm/conversations${search ? '?search=' + encodeURIComponent(search) : ''}`)
+
+export const getDmContacts = () => request('GET', '/api/dm/contacts')
+
+export const getDmMessages = (userId) =>
+  request('GET', `/api/dm/${encodeURIComponent(userId)}/messages`)
+
+export const sendDmMessage = (userId, content) =>
+  request('POST', `/api/dm/${encodeURIComponent(userId)}/messages`, { content })
+
+export const markNotificationsRead = () =>
+  request('POST', '/api/notifications/read_all', {})

@@ -7,6 +7,7 @@ import FileList from '../components/FileList'
 import CVGenerator from '../components/CVGenerator'
 import DocConverter from '../components/DocConverter'
 import RideShare from '../components/RideShare'
+import RideChat from '../components/RideChat'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import DMInbox from '../components/DMInbox'
@@ -15,6 +16,7 @@ import {
   getUserProfile, userLogout, getNotifications,
   markAllNotificationsRead, markNotificationRead, clearAllNotifications,
   getRideHistory, getRideChatInbox,
+  listRides, getConfirmedUsers, cancelRide,
   driverApply, getDriverApplication,
 } from '../api'
 import socket from '../socket'
@@ -162,6 +164,255 @@ function OverviewPanel({ user, dashStats, onSelectTab, onNavigate }) {
             >
               View full profile &amp; ride history →
             </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Rides Dashboard Tab ────────────────────────────────────────────────────────
+
+function RidesDashboardTab({ user }) {
+  const isDriver = user?.role === 'driver'
+  const [subTab, setSubTab]         = useState(isDriver ? 'posted' : 'bookings')
+  const [rides, setRides]           = useState([])
+  const [loading, setLoading]       = useState(true)
+  const [selectedRide, setSelectedRide] = useState(null)
+
+  // Confirmed passengers per ride
+  const [passengersMap, setPassengersMap] = useState({})
+
+  // Journey history (passengers)
+  const [history, setHistory]       = useState([])
+  const [histLoading, setHistLoading] = useState(false)
+
+  const loadRides = () => {
+    setLoading(true)
+    listRides()
+      .then(d => setRides(d.rides || []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { loadRides() }, [])
+
+  useEffect(() => {
+    if (!isDriver && subTab === 'history') {
+      setHistLoading(true)
+      getRideHistory()
+        .then(d => setHistory(d.rides || []))
+        .catch(() => {})
+        .finally(() => setHistLoading(false))
+    }
+  }, [subTab, isDriver])
+
+  const myPostedRides = rides.filter(r => r.user_id === user?.user_id)
+
+  const loadPassengers = async (rideId) => {
+    if (passengersMap[rideId]) return
+    try {
+      const d = await getConfirmedUsers(rideId)
+      setPassengersMap(m => ({ ...m, [rideId]: d.confirmed_users || [] }))
+    } catch {
+      setPassengersMap(m => ({ ...m, [rideId]: [] }))
+    }
+  }
+
+  const handleCancel = async (rideId) => {
+    try { await cancelRide(rideId); loadRides() } catch {}
+  }
+
+  const inputSty = { background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }
+  const statusBadge = (s) => {
+    const cls = s === 'open' ? 'ride-tag-open' : s === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'
+    return <span className={`ride-status-tag ${cls}`}>{s}</span>
+  }
+
+  const driverSubTabs = [
+    { id: 'posted',   label: '🚗 My Rides' },
+    { id: 'bookings', label: '👥 Bookings' },
+    { id: 'stats',    label: '📊 Statistics' },
+  ]
+  const passengerSubTabs = [
+    { id: 'bookings', label: '🎫 My Bookings' },
+    { id: 'history',  label: '📋 Journey History' },
+  ]
+  const subTabs = isDriver ? driverSubTabs : passengerSubTabs
+
+  // Stats
+  const totalFare = myPostedRides.reduce((sum, r) => sum + (r.fare || 0), 0)
+  const totalPax  = Object.values(passengersMap).reduce((s, a) => s + a.length, 0)
+
+  return (
+    <div className="card space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Rides</h2>
+        <button onClick={loadRides} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 flex-wrap">
+        {subTabs.map(t => (
+          <button key={t.id} onClick={() => setSubTab(t.id)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${subTab === t.id ? 'bg-amber-500 text-black' : 'text-gray-400 hover:text-white'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Driver — My Posted Rides */}
+      {isDriver && subTab === 'posted' && (
+        <div className="space-y-3">
+          {loading ? <p className="text-sm text-gray-500 py-4 text-center">Loading…</p>
+          : myPostedRides.length === 0 ? <p className="text-sm text-gray-500 py-4 text-center">No rides posted yet.</p>
+          : myPostedRides.map(ride => (
+            <div key={ride.ride_id} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-white">{ride.origin} → {ride.destination}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {ride.departure ? new Date(ride.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                    {' · '}{ride.seats} seat(s)
+                    {ride.fare ? ` · $${ride.fare}` : ''}
+                  </p>
+                </div>
+                {statusBadge(ride.status)}
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setSelectedRide(ride)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-colors">
+                  💬 Chat
+                </button>
+                {ride.status === 'open' && (
+                  <button onClick={() => handleCancel(ride.ride_id)}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-gray-400 hover:text-white border border-gray-700 transition-colors">
+                    Cancel
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Driver — Confirmed Bookings */}
+      {isDriver && subTab === 'bookings' && (
+        <div className="space-y-4">
+          {myPostedRides.length === 0 ? (
+            <p className="text-sm text-gray-500 py-4 text-center">No posted rides.</p>
+          ) : myPostedRides.map(ride => (
+            <div key={ride.ride_id} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-white">{ride.origin} → {ride.destination}</p>
+                <button onClick={() => loadPassengers(ride.ride_id)}
+                        className="text-xs text-blue-400 hover:text-blue-300">
+                  Load passengers
+                </button>
+              </div>
+              {passengersMap[ride.ride_id] ? (
+                passengersMap[ride.ride_id].length === 0 ? (
+                  <p className="text-xs text-gray-500">No confirmed passengers yet.</p>
+                ) : (
+                  <ul className="divide-y divide-gray-700">
+                    {passengersMap[ride.ride_id].map((p, i) => (
+                      <li key={i} className="py-1.5 flex gap-4 text-xs">
+                        <span className="text-white font-medium">{p.real_name}</span>
+                        <span className="text-gray-400">{p.contact}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )
+              ) : (
+                <p className="text-xs text-gray-600">Click "Load passengers" to view.</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Driver — Statistics */}
+      {isDriver && subTab === 'stats' && (
+        <div className="grid grid-cols-3 gap-4">
+          {[
+            { icon: '🚗', value: myPostedRides.length, label: 'Rides Posted' },
+            { icon: '👥', value: totalPax, label: 'Passengers' },
+            { icon: '💰', value: `$${totalFare.toFixed(2)}`, label: 'Total Fare' },
+          ].map((s, i) => (
+            <div key={i} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4 flex flex-col gap-1">
+              <span className="text-2xl">{s.icon}</span>
+              <span className="text-xl font-bold text-white">{s.value}</span>
+              <span className="text-xs text-gray-400">{s.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Passenger — My Bookings */}
+      {!isDriver && subTab === 'bookings' && (
+        <div className="space-y-3">
+          {loading ? <p className="text-sm text-gray-500 py-4 text-center">Loading…</p>
+          : rides.length === 0 ? <p className="text-sm text-gray-500 py-4 text-center">No bookings found.</p>
+          : rides.map(ride => (
+            <div key={ride.ride_id} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-white">{ride.origin} → {ride.destination}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {ride.departure ? new Date(ride.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                    {ride.driver_name ? ` · ${ride.driver_name}` : ''}
+                  </p>
+                </div>
+                {statusBadge(ride.status)}
+              </div>
+              <button onClick={() => setSelectedRide(ride)}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-colors">
+                💬 Open Chat
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Passenger — Journey History */}
+      {!isDriver && subTab === 'history' && (
+        <div>
+          {histLoading ? <p className="text-sm text-gray-500 py-4 text-center">Loading…</p>
+          : history.length === 0 ? <p className="text-sm text-gray-500 py-4 text-center">No journey history.</p>
+          : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead className="text-gray-500 border-b border-gray-700">
+                  <tr>
+                    <th className="py-2 pr-3">Status</th>
+                    <th className="py-2 pr-3">Route</th>
+                    <th className="py-2 pr-3">Departure</th>
+                    <th className="py-2">Seats</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(r => (
+                    <tr key={r.ride_id} className="border-b border-gray-800/60 hover:bg-gray-800/30 text-gray-300">
+                      <td className="py-2 pr-3">{statusBadge(r.status)}</td>
+                      <td className="py-2 pr-3 max-w-[200px] truncate">{r.origin} → {r.destination}</td>
+                      <td className="py-2 pr-3 whitespace-nowrap">{r.departure ? new Date(r.departure).toLocaleString() : ''}</td>
+                      <td className="py-2">{r.seats}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Chat overlay */}
+      {selectedRide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
+             style={{ background: 'rgba(0,0,0,0.7)' }}
+             onClick={() => setSelectedRide(null)}>
+          <div className="w-full max-w-lg h-[80vh]" onClick={e => e.stopPropagation()}>
+            <RideChat ride={selectedRide} user={user} onClose={() => setSelectedRide(null)} />
           </div>
         </div>
       )}
@@ -529,13 +780,7 @@ export default function UserDashboard() {
             )}
 
             {tab === 'rides' && (
-              <div className="card">
-                <div className="mb-4">
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🚗 Ride Share</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Post shared rides, find passengers, and get driver alerts.</p>
-                </div>
-                <RideShare user={appUser} />
-              </div>
+              <RidesDashboardTab user={appUser} />
             )}
 
             {tab === 'profile' && (
