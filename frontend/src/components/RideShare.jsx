@@ -494,10 +494,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       {/* ── Chat modal overlay ── */}
       {chatRide && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 ride-chat-overlay"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-6 bg-black/70 ride-chat-overlay"
           onClick={(e) => { if (e.target === e.currentTarget) { setChatRide(null); setChatDefaultMsg('') } }}
         >
-          <div className="ride-chat-modal w-full sm:w-[420px] sm:max-w-full h-[80vh] sm:h-[520px] bg-gray-900 border border-gray-700 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden">
+          <div className="ride-chat-modal w-full sm:w-[90vw] sm:max-w-2xl h-[90vh] sm:h-[82vh] bg-gray-900 border border-gray-700 sm:rounded-2xl rounded-t-2xl shadow-2xl flex flex-col overflow-hidden">
             <RideChat ride={chatRide} user={user} defaultMessage={chatDefaultMsg} onClose={() => { setChatRide(null); setChatDefaultMsg('') }} />
           </div>
         </div>

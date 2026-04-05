@@ -292,8 +292,8 @@ export default function RidesPage() {
             🚗 YotRides
           </Link>
 
-          {/* Nav */}
-          <nav className="flex gap-1 ml-2">
+          {/* Nav — desktop only; on mobile the tab bar below the ride list is used */}
+          <nav className="hidden sm:flex gap-1 ml-2">
             {[['rides', '🗺️ Rides'], ['requests', '🙋 Requests'], ['companions', '🌍 Companions']].map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)}
                       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${rightTab === id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
@@ -378,7 +378,7 @@ export default function RidesPage() {
       </header>
 
       {/* Main content */}
-      <main className="max-w-7xl mx-auto p-4 flex gap-4">
+      <main className="max-w-7xl mx-auto p-4 flex flex-col md:flex-row gap-4">
         {/* Left — ride list */}
         <section className="flex-1 min-w-0 space-y-4">
           {/* Top bar */}
@@ -462,15 +462,16 @@ export default function RidesPage() {
           )}
         </section>
 
-        {/* Right — tabs */}
-        <aside className="w-80 flex-shrink-0 space-y-3">
-          <div className="flex rounded-xl overflow-hidden border"
+        {/* Right — tabs: full width on mobile, fixed sidebar on desktop */}
+        <aside className="w-full md:w-80 md:flex-shrink-0 space-y-3">
+          {/* Mobile-only tab bar (desktop uses header nav) */}
+          <div className="flex rounded-xl overflow-hidden border sm:hidden"
                style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
-            {[['rides', '🗺️'], ['requests', '🙋'], ['companions', '🌍']].map(([id, icon]) => (
+            {[['rides', '🗺️ Rides'], ['requests', '🙋 Requests'], ['companions', '🌍 Companions']].map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)}
                       className={`flex-1 py-2 text-xs font-medium transition-colors ${rightTab === id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
                       style={rightTab !== id ? { color: 'var(--text-secondary)' } : {}}>
-                {icon}
+                {label}
               </button>
             ))}
           </div>
@@ -499,10 +500,11 @@ export default function RidesPage() {
 
       {/* Chat overlay */}
       {selectedRide && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center p-4"
-             style={{ background: 'rgba(0,0,0,0.7)' }}
+        <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center sm:p-6"
+             style={{ background: 'rgba(0,0,0,0.75)' }}
              onClick={() => setSelectedRide(null)}>
-          <div className="w-full max-w-lg h-[80vh]" onClick={e => e.stopPropagation()}>
+          <div className="w-full sm:w-[90vw] sm:max-w-2xl h-[90vh] sm:h-[82vh] sm:rounded-2xl rounded-t-2xl overflow-hidden shadow-2xl"
+               onClick={e => e.stopPropagation()}>
             <RideChat ride={selectedRide} user={appUser} onClose={() => setSelectedRide(null)} />
           </div>
         </div>
