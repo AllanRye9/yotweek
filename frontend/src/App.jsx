@@ -16,9 +16,10 @@ import TouristSitesPage from './pages/TouristSitesPage'
 import UnifiedMapPage from './pages/UnifiedMapPage'
 import ProfilePage from './pages/ProfilePage'
 import InboxPage from './pages/InboxPage'
-import AgentsPage from './pages/AgentsPage'
 import RideChatPage from './pages/RideChatPage'
 import RequestsPage from './pages/RequestsPage'
+import TravelCompanionsPage from './pages/TravelCompanionsPage'
+import NotificationsPage from './pages/NotificationsPage'
 
 // ─── Auth Context ────────────────────────────────────────────────────────
 const AuthCtx = createContext(null)
@@ -140,10 +141,13 @@ export default function App() {
             {/* Legacy redirects — real estate / property features removed */}
             <Route path="/properties" element={<Navigate to="/tourist-sites" replace />} />
             <Route path="/properties/:propertyId" element={<Navigate to="/tourist-sites" replace />} />
-            <Route path="/agents" element={<AgentsPage />} />
+            {/* Agent registration removed — redirect to home */}
+            <Route path="/agents" element={<Navigate to="/" replace />} />
             <Route path="/property-inbox" element={<Navigate to="/" replace />} />
             <Route path="/map" element={<UnifiedMapPage />} />
             <Route path="/inbox" element={<InboxPage />} />
+            <Route path="/companions" element={<TravelCompanionsPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin/register" element={<AdminLogin register />} />
             <Route path="/const" element={
