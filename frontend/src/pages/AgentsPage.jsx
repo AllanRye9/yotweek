@@ -5,37 +5,20 @@
  * status, and learn about the benefits of being a listed agent.
  */
 
-import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
-import { useAuth } from '../App'
+import { useState, useEffect } from 'react'
 import NavBar from '../components/NavBar'
 import AgentRegistration from '../components/AgentRegistration'
 import UserAuth from '../components/UserAuth'
-import UserProfile from '../components/UserProfile'
 import { getUserProfile } from '../api'
 
 export default function AgentsPage() {
-  const { admin } = useAuth()
-
   const [appUser,      setAppUser]      = useState(null)
-  const [userLoading,  setUserLoading]  = useState(true)
   const [showAuthModal,setShowAuthModal]= useState(false)
-  const [profileOpen,  setProfileOpen]  = useState(false)
-  const profileRef = useRef(null)
 
   useEffect(() => {
     getUserProfile()
       .then(u => setAppUser(u))
       .catch(() => setAppUser(false))
-      .finally(() => setUserLoading(false))
-  }, [])
-
-  useEffect(() => {
-    const h = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false)
-    }
-    document.addEventListener('mousedown', h)
-    return () => document.removeEventListener('mousedown', h)
   }, [])
 
   return (

@@ -460,9 +460,6 @@ export default function RidesPage() {
               ))}
             </div>
           )}
-
-          {/* Fare estimator at bottom */}
-          <FareEstimator />
         </section>
 
         {/* Right — tabs */}

@@ -337,20 +337,6 @@ export default function ProfilePage() {
     })
   }
 
-  // Inline styles for the layout
-  const headerStyle = {
-    width: '100%',
-    height: 56,
-    display: 'flex',
-    alignItems: 'center',
-    background: 'var(--bg-nav)',
-    borderBottom: '1px solid var(--border-color)',
-    flexShrink: 0,
-    position: 'sticky',
-    top: 0,
-    zIndex: 50,
-  }
-
   const mainContainerStyle = {
     flex: 1,
     width: '100%',
