@@ -24,7 +24,7 @@ const NAV_LINKS = [
   { to: '/tourist-sites', label: '🗺️ Tourist Sites' },
   { to: '/map',           label: '📍 Map'           },
   { to: '/inbox',         label: '💬 Inbox'         },
-  { to: '/agents',        label: '🧑‍💼 Agents'       },
+  { to: '/companions',    label: '🌍 Companions'    },
 ]
 
 export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
@@ -32,11 +32,9 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
   const navigate  = useNavigate()
   const location  = useLocation()
 
-  const [menuOpen,     setMenuOpen]     = useState(false)
-  const [profileOpen,  setProfileOpen]  = useState(false)
-  const [connected,    setConnected]    = useState(socket.connected)
-  const profileRef = useRef(null)
-  const menuRef    = useRef(null)
+  const [menuOpen,  setMenuOpen]  = useState(false)
+  const [connected, setConnected] = useState(socket.connected)
+  const menuRef = useRef(null)
 
   // Track socket connection state
   useEffect(() => {
@@ -51,11 +49,10 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
     }
   }, [])
 
-  // Close dropdowns on outside click
+  // Close mobile menu on outside click
   useEffect(() => {
     const handler = (e) => {
-      if (profileRef.current && !profileRef.current.contains(e.target)) setProfileOpen(false)
-      if (menuRef.current    && !menuRef.current.contains(e.target))    setMenuOpen(false)
+      if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -65,7 +62,6 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
   useEffect(() => { setMenuOpen(false) }, [location.pathname])
 
   const handleLogout = async () => {
-    setProfileOpen(false)
     setMenuOpen(false)
     try { await userLogout() } catch {}
     onLogout?.()
@@ -157,81 +153,36 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
           </Link>
         )}
 
-        {/* Auth / profile */}
+        {/* Notifications bell */}
+        {user && (
+          <Link
+            to="/notifications"
+            className="relative w-8 h-8 rounded-full flex items-center justify-center transition-colors hover:opacity-80 shrink-0"
+            style={{ color: 'var(--text-secondary)' }}
+            aria-label="Notifications"
+          >
+            🔔
+          </Link>
+        )}
+
+        {/* Auth / profile — top-right avatar always links directly to /profile */}
         {user ? (
-          <div className="relative shrink-0" ref={profileRef}>
-            <button
-              onClick={() => setProfileOpen(v => !v)}
-              className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-sm font-bold text-black focus:outline-none focus:ring-2 focus:ring-amber-400"
-              aria-label="Profile menu"
-              title={user.name}
-            >
-              {user.avatar_url ? (
-                <img
-                  src={user.avatar_url}
-                  alt=""
-                  className="w-full h-full rounded-full object-cover"
-                />
-              ) : (
-                (user.name || '?').charAt(0).toUpperCase()
-              )}
-            </button>
-
-            {profileOpen && (
-              <div
-                className="absolute right-0 top-full mt-2 w-48 rounded-xl border shadow-xl z-50 overflow-hidden"
-                style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
-              >
-                <div className="px-4 py-3 border-b" style={{ borderColor: 'var(--border-color)' }}>
-                  <p className="text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                    {user.name}
-                  </p>
-                  <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-                    {user.email}
-                  </p>
-                </div>
-
-                <nav className="py-1">
-                  {[
-                    { to: dashPath,         label: '🏠 Dashboard'     },
-                    { to: '/profile',       label: '👤 Profile'       },
-                    { to: '/inbox',         label: '💬 Inbox'         },
-                    { to: '/rides',         label: '🚗 Rides'         },
-                    { to: '/tourist-sites', label: '🗺️ Tourist Sites' },
-                  ].map(({ to, label }) => (
-                    <Link
-                      key={to}
-                      to={to}
-                      onClick={() => setProfileOpen(false)}
-                      className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      {label}
-                    </Link>
-                  ))}
-                  {admin && (
-                    <Link
-                      to="/const"
-                      onClick={() => setProfileOpen(false)}
-                      className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      🛠 Admin
-                    </Link>
-                  )}
-                </nav>
-
-                <div className="border-t" style={{ borderColor: 'var(--border-color)' }}>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-2 text-sm text-red-400 hover:text-red-300 transition-colors"
-                  >
-                    Sign Out
-                  </button>
-                </div>
-              </div>
+          <Link
+            to="/profile"
+            className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-sm font-bold text-black focus:outline-none focus:ring-2 focus:ring-amber-400 shrink-0 overflow-hidden"
+            aria-label="Profile"
+            title={user.name}
+          >
+            {user.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt=""
+                className="w-full h-full rounded-full object-cover"
+              />
+            ) : (
+              (user.name || '?').charAt(0).toUpperCase()
             )}
-          </div>
+          </Link>
         ) : user === false ? (
           <button
             onClick={onLogin}
@@ -286,6 +237,19 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
                       >
                         👤 Profile
                       </Link>
+                      <Link
+                        to="/notifications"
+                        className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        🔔 Notifications
+                      </Link>
+                      <button
+                        onClick={handleLogout}
+                        className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:text-red-300 transition-colors"
+                      >
+                        Sign Out
+                      </button>
                     </>
                   )}
                   {admin && (
