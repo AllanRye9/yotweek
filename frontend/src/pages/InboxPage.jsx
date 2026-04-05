@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import NavBar from '../components/NavBar'
 import DMChat from '../components/DMChat'
 import RideChat from '../components/RideChat'
 import {
   getUserProfile,
   getDmConversations,
-  getDmMessages,
   getRideChatInbox,
-  getNotifications,
 } from '../api'
 import socket from '../socket'
 
@@ -25,7 +23,6 @@ function fmtTs(ts) {
 }
 
 export default function InboxPage() {
-  const navigate   = useNavigate()
   const [appUser, setAppUser]         = useState(null)
   const [tab, setTab]                 = useState('dm')
 
@@ -85,32 +82,40 @@ export default function InboxPage() {
   const TABS = [
     { id: 'dm',    label: '💬 Direct Messages' },
     { id: 'rides', label: '🚗 Ride Messages' },
-    { id: 'realestate', label: '🏠 Real Estate' },
   ]
+
+  // Mobile: show sidebar or chat panel
+  const [showSidebar, setShowSidebar] = useState(true)
+
+  const handleSelectConv = (conv) => {
+    setSelectedConv(conv)
+    setShowSidebar(false)
+  }
+
+  const handleSelectRide = (item) => {
+    setSelectedRideChat(item)
+    setShowSidebar(false)
+  }
+
+  const handleBackToList = () => {
+    setSelectedConv(null)
+    setSelectedRideChat(null)
+    setShowSidebar(true)
+  }
 
   return (
     <div style={{ background: 'var(--bg-page)', minHeight: '100vh' }} className="flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-20 border-b"
-              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <button onClick={() => navigate('/rides')}
-                  className="text-sm hover:opacity-70 transition-opacity"
-                  style={{ color: 'var(--text-secondary)' }}>
-            ← Back
-          </button>
-          <h1 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>Inbox</h1>
-        </div>
-      </header>
+      {/* Shared NavBar */}
+      <NavBar user={appUser || (appUser === null ? null : false)} title="Inbox" />
 
-      <div className="flex-1 flex max-w-4xl mx-auto w-full p-4 gap-4">
-        {/* Sidebar */}
-        <div className="w-56 flex-shrink-0 flex flex-col gap-3">
+      <div className="flex-1 flex max-w-4xl mx-auto w-full p-4 gap-4 min-h-0" style={{ maxHeight: 'calc(100vh - 56px)' }}>
+        {/* Sidebar — full-width on mobile when no chat selected */}
+        <div className={`flex-shrink-0 flex flex-col gap-3 ${!showSidebar ? 'hidden md:flex' : 'flex'} w-full md:w-56`}>
           {/* Tab buttons */}
-          <div className="space-y-1">
+          <div className="flex md:block gap-2 md:space-y-1">
             {TABS.map(t => (
-              <button key={t.id} onClick={() => { setTab(t.id); setSelectedConv(null); setSelectedRideChat(null) }}
-                      className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
+              <button key={t.id} onClick={() => { setTab(t.id); setSelectedConv(null); setSelectedRideChat(null); setShowSidebar(true) }}
+                      className={`flex-1 md:flex-none w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
                       style={tab !== t.id ? { color: 'var(--text-secondary)' } : {}}>
                 {t.label}
               </button>
@@ -129,7 +134,7 @@ export default function InboxPage() {
                 const isSelected = selectedConv?.conv_id === conv.conv_id
                 return (
                   <button key={conv.conv_id || i}
-                          onClick={() => setSelectedConv(conv)}
+                          onClick={() => handleSelectConv(conv)}
                           className={`w-full text-left flex items-center gap-2 px-2 py-2 rounded-lg transition-colors ${isSelected ? 'bg-amber-500/20' : 'hover:opacity-80'}`}
                           style={{ background: isSelected ? undefined : 'transparent' }}>
                     <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-xs font-bold text-white shrink-0">
@@ -168,7 +173,7 @@ export default function InboxPage() {
                 const isSelected = selectedRideChat?.ride_id === item.ride_id
                 return (
                   <button key={item.ride_id || i}
-                          onClick={() => setSelectedRideChat(item)}
+                          onClick={() => handleSelectRide(item)}
                           className="w-full text-left flex flex-col px-2 py-2 rounded-lg transition-colors hover:opacity-80"
                           style={{ background: isSelected ? 'var(--bg-surface)' : 'transparent' }}>
                     <p className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
@@ -192,17 +197,29 @@ export default function InboxPage() {
           )}
         </div>
 
-        {/* Chat panel */}
-        <div className="flex-1 min-w-0 rounded-xl border overflow-hidden"
+        {/* Chat panel — full width on mobile when a chat is selected */}
+        <div className={`min-w-0 rounded-xl border overflow-hidden ${showSidebar ? 'hidden md:flex md:flex-1' : 'flex flex-1 flex-col'}`}
              style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+
+          {/* Mobile back button */}
+          {!showSidebar && (
+            <div className="flex md:hidden items-center gap-2 px-3 py-2 border-b"
+                 style={{ borderColor: 'var(--border-color)' }}>
+              <button onClick={handleBackToList}
+                      className="text-sm hover:opacity-70 transition-opacity"
+                      style={{ color: 'var(--text-secondary)' }}>
+                ← Back
+              </button>
+            </div>
+          )}
 
           {tab === 'dm' && (
             selectedConv ? (
               <DMChat
                 conv={selectedConv}
                 currentUser={appUser}
-                onClose={() => setSelectedConv(null)}
-                onBack={() => setSelectedConv(null)}
+                onClose={handleBackToList}
+                onBack={handleBackToList}
               />
             ) : (
               <div className="flex items-center justify-center h-full p-8">
@@ -218,11 +235,11 @@ export default function InboxPage() {
 
           {tab === 'rides' && (
             selectedRideChat ? (
-              <div className="h-full">
+              <div className="flex-1">
                 <RideChat
                   ride={selectedRideChat}
                   user={appUser}
-                  onClose={() => setSelectedRideChat(null)}
+                  onClose={handleBackToList}
                 />
               </div>
             ) : (
@@ -235,18 +252,6 @@ export default function InboxPage() {
                 </div>
               </div>
             )
-          )}
-
-          {tab === 'realestate' && (
-            <div className="flex items-center justify-center h-full p-8">
-              <div className="text-center space-y-2">
-                <p className="text-4xl">🏗️</p>
-                <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Coming soon</p>
-                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                  Real estate messaging will be available here.
-                </p>
-              </div>
-            </div>
           )}
         </div>
       </div>

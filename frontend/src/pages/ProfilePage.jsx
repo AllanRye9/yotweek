@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { getUserProfile, userLogout, uploadAvatar } from '../api'
+import NavBar from '../components/NavBar'
 import UserProfile from '../components/UserProfile'
 import UserAuth from '../components/UserAuth'
-import ThemeSelector from '../components/ThemeSelector'
 import { useAuth } from '../App'
 
 // ─── Local storage cache helpers ─────────────────────────────────────────────
@@ -407,35 +407,12 @@ export default function ProfilePage() {
           />
         )}
 
-        {/* ── Header (full width, no margin) ── */}
-        <header style={headerStyle}>
-          <div style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, paddingLeft: 16, paddingRight: 16 }}>
-            <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: '1.1rem', color: 'var(--text-primary)', textDecoration: 'none', flexShrink: 0 }}>
-              <img src="/yotweek.png" alt="" width={22} height={22} style={{ borderRadius: 4 }} />
-              <span>yotweek</span>
-            </Link>
-
-            {/* Nav links */}
-            <nav aria-label="Site navigation" style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto' }}>
-              <Link to="/" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textDecoration: 'none', padding: '4px 8px', borderRadius: 4, transition: 'color 0.15s' }}
-                onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
-                onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}>
-                Home
-              </Link>
-              <Link to="/profile" aria-current="page" style={{ fontSize: '0.85rem', color: 'var(--accent)', textDecoration: 'none', padding: '4px 8px', borderRadius: 4 }}>
-                Profile
-              </Link>
-              {admin && (
-                <Link to="/const" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', textDecoration: 'none', padding: '4px 8px', borderRadius: 4, transition: 'color 0.15s' }}
-                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--text-primary)')}
-                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-secondary)')}>
-                  Settings
-                </Link>
-              )}
-              <ThemeSelector />
-            </nav>
-          </div>
-        </header>
+        {/* Shared NavBar */}
+        <NavBar
+          user={appUser}
+          onLogin={() => setShowAuth(true)}
+          title="Profile"
+        />
 
         {/* ── Main container (4% left/right margin, max 1200px) ── */}
         <main style={mainContainerStyle} className="pp-main">

@@ -14,10 +14,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
+import NavBar from '../components/NavBar'
 import UnifiedMap from '../components/UnifiedMap'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
-import ThemeSelector from '../components/ThemeSelector'
 import { getUserProfile, getUnifiedMapNearby, getAllDriverLocations, listProperties } from '../api'
 import socket from '../socket'
 
@@ -312,49 +312,12 @@ export default function UnifiedMapPage() {
         <UserAuth onSuccess={u => { setAppUser(u); setShowAuthModal(false) }} onClose={() => setShowAuthModal(false)} />
       )}
 
-      {/* Navbar */}
-      <nav className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 flex items-center h-14 gap-4">
-          <Link to="/" className="flex items-center gap-2 text-xl font-bold text-white shrink-0">
-            <img src="/yotweek.png" alt="" width={22} height={22} style={{ borderRadius: 4 }} aria-hidden="true" />
-            <span className="gradient-text hidden sm:inline">yotweek</span>
-            <span className="gradient-text sm:hidden">YOT</span>
-          </Link>
-          <Link to="/" className="text-xs text-gray-400 hover:text-white transition-colors flex items-center gap-1">← Home</Link>
-          <div className="flex-1" />
-          <ThemeSelector />
-          {!userLoading && (
-            <div className="relative" ref={profileRef}>
-              {appUser ? (
-                <>
-                  <button
-                    onClick={() => setProfileOpen(o => !o)}
-                    className="nav-profile-btn flex items-center gap-2 rounded-full bg-blue-700 hover:bg-blue-600 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 pl-1 pr-3 py-1"
-                    aria-label="Profile" title={appUser.name}
-                  >
-                    {appUser.avatar_url
-                      ? <img src={appUser.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
-                      : <span className="w-7 h-7 rounded-full bg-blue-800 flex items-center justify-center text-sm shrink-0">{appUser.role === 'driver' ? '🚗' : '🧍'}</span>
-                    }
-                    <span className="hidden sm:block text-white text-xs font-medium max-w-[100px] truncate">{appUser.name}</span>
-                    <span className="hidden sm:block text-blue-300 text-xs">▾</span>
-                  </button>
-                  {profileOpen && (
-                    <div className="nav-profile-dropdown absolute right-0 top-11 w-72 sm:w-80 lg:w-96 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl z-50 max-h-[85vh] overflow-y-auto">
-                      <UserProfile user={appUser} onLogout={() => { setAppUser(false); setProfileOpen(false) }} onLocationUpdate={() => {}} onUserUpdate={u => setAppUser(u)} />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <button onClick={() => setShowAuthModal(true)} className="text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors">
-                  Login / Register
-                </button>
-              )}
-            </div>
-          )}
-          {admin && <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex">Dashboard</Link>}
-        </div>
-      </nav>
+      {/* Shared NavBar */}
+      <NavBar
+        user={appUser}
+        onLogin={() => setShowAuthModal(true)}
+        title="Map"
+      />
 
       {/* Page header */}
       <div className="bg-gradient-to-b from-gray-900 to-gray-950 py-4 px-4">

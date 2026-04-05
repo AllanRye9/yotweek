@@ -11,8 +11,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../App'
+import NavBar from '../components/NavBar'
 import UserAuth from '../components/UserAuth'
-import ThemeSelector from '../components/ThemeSelector'
 import TouristSitesContent from '../components/TouristSitesContent'
 import { getUserProfile } from '../api'
 
@@ -48,40 +48,12 @@ export default function TouristSitesPage() {
         />
       )}
 
-      {/* ── Navbar ── */}
-      <nav className="sticky top-0 z-50 bg-gray-950/95 backdrop-blur border-b border-gray-800">
-        <div className="max-w-full px-4 flex items-center h-14 gap-4">
-          <Link to="/" className="flex items-center gap-2 text-xl font-bold text-white shrink-0">
-            <img src="/yotweek.png" alt="" width={22} height={22} style={{ borderRadius: 4 }} aria-hidden="true" />
-            <span className="gradient-text hidden sm:inline">yotweek</span>
-          </Link>
-          <Link to="/" className="text-xs text-gray-400 hover:text-white transition-colors">← Home</Link>
-          <div className="flex-1" />
-          <ThemeSelector />
-          {!userLoading && (appUser ? (
-            <button
-              onClick={() => navigate('/profile')}
-              className="w-8 h-8 rounded-full bg-blue-700 hover:bg-blue-600 flex items-center justify-center text-base transition-colors overflow-hidden"
-              aria-label="Profile"
-            >
-              {appUser.avatar_url
-                ? <img src={appUser.avatar_url} alt="" className="w-full h-full object-cover" />
-                : <span>🧍</span>
-              }
-            </button>
-          ) : (
-            <button
-              onClick={() => setShowAuthModal(true)}
-              className="text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white transition-colors"
-            >
-              Login / Register
-            </button>
-          ))}
-          {admin && (
-            <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex">Dashboard</Link>
-          )}
-        </div>
-      </nav>
+      {/* Shared NavBar */}
+      <NavBar
+        user={appUser}
+        onLogin={() => setShowAuthModal(true)}
+        title="Tourist Sites"
+      />
 
       {/* ── Page header ── */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-color)' }}>

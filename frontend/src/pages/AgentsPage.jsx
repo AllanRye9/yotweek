@@ -8,6 +8,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../App'
+import NavBar from '../components/NavBar'
 import AgentRegistration from '../components/AgentRegistration'
 import UserAuth from '../components/UserAuth'
 import UserProfile from '../components/UserProfile'
@@ -46,70 +47,12 @@ export default function AgentsPage() {
         />
       )}
 
-      {/* ── Navbar ── */}
-      <header style={{
-        background: 'var(--bg-surface)',
-        borderBottom: '1px solid var(--border-color)',
-        padding: '12px 20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 12,
-        position: 'sticky',
-        top: 0,
-        zIndex: 100,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <Link to="/" style={{ color: '#3b82f6', fontWeight: 800, fontSize: '1.15rem', textDecoration: 'none' }}>
-            🏠 YOT
-          </Link>
-          <nav style={{ display: 'flex', gap: 12 }}>
-            <Link to="/" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Home</Link>
-            <Link to="/properties" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Properties</Link>
-            <Link to="/agents" style={{ color: '#3b82f6', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none' }}>Agents</Link>
-            <Link to="/property-inbox" style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', textDecoration: 'none' }}>Inbox</Link>
-          </nav>
-        </div>
-        <div ref={profileRef} style={{ position: 'relative' }}>
-          {userLoading ? null : appUser ? (
-            <div>
-              <button
-                type="button"
-                onClick={() => setProfileOpen(o => !o)}
-                style={{
-                  background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 8,
-                  padding: '6px 12px', color: 'var(--text-primary)', fontSize: '0.82rem', cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {appUser.avatar_url ? (
-                  <img src={appUser.avatar_url} alt="" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} />
-                ) : (
-                  <span style={{ fontSize: '1rem' }}>👤</span>
-                )}
-                {appUser.name}
-              </button>
-              {profileOpen && (
-                <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 200 }}>
-                  <UserProfile user={appUser} onUpdate={u => { setAppUser(u); setProfileOpen(false) }} />
-                </div>
-              )}
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setShowAuthModal(true)}
-              style={{
-                background: '#3b82f6', color: '#fff', border: 'none',
-                borderRadius: 8, padding: '7px 16px', fontSize: '0.82rem',
-                fontWeight: 600, cursor: 'pointer',
-              }}
-            >
-              Sign In
-            </button>
-          )}
-        </div>
-      </header>
+      {/* Shared NavBar */}
+      <NavBar
+        user={appUser}
+        onLogin={() => setShowAuthModal(true)}
+        title="Agents"
+      />
 
       {/* ── Page header ── */}
       <div style={{ padding: '24px 20px 0', maxWidth: 720, margin: '0 auto', width: '100%' }}>

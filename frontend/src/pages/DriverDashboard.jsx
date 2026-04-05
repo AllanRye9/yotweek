@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { getUserProfile, userLogout, getDriverDashboard } from '../api'
+import NavBar from '../components/NavBar'
 import RideShare from '../components/RideShare'
 import RideChat from '../components/RideChat'
 import { getDashboardPath } from '../routing'
@@ -51,40 +52,23 @@ export default function DriverDashboard() {
   const stats = dashData?.stats || {}
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 flex flex-col">
-      {/* Header */}
-      <header className="bg-gray-900 border-b border-gray-800 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">🚗</span>
-          <div>
-            <h1 className="font-bold text-white text-sm leading-tight">Driver Dashboard</h1>
-            <p className="text-xs text-gray-400">{driver.name}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link to="/rides" className="text-xs text-blue-400 hover:text-blue-300 px-2 py-1 rounded">
-            Browse Rides
-          </Link>
-          <button
-            onClick={handleLogout}
-            className="text-xs text-gray-400 hover:text-red-400 px-2 py-1 rounded transition-colors"
-          >
-            Sign Out
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}>
+      {/* Shared NavBar */}
+      <NavBar user={driver} onLogout={handleLogout} />
 
       {/* Tab bar */}
-      <nav className="bg-gray-900 border-b border-gray-800 flex px-4 gap-1 overflow-x-auto">
+      <nav className="border-b flex px-4 gap-1 overflow-x-auto"
+           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
         {[['overview', '📊 Overview'], ['rides', '🚘 My Rides'], ['chat', '💬 Messages']].map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={`px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${
               tab === id
-                ? 'border-blue-500 text-blue-400'
-                : 'border-transparent text-gray-500 hover:text-gray-300'
+                ? 'border-amber-500 text-amber-400'
+                : 'border-transparent hover:opacity-80'
             }`}
+            style={tab !== id ? { color: 'var(--text-secondary)' } : {}}
           >
             {label}
           </button>
@@ -95,34 +79,37 @@ export default function DriverDashboard() {
         {/* Overview */}
         {tab === 'overview' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {[
                 { icon: '🚘', value: stats.total_rides ?? '—', label: 'Total Rides Posted' },
                 { icon: '✅', value: stats.open_rides ?? '—', label: 'Open Rides' },
                 { icon: '👥', value: stats.total_passengers ?? '—', label: 'Confirmed Passengers' },
               ].map(({ icon, value, label }) => (
-                <div key={label} className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+                <div key={label} className="rounded-xl p-4 text-center"
+                     style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                   <div className="text-2xl mb-1">{icon}</div>
-                  <div className="text-xl font-bold text-white">{value}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+                  <div className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{value}</div>
+                  <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{label}</div>
                 </div>
               ))}
             </div>
 
             {/* Recent posted rides */}
             {dashData?.posted_rides?.length > 0 && (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <h2 className="font-semibold text-sm text-gray-300 mb-3">Recent Rides</h2>
+              <div className="rounded-xl p-4"
+                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                <h2 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Recent Rides</h2>
                 <div className="space-y-2">
                   {dashData.posted_rides.slice(0, 5).map(ride => (
                     <div
                       key={ride.ride_id}
-                      className="flex items-center justify-between bg-gray-800/50 rounded-lg px-3 py-2 cursor-pointer hover:bg-gray-800 transition-colors"
+                      className="flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors hover:opacity-80"
+                      style={{ background: 'var(--bg-surface)' }}
                       onClick={() => { setSelectedRide(ride); setTab('chat') }}
                     >
                       <div>
-                        <p className="text-xs font-medium text-gray-200">{ride.origin} → {ride.destination}</p>
-                        <p className="text-xs text-gray-500">{ride.departure} · {ride.seats} seats</p>
+                        <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{ride.origin} → {ride.destination}</p>
+                        <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{ride.departure} · {ride.seats} seats</p>
                       </div>
                       <span className={`text-xs px-2 py-0.5 rounded-full ${
                         ride.status === 'open' ? 'bg-green-900/50 text-green-400' : 'bg-gray-700 text-gray-400'
@@ -135,18 +122,20 @@ export default function DriverDashboard() {
               </div>
             )}
 
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <h2 className="font-semibold text-sm text-gray-300 mb-3">Quick Actions</h2>
+            <div className="rounded-xl p-4"
+                 style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+              <h2 className="font-semibold text-sm mb-3" style={{ color: 'var(--text-secondary)' }}>Quick Actions</h2>
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setTab('rides')}
-                  className="px-3 py-1.5 bg-blue-700 hover:bg-blue-600 text-white text-xs rounded-lg transition-colors"
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-medium rounded-lg transition-colors"
                 >
                   + Post New Ride
                 </button>
                 <button
                   onClick={() => setTab('chat')}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs rounded-lg transition-colors"
+                  className="px-3 py-1.5 text-xs rounded-lg transition-colors hover:opacity-80"
+                  style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
                 >
                   View Messages
                 </button>
@@ -167,18 +156,20 @@ export default function DriverDashboard() {
               <>
                 <button
                   onClick={() => setSelectedRide(null)}
-                  className="text-xs text-blue-400 hover:text-blue-300"
+                  className="text-xs hover:opacity-70 transition-opacity"
+                  style={{ color: 'var(--text-secondary)' }}
                 >
                   ← Back to ride list
                 </button>
                 <RideChat ride={selectedRide} user={driver} onClose={() => setSelectedRide(null)} />
               </>
             ) : (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-center text-gray-500 text-sm">
+              <div className="rounded-xl p-6 text-center text-sm"
+                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
                 Select a ride to view its chat thread.
                 <button
                   onClick={() => setTab('rides')}
-                  className="block mx-auto mt-3 text-xs text-blue-400 hover:text-blue-300"
+                  className="block mx-auto mt-3 text-xs text-amber-500 hover:text-amber-400"
                 >
                   Go to My Rides →
                 </button>
