@@ -1,39 +1,136 @@
 /**
- * RequestsPage — Ride requests with persistent filter bar and live-updating cards.
+ * RequestsPage — Ride request card feed.
+ *
+ * Shows open ride requests from all passengers.
+ * Drivers can Accept (which opens a DM thread), Decline (hides card), or Message.
+ * Passengers see their own requests with status indicators.
+ * Filter/sort bar at the top.
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getUserProfile, getRideRequests, createRideRequest, cancelRideRequest } from '../api'
+import { getUserProfile, getRideRequests, createRideRequest, cancelRideRequest, acceptRideRequest, dmStartConversation } from '../api'
 import NavBar from '../components/NavBar'
 
-const STATUS_OPTIONS = ['all', 'open', 'accepted', 'closed']
+const SORT_OPTIONS = [
+  { id: 'date',     label: '📅 Nearest Departure' },
+  { id: 'location', label: '📍 Closest to Me'     },
+  { id: 'price',    label: '💰 Price'              },
+]
 
-const statusStyle = {
-  open:     { bg: 'rgba(16,185,129,0.15)', color: '#6ee7b7' },
-  accepted: { bg: 'rgba(59,130,246,0.15)', color: '#93c5fd' },
-  closed:   { bg: 'rgba(107,114,128,0.2)', color: '#9ca3af' },
+function fmtDate(s) {
+  if (!s) return '—'
+  try { return new Date(s).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }) }
+  catch { return s }
+}
+
+function RequestCard({ req, currentUser, onAccept, onDecline, onMessage, accepting, messaging }) {
+  const isOwn  = currentUser && req.user_id === currentUser.user_id
+  const isDriver = currentUser?.role === 'driver'
+
+  return (
+    <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+      {/* Header row: avatar + name + status */}
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+          {(req.passenger_name || req.user_name || '?').charAt(0).toUpperCase()}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {req.passenger_name || req.user_name || 'Passenger'}
+          </p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Ride Request
+          </p>
+        </div>
+        <span
+          className="text-xs px-2 py-0.5 rounded-full font-semibold shrink-0"
+          style={req.status === 'open' ? { background: 'rgba(16,185,129,0.15)', color: '#6ee7b7' }
+               : req.status === 'accepted' ? { background: 'rgba(59,130,246,0.15)', color: '#93c5fd' }
+               : { background: 'rgba(107,114,128,0.2)', color: '#9ca3af' }}
+        >
+          {req.status}
+        </span>
+      </div>
+
+      {/* Route */}
+      <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--text-primary)' }}>
+        <span>📍</span>
+        <span className="font-medium">{req.origin}</span>
+        <span style={{ color: 'var(--text-muted)' }}>→</span>
+        <span className="font-medium text-amber-400">{req.destination}</span>
+      </div>
+
+      {/* Details row */}
+      <div className="flex flex-wrap gap-3 text-xs" style={{ color: 'var(--text-muted)' }}>
+        <span>📅 {fmtDate(req.desired_date)}</span>
+        <span>👥 {req.passengers} seat{req.passengers !== 1 ? 's' : ''}</span>
+        {(req.price_max || req.price_min) && (
+          <span>💰 {req.price_min ? `${req.price_min}–` : 'up to '}{req.price_max}</span>
+        )}
+      </div>
+
+      {/* Action buttons */}
+      {req.status === 'open' && !isOwn && isDriver && (
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => onAccept(req)}
+            disabled={accepting === req.request_id}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 transition-colors"
+          >
+            {accepting === req.request_id ? '…' : '✓ Accept'}
+          </button>
+          <button
+            onClick={() => onDecline(req.request_id)}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold hover:opacity-80 transition-colors"
+            style={{ border: '1px solid var(--border-color)', color: 'var(--text-secondary)', background: 'var(--bg-surface)' }}
+          >
+            ✕ Decline
+          </button>
+          <button
+            onClick={() => onMessage(req.user_id)}
+            disabled={messaging === req.user_id}
+            className="flex-1 py-2 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 transition-colors"
+          >
+            {messaging === req.user_id ? '…' : '💬 Message'}
+          </button>
+        </div>
+      )}
+
+      {/* Own request: cancel */}
+      {isOwn && req.status === 'open' && (
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => onDecline(req.request_id)}
+            className="px-4 py-1.5 rounded-lg text-xs text-red-400 hover:text-red-300 transition-colors"
+            style={{ border: '1px solid rgba(248,113,113,0.4)', background: 'transparent' }}
+          >
+            Cancel Request
+          </button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export default function RequestsPage() {
   const navigate = useNavigate()
-  const [user,      setUser]      = useState(null)
-  const [requests,  setRequests]  = useState([])
-  const [loading,   setLoading]   = useState(true)
-  const [creating,  setCreating]  = useState(false)
-  const [showForm,  setShowForm]  = useState(false)
-  const [error,     setError]     = useState('')
+  const [user,       setUser]       = useState(null)
+  const [requests,   setRequests]   = useState([])
+  const [declined,   setDeclined]   = useState(new Set())
+  const [loading,    setLoading]    = useState(true)
+  const [creating,   setCreating]   = useState(false)
+  const [showForm,   setShowForm]   = useState(false)
+  const [error,      setError]      = useState('')
+  const [accepting,  setAccepting]  = useState(null)
+  const [messaging,  setMessaging]  = useState(null)
+  const [sortBy,     setSortBy]     = useState('date')
+  const [search,     setSearch]     = useState('')
 
-  // Filters
-  const [filterStatus, setFilterStatus] = useState('all')
-  const [filterOrigin, setFilterOrigin] = useState('')
-  const [filterDest,   setFilterDest]   = useState('')
-
-  // Form
   const [form, setForm] = useState({ origin: '', destination: '', desired_date: '', passengers: 1, price_max: '' })
 
   const loadRequests = useCallback(async () => {
     try {
-      const data = await getRideRequests()
+      const data = await getRideRequests('open')
       setRequests(data.requests || [])
     } catch {}
   }, [])
@@ -74,16 +171,60 @@ export default function RequestsPage() {
     }
   }
 
-  const handleCancel = async (requestId) => {
-    try { await cancelRideRequest(requestId); await loadRequests() }
-    catch (err) { setError(err.message || 'Failed to cancel.') }
+  const handleAccept = async (req) => {
+    setAccepting(req.request_id)
+    try {
+      const res = await acceptRideRequest(req.request_id)
+      await loadRequests()
+      if (res?.conv_id) navigate('/inbox')
+    } catch (err) {
+      setError(err.message || 'Failed to accept request.')
+    } finally {
+      setAccepting(null)
+    }
   }
 
-  const filtered = requests.filter(r => {
-    if (filterStatus !== 'all' && r.status !== filterStatus) return false
-    if (filterOrigin && !r.origin?.toLowerCase().includes(filterOrigin.toLowerCase())) return false
-    if (filterDest   && !r.destination?.toLowerCase().includes(filterDest.toLowerCase())) return false
-    return true
+  const handleDecline = async (requestId) => {
+    // For own requests, cancel via API; for others, just hide locally
+    const req = requests.find(r => r.request_id === requestId)
+    if (req && user && req.user_id === user.user_id) {
+      try { await cancelRideRequest(requestId); await loadRequests() }
+      catch (err) { setError(err.message || 'Failed to cancel.') }
+    } else {
+      setDeclined(prev => new Set([...prev, requestId]))
+    }
+  }
+
+  const handleMessage = async (toUserId) => {
+    setMessaging(toUserId)
+    try {
+      await dmStartConversation(toUserId)
+      navigate('/inbox')
+    } catch (err) {
+      setError(err.message || 'Failed to start conversation.')
+    } finally {
+      setMessaging(null)
+    }
+  }
+
+  // Partition: accepted (active rides at top) + open
+  const visible = requests.filter(r => !declined.has(r.request_id))
+  const activeRides = visible.filter(r => r.status === 'accepted')
+  const openRides   = visible.filter(r => r.status === 'open')
+
+  // Apply search filter
+  const searchLower = search.toLowerCase()
+  const filterFn = (r) => {
+    if (!searchLower) return true
+    return (r.origin || '').toLowerCase().includes(searchLower) ||
+           (r.destination || '').toLowerCase().includes(searchLower)
+  }
+
+  // Sort open rides
+  const sortedOpen = [...openRides].filter(filterFn).sort((a, b) => {
+    if (sortBy === 'date')  return (a.desired_date || '').localeCompare(b.desired_date || '')
+    if (sortBy === 'price') return (a.price_max ?? 9999) - (b.price_max ?? 9999)
+    return 0
   })
 
   const input = 'w-full rounded-lg px-3 py-2 text-sm outline-none'
@@ -139,28 +280,59 @@ export default function RequestsPage() {
           </div>
         )}
 
-        {/* ── Persistent Filter Bar ── */}
+        {error && !showForm && <p className="text-red-400 text-xs px-1">{error}</p>}
+
+        {/* ── Filter + Sort Bar ── */}
         <div className="flex flex-wrap gap-2 items-center p-3 rounded-xl sticky top-14 z-10" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-          {STATUS_OPTIONS.map(s => (
-            <button key={s} onClick={() => setFilterStatus(s)}
-              className={`text-xs px-3 py-1 rounded-full font-semibold transition-colors ${filterStatus === s ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
-              style={filterStatus !== s ? { color: 'var(--text-secondary)', border: '1px solid var(--border-color)' } : {}}>
-              {s.charAt(0).toUpperCase() + s.slice(1)}
+          {/* Sort buttons */}
+          {SORT_OPTIONS.map(s => (
+            <button key={s.id} onClick={() => setSortBy(s.id)}
+              className={`text-xs px-3 py-1 rounded-full font-semibold transition-colors ${sortBy === s.id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
+              style={sortBy !== s.id ? { color: 'var(--text-secondary)', border: '1px solid var(--border-color)' } : {}}>
+              {s.label}
             </button>
           ))}
-          <div className="flex gap-2 ml-auto">
-            <input type="text" placeholder="Filter origin…" value={filterOrigin} onChange={e => setFilterOrigin(e.target.value)} className="text-xs rounded-lg px-2 py-1 outline-none w-28" style={{ background: 'var(--bg-input, var(--bg-surface))', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
-            <input type="text" placeholder="Filter dest…"   value={filterDest}   onChange={e => setFilterDest(e.target.value)}   className="text-xs rounded-lg px-2 py-1 outline-none w-28" style={{ background: 'var(--bg-input, var(--bg-surface))', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
-            {(filterOrigin || filterDest) && (
-              <button onClick={() => { setFilterOrigin(''); setFilterDest('') }} className="text-xs text-amber-400 hover:text-amber-300">✕</button>
+          <div className="ml-auto flex items-center gap-1">
+            <input
+              type="text"
+              placeholder="Search city or route…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="text-xs rounded-lg px-2 py-1 outline-none w-44"
+              style={inputSty}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="text-xs text-amber-400 hover:text-amber-300">✕</button>
             )}
           </div>
         </div>
 
-        {/* ── Request List ── */}
-        {filtered.length === 0 ? (
+        {/* ── Active Rides (accepted) ── */}
+        {activeRides.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-xs font-bold uppercase tracking-wide" style={{ color: '#93c5fd' }}>
+              🚗 Active Rides ({activeRides.length})
+            </h2>
+            {activeRides.map(req => (
+              <RequestCard
+                key={req.request_id}
+                req={req}
+                currentUser={user}
+                onAccept={handleAccept}
+                onDecline={handleDecline}
+                onMessage={handleMessage}
+                accepting={accepting}
+                messaging={messaging}
+              />
+            ))}
+          </section>
+        )}
+
+        {/* ── Open Request Feed ── */}
+        {sortedOpen.length === 0 ? (
           <div className="rounded-xl p-8 text-center text-sm" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-            {requests.length === 0 ? 'No ride requests yet.' : 'No requests match your filters.'}
+            <p className="text-3xl mb-2">🚗</p>
+            <p>{requests.length === 0 ? 'No ride requests yet.' : 'No requests match your search.'}</p>
             {requests.length === 0 && (
               <button onClick={() => setShowForm(true)} className="block mx-auto mt-3 text-xs text-amber-500 hover:text-amber-400">
                 Post your first request →
@@ -169,35 +341,18 @@ export default function RequestsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map(req => {
-              const sid    = req.request_id || req.id
-              const style  = statusStyle[req.status] || statusStyle.closed
-              return (
-                <div key={sid} className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-                        {req.origin} → {req.destination}
-                      </p>
-                      <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-                        📅 {req.desired_date} · 👥 {req.passengers} passenger(s)
-                        {req.price_max && ` · 💰 max ${req.price_max}`}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: style.bg, color: style.color }}>
-                        {req.status}
-                      </span>
-                      {req.status === 'open' && (
-                        <button onClick={() => handleCancel(sid)} className="text-xs text-red-400 hover:text-red-300 transition-colors">
-                          Cancel
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
+            {sortedOpen.map(req => (
+              <RequestCard
+                key={req.request_id}
+                req={req}
+                currentUser={user}
+                onAccept={handleAccept}
+                onDecline={handleDecline}
+                onMessage={handleMessage}
+                accepting={accepting}
+                messaging={messaging}
+              />
+            ))}
           </div>
         )}
       </main>

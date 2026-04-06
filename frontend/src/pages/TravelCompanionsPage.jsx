@@ -1,11 +1,13 @@
 /**
- * TravelCompanionsPage — Dedicated page for country-wide travel companion matching.
+ * TravelCompanionsPage — Country-wide travel companion matching.
  *
  * Features:
  *  - Persistent filter bar (origin country, destination country, date)
- *  - Live-updating card list (auto-refresh every 30 s)
- *  - Post listing action, delete own, message via DM
- *  - Clear action hierarchy: Post → Filter → Browse → Message/Remove
+ *  - Companion cards with avatar, name, home city, route, dates, bio, compatibility
+ *  - View Profile and Message buttons
+ *  - Message: checks for existing thread, creates new if needed
+ *  - Post listing, delete own listing
+ *  - Auto-refresh every 30 s
  */
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -18,6 +20,26 @@ import {
   deleteTravelCompanion,
   dmStartConversation,
 } from '../api'
+
+function compatibilityScore(companion, user) {
+  if (!user) return 0
+  let score = 0
+  // Same destination country
+  if (companion.destination_country && user.location_name) {
+    if (companion.destination_country.toLowerCase().includes(user.location_name.toLowerCase()) ||
+        user.location_name.toLowerCase().includes(companion.destination_country.toLowerCase())) score += 40
+  }
+  return score
+}
+
+function CompatBadge({ score }) {
+  if (!score) return null
+  return (
+    <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(139,92,246,0.15)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
+      ✨ Route Match
+    </span>
+  )
+}
 
 export default function TravelCompanionsPage() {
   const navigate = useNavigate()
@@ -195,48 +217,77 @@ export default function TravelCompanionsPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {companions.map(c => (
-              <div key={c.companion_id} className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>
-                        🌍 {c.origin_country}{c.origin_city ? ` (${c.origin_city})` : ''}
-                      </span>
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>→</span>
-                      <span className="font-semibold text-sm text-amber-400">
-                        {c.destination_country}{c.destination_city ? ` (${c.destination_city})` : ''}
-                      </span>
-                      <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                        📅 {c.travel_date}
-                      </span>
+            {companions.map(c => {
+              const compat = compatibilityScore(c, user)
+              return (
+                <div key={c.companion_id} className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                  <div className="flex items-start gap-3">
+                    {/* Avatar */}
+                    <div className="w-10 h-10 rounded-full bg-purple-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+                      {(c.poster_name || '?').charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>👤 {c.poster_name}</p>
-                    {c.notes && <p className="text-xs italic mt-0.5" style={{ color: 'var(--text-muted)' }}>"{c.notes}"</p>}
-                  </div>
-                  <div className="flex flex-col gap-1.5 shrink-0">
-                    {user && user.user_id !== c.user_id && (
-                      <button
-                        onClick={() => handleMessage(c.user_id)}
-                        disabled={dmLoading[c.user_id]}
-                        className="text-xs px-3 py-1 rounded-lg font-semibold disabled:opacity-50 transition-colors bg-amber-500 hover:bg-amber-400 text-black"
-                      >
-                        {dmLoading[c.user_id] ? '…' : '💬 Message'}
-                      </button>
-                    )}
-                    {user && user.user_id === c.user_id && (
-                      <button
-                        onClick={() => handleDelete(c.companion_id)}
-                        className="text-xs px-3 py-1 rounded-lg text-red-400 hover:text-red-300 transition-colors"
-                        style={{ border: '1px solid rgba(248,113,113,0.4)' }}
-                      >
-                        🗑 Remove
-                      </button>
-                    )}
+
+                    <div className="flex-1 min-w-0">
+                      {/* Name + compat badge */}
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>{c.poster_name}</span>
+                        <CompatBadge score={compat} />
+                      </div>
+
+                      {/* Route */}
+                      <div className="flex items-center gap-1.5 text-sm flex-wrap">
+                        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                          🌍 {c.origin_country}{c.origin_city ? ` (${c.origin_city})` : ''}
+                        </span>
+                        <span style={{ color: 'var(--text-muted)' }}>→</span>
+                        <span className="font-medium text-amber-400">
+                          {c.destination_country}{c.destination_city ? ` (${c.destination_city})` : ''}
+                        </span>
+                      </div>
+
+                      {/* Date + notes */}
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
+                        <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                          📅 {c.travel_date}
+                        </span>
+                        {c.notes && <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>"{c.notes}"</p>}
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex flex-col gap-1.5 shrink-0">
+                      {user && user.user_id !== c.user_id && (
+                        <>
+                          <button
+                            onClick={() => navigate(`/profile?uid=${c.user_id}`)}
+                            className="text-xs px-3 py-1 rounded-lg font-semibold transition-colors hover:opacity-80"
+                            style={{ border: '1px solid var(--border-color)', color: 'var(--text-secondary)', background: 'var(--bg-surface)' }}
+                          >
+                            👤 Profile
+                          </button>
+                          <button
+                            onClick={() => handleMessage(c.user_id)}
+                            disabled={dmLoading[c.user_id]}
+                            className="text-xs px-3 py-1 rounded-lg font-semibold disabled:opacity-50 transition-colors bg-amber-500 hover:bg-amber-400 text-black"
+                          >
+                            {dmLoading[c.user_id] ? '…' : '💬 Message'}
+                          </button>
+                        </>
+                      )}
+                      {user && user.user_id === c.user_id && (
+                        <button
+                          onClick={() => handleDelete(c.companion_id)}
+                          className="text-xs px-3 py-1 rounded-lg text-red-400 hover:text-red-300 transition-colors"
+                          style={{ border: '1px solid rgba(248,113,113,0.4)' }}
+                        >
+                          🗑 Remove
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </main>

@@ -305,8 +305,8 @@ export const getUserProfile = () => request('GET', '/api/auth/me')
 export const updateUserLocation = (lat, lng, location_name = '') =>
   request('PUT', '/api/auth/profile', { lat, lng, location_name })
 
-export const updateProfileDetails = (name, bio) =>
-  request('PUT', '/api/auth/profile/details', { name, bio })
+export const updateProfileDetails = (name, bio, phone = '', home_city = '', preferred_language = '') =>
+  request('PUT', '/api/auth/profile/details', { name, bio, phone, home_city, preferred_language })
 
 export const changePassword = (current_password, new_password) =>
   request('PUT', '/api/auth/change_password', { current_password, new_password })
