@@ -1043,7 +1043,7 @@ def init_db():
                 """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0"), ("preferred_language", "TEXT DEFAULT ''")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1387,7 +1387,7 @@ def init_db():
                     );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
-                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0")]:
+                for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0"), ("preferred_language", "TEXT DEFAULT ''")]:
                     try:
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -7445,14 +7445,14 @@ def _get_app_user(user_id: str) -> dict | None:
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone,username FROM app_users WHERE user_id=%s", (user_id,))
+                cur.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone,username,preferred_language FROM app_users WHERE user_id=%s", (user_id,))
                 row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone,username FROM app_users WHERE user_id=?", (user_id,))
+                cur = conn.execute("SELECT user_id,name,email,role,location_lat,location_lng,location_name,avatar_url,bio,created_at,public_key,can_post_properties,phone,username,preferred_language FROM app_users WHERE user_id=?", (user_id,))
                 row = cur.fetchone()
             if row is None:
                 return None
-            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties", "phone", "username"]
+            keys = ["user_id", "name", "email", "role", "location_lat", "location_lng", "location_name", "avatar_url", "bio", "created_at", "public_key", "can_post_properties", "phone", "username", "preferred_language"]
             return dict(zip(keys, row))
         finally:
             conn.close()
@@ -7542,8 +7542,11 @@ class _UserLocationUpdate(BaseModel):
 
 
 class _UserProfileDetailsUpdate(BaseModel):
-    name: str = ""
-    bio:  str = ""
+    name:               str = ""
+    bio:                str = ""
+    phone:              str = ""
+    home_city:          str = ""
+    preferred_language: str = ""
 
 
 class _ChangePasswordRequest(BaseModel):
@@ -7972,19 +7975,34 @@ async def api_user_update_profile(request: Request, body: _UserLocationUpdate):
 
 @fastapi_app.put("/api/auth/profile/details")
 async def api_user_update_profile_details(request: Request, body: _UserProfileDetailsUpdate):
-    """Update the logged-in user's name and bio."""
+    """Update the logged-in user's name, bio, phone, home city and preferred language."""
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Not logged in."}, status_code=401)
 
-    name = body.name.strip()
-    bio  = body.bio.strip()[:500]  # cap bio at 500 chars
+    name               = body.name.strip()
+    bio                = body.bio.strip()[:500]  # cap bio at 500 chars
+    phone              = body.phone.strip()[:50]
+    home_city          = body.home_city.strip()[:100]
+    preferred_language = body.preferred_language.strip()[:50]
+
+    # Only allowed column names to prevent SQL injection via dynamic field names
+    _ALLOWED_PROFILE_FIELDS = {"name", "bio", "phone", "location_name", "preferred_language"}
 
     updates = {}
     if name:
         updates["name"] = name
     if bio is not None:
         updates["bio"] = bio
+    if phone is not None:
+        updates["phone"] = phone
+    if home_city is not None:
+        updates["location_name"] = home_city
+    if preferred_language is not None:
+        updates["preferred_language"] = preferred_language
+
+    # Filter to only allowed columns
+    updates = {k: v for k, v in updates.items() if k in _ALLOWED_PROFILE_FIELDS}
 
     if not updates:
         return JSONResponse({"ok": True})
