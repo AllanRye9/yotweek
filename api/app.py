@@ -768,6 +768,56 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS properties (
+                        id SERIAL PRIMARY KEY,
+                        property_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        price REAL,
+                        location TEXT,
+                        property_type TEXT NOT NULL DEFAULT 'listings',
+                        available_date TEXT,
+                        occupancy_status TEXT,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS property_conversations (
+                        id SERIAL PRIMARY KEY,
+                        conv_id TEXT UNIQUE NOT NULL,
+                        property_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS property_messages (
+                        id SERIAL PRIMARY KEY,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        conv_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'user',
+                        content TEXT NOT NULL,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS agent_chat_messages (
+                        id SERIAL PRIMARY KEY,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'user',
+                        text TEXT,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0"), ("preferred_language", "TEXT DEFAULT ''")]:
@@ -994,6 +1044,48 @@ def init_db():
                         status TEXT NOT NULL DEFAULT 'active',
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS properties (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        property_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT,
+                        price REAL,
+                        location TEXT,
+                        property_type TEXT NOT NULL DEFAULT 'listings',
+                        available_date TEXT,
+                        occupancy_status TEXT,
+                        status TEXT NOT NULL DEFAULT 'active',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS property_conversations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        conv_id TEXT UNIQUE NOT NULL,
+                        property_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS property_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        conv_id TEXT NOT NULL,
+                        sender_id TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'user',
+                        content TEXT NOT NULL,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS agent_chat_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        msg_id TEXT UNIQUE NOT NULL,
+                        agent_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        sender_role TEXT NOT NULL DEFAULT 'user',
+                        text TEXT,
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0"), ("preferred_language", "TEXT DEFAULT ''")]:
@@ -1017,7 +1109,7 @@ def init_db():
                         conn.execute(f"ALTER TABLE notifications ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
-                for col, coldef in [("property_type", "TEXT DEFAULT 'listings'"), ("available_date", "TEXT"), ("occupancy_status", "TEXT")]:
+                for col, coldef in [("property_type", "TEXT NOT NULL DEFAULT 'listings'"), ("available_date", "TEXT"), ("occupancy_status", "TEXT")]:
                     try:
                         conn.execute(f"ALTER TABLE properties ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -1505,6 +1597,46 @@ def _get_app_user_by_email(email: str) -> dict | None:
             if row is None:
                 return None
             keys = ["user_id", "name", "email", "password_hash", "role", "location_lat", "location_lng", "location_name", "created_at", "email_verified"]
+            return dict(zip(keys, row))
+        finally:
+            conn.close()
+
+
+def _get_agent_row(agent_id: str) -> dict | None:
+    """Fetch an agent row from app_users by user_id where role is 'agent'. Returns None if not found."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id,name,email,role FROM app_users WHERE user_id=%s AND role='agent'", (agent_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id,name,email,role FROM app_users WHERE user_id=? AND role='agent'", (agent_id,))
+                row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ["user_id", "name", "email", "role"]
+            return dict(zip(keys, row))
+        finally:
+            conn.close()
+
+
+def _get_property_conversation(conv_id: str) -> dict | None:
+    """Fetch a property conversation record by conv_id. Returns None if not found."""
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT conv_id,property_id,user_id,agent_id,created_at FROM property_conversations WHERE conv_id=%s", (conv_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT conv_id,property_id,user_id,agent_id,created_at FROM property_conversations WHERE conv_id=?", (conv_id,))
+                row = cur.fetchone()
+            if row is None:
+                return None
+            keys = ["conv_id", "property_id", "user_id", "agent_id", "created_at"]
             return dict(zip(keys, row))
         finally:
             conn.close()
