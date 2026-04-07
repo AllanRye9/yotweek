@@ -301,36 +301,177 @@ export const sendDmMessage = (userId, content) =>
 export const markNotificationsRead = () =>
   request('POST', '/api/notifications/read_all', {})
 
-const BASE = ''  // same origin
+// ── Downloader helpers ───────────────────────────────────────────────────────
 
-async function request(method, path, body = null, isJSON = true) {
-  const opts = {
-    method,
-    credentials: 'include',
-    headers: {},
-  }
-  if (body !== null) {
-    if (isJSON) {
-      opts.headers['Content-Type'] = 'application/json'
-      opts.body = JSON.stringify(body)
-    } else {
-      // FormData — let browser set Content-Type with boundary
-      opts.body = body
-    }
-  }
-  const res = await fetch(BASE + path, opts)
-  const ct = res.headers.get('content-type') || ''
-  if (ct.includes('application/json')) {
-    const data = await res.json()
-    if (!res.ok) throw Object.assign(new Error(data.error || data.detail || 'Request failed'), { status: res.status, data })
-    return data
-  }
-  if (!res.ok) throw Object.assign(new Error('Request failed'), { status: res.status })
-  return res
+export const getVideoInfo = (url) =>
+  request('POST', '/video_info', formBody({ url }), false)
+
+export const startDownload = (url, format = 'best', ext = 'mp4', session_id = '') =>
+  request('POST', '/start_download', formBody({ url, format, ext, session_id }), false)
+
+export const cancelDownload = (downloadId) =>
+  request('POST', `/cancel/${encodeURIComponent(downloadId)}`)
+
+export const cancelAll = () => request('POST', '/cancel_all')
+
+export const getActiveDownloads = () => request('GET', '/active_downloads')
+
+export const listFiles = (session_id = '') =>
+  request('GET', `/files${session_id ? `?session_id=${encodeURIComponent(session_id)}` : ''}`)
+    .then((data) => data.files || [])
+
+export const deleteFile = (filename) =>
+  request('DELETE', `/delete/${encodeURIComponent(filename)}`)
+
+export const deleteSession = (sessionId) =>
+  request('DELETE', `/session/${encodeURIComponent(sessionId)}`)
+
+export const streamUrl = (filename) => `${BASE}/stream/${encodeURIComponent(filename)}`
+
+export const downloadUrl = (filename) => `${BASE}/downloads/${encodeURIComponent(filename)}`
+
+export const downloadZip = (filenames = [], session_id = '') =>
+  request('POST', '/download_zip', formBody({ filenames: JSON.stringify(filenames), session_id }), false)
+
+export function triggerBlobDownload(blob, filename = 'download') {
+  const objectUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objectUrl
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
 }
 
-function formBody(obj) {
+// ── Reviews ──────────────────────────────────────────────────────────────────
+
+export const getReviews = () => request('GET', '/reviews').then((data) => data.reviews || [])
+
+export const canSubmitReview = () => request('GET', '/reviews/can_submit')
+
+export const submitReview = (rating, comment = '', name = '') =>
+  request('POST', '/reviews', { rating, comment, name })
+
+// ── CV / Docs / ATS ──────────────────────────────────────────────────────────
+
+export const generateCV = (fields, logoFile = null, theme = 'classic', layout = 'single') => {
   const fd = new FormData()
-  Object.entries(obj).forEach(([k, v]) => { if (v !== undefined && v !== null) fd.append(k, v) })
-  return fd
+  Object.entries(fields || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') fd.append(k, v)
+  })
+  fd.append('theme', theme)
+  fd.append('layout', layout)
+  if (logoFile) fd.append('logo', logoFile)
+  return request('POST', '/api/cv/generate', fd, false)
 }
+
+export const generateCVTxt = (fields, layout = 'single') => {
+  const fd = new FormData()
+  Object.entries(fields || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && String(v).trim() !== '') fd.append(k, v)
+  })
+  fd.append('layout', layout)
+  return request('POST', '/api/cv/generate_txt', fd, false)
+}
+
+export const extractCV = (file) => {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  return request('POST', '/api/cv/extract', fd, false)
+}
+
+export const aiCvSuggest = (field, text = '', name = '', job_title = '', extra = {}) =>
+  request('POST', '/api/cv/suggest', { field, text, name, job_title, ...extra })
+
+export const convertDoc = (file, target) => {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  fd.append('target', target)
+  return request('POST', '/api/doc/convert', fd, false)
+}
+
+export const scanATS = (cv_text, job_description, file = null) => {
+  if (file) {
+    const fd = new FormData()
+    fd.append('file', file, file.name)
+    fd.append('job_description', job_description || '')
+    if (cv_text) fd.append('cv_text', cv_text)
+    return request('POST', '/api/ats/scan', fd, false)
+  }
+  return request('POST', '/api/ats/scan', { cv_text, job_description })
+}
+
+// ── Property / Agent helpers ────────────────────────────────────────────────
+
+export const submitAgentApplication = (payload) =>
+  request('POST', '/api/agents/apply', payload)
+
+export const getAgentApplicationStatus = () =>
+  request('GET', '/api/agents/application_status')
+
+export const listProperties = () =>
+  request('GET', '/api/properties').then((data) => data.properties || data)
+
+export const getProperty = (propertyId) =>
+  request('GET', `/api/properties/${encodeURIComponent(propertyId)}`)
+
+export const createProperty = (payload) =>
+  request('POST', '/api/properties', payload)
+
+export const updateProperty = (propertyId, payload) =>
+  request('PUT', `/api/properties/${encodeURIComponent(propertyId)}`, payload)
+
+export const deleteProperty = (propertyId) =>
+  request('DELETE', `/api/properties/${encodeURIComponent(propertyId)}`)
+
+export const getNearbyAgents = (lat, lng, radius_km = 25) =>
+  request('GET', `/api/agents/nearby?lat=${lat}&lng=${lng}&radius_km=${radius_km}`)
+
+export const startPropertyConversation = (property_id, agent_id) =>
+  request('POST', '/api/property_conversations/start', { property_id, agent_id })
+
+export const listPropertyConversations = () =>
+  request('GET', '/api/property_conversations')
+
+export const getPropertyMessages = (conv_id) =>
+  request('GET', `/api/property_conversations/${encodeURIComponent(conv_id)}/messages`)
+
+export const sendPropertyMessage = (conv_id, content) =>
+  request('POST', `/api/property_conversations/${encodeURIComponent(conv_id)}/messages`, { content })
+
+export const markPropertyConversationRead = (conv_id) =>
+  request('POST', `/api/property_conversations/${encodeURIComponent(conv_id)}/read`, {})
+
+// ── Playlist / batch ─────────────────────────────────────────────────────────
+
+export const startPlaylist = (url, format = 'best', ext = 'mp4', start = '', end = '', session_id = '') =>
+  request('POST', '/start_playlist', formBody({ url, format, ext, start, end, session_id }), false)
+
+export const startBatch = (urls, format = 'best', ext = 'mp4', session_id = '') =>
+  request('POST', '/start_batch', formBody({ urls, format, ext, session_id }), false)
+
+// ── Optional admin legacy helpers ────────────────────────────────────────────
+
+export const getAdminDownloads = () => request('GET', '/admin/api/downloads')
+export const getAdminVisitors = () => request('GET', '/admin/api/visitors')
+export const getAdminAnalytics = () => request('GET', '/admin/api/analytics')
+export const adminCancelDownload = (id) => request('POST', `/admin/api/downloads/${encodeURIComponent(id)}/cancel`, {})
+export const adminDeleteRecord = (id) => request('DELETE', `/admin/api/downloads/${encodeURIComponent(id)}`)
+export const adminClearVisitors = () => request('DELETE', '/admin/api/visitors')
+export const adminClearAllDownloads = () => request('DELETE', '/admin/api/downloads')
+export const adminClearAllData = () => request('DELETE', '/admin/api/clear_all')
+export const getCookieStatus = () => request('GET', '/admin/api/cookies')
+export const uploadCookies = (file) => {
+  const fd = new FormData()
+  fd.append('file', file, file.name)
+  return request('POST', '/admin/api/cookies', fd, false)
+}
+export const deleteCookies = () => request('DELETE', '/admin/api/cookies')
+export const getAdminAgentApplications = () => request('GET', '/api/admin/agent_applications')
+export const adminApproveAgentApplication = (appId, approved = true) =>
+  request('POST', `/api/admin/agent_applications/${encodeURIComponent(appId)}/approve`, { approved })
+export const getAdminReviews = () => request('GET', '/api/admin/reviews')
+export const deleteAdminReview = (reviewId) => request('DELETE', `/api/admin/reviews/${encodeURIComponent(reviewId)}`)
+export const getAdminProperties = () => request('GET', '/api/admin/properties')
+export const adminDeleteProperty = (propertyId) => request('DELETE', `/api/admin/properties/${encodeURIComponent(propertyId)}`)
