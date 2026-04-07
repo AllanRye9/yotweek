@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useState, useEffect, createContext, useContext } from 'react'
-import { getAdminAuthStatus } from './api'
+import { useState, useEffect } from 'react'
 import { deleteSession } from './api'
 import { SESSION_ID } from './session'
 import Home from './pages/Home'
@@ -10,20 +9,12 @@ import DriverDashboard from './pages/DriverDashboard'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
-import AdminLogin from './pages/AdminLogin'
-import AdminDashboard from './pages/AdminDashboard'
-import TouristSitesPage from './pages/TouristSitesPage'
-import UnifiedMapPage from './pages/UnifiedMapPage'
 import ProfilePage from './pages/ProfilePage'
 import InboxPage from './pages/InboxPage'
 import RideChatPage from './pages/RideChatPage'
 import RequestsPage from './pages/RequestsPage'
-import TravelCompanionsPage from './pages/TravelCompanionsPage'
 import NotificationsPage from './pages/NotificationsPage'
-
-// ─── Auth Context ────────────────────────────────────────────────────────
-const AuthCtx = createContext(null)
-export const useAuth = () => useContext(AuthCtx)
+import { createContext, useContext } from 'react'
 
 // ─── Theme Context ────────────────────────────────────────────────────────
 export const THEMES = [
@@ -51,18 +42,6 @@ function ThemeProvider({ children, storageKey = 'yot_theme' }) {
     localStorage.setItem(storageKey, themeId)
   }, [themeId, storageKey])
 
-  // When this is the admin theme provider, restore the main site theme on unmount
-  useEffect(() => {
-    if (storageKey === 'yot_theme') return
-    return () => {
-      const mainThemeId = localStorage.getItem('yot_theme') || DEFAULT_THEME_ID
-      const mainTheme = THEMES.find(t => t.id === mainThemeId) || THEMES[0]
-      const html = document.documentElement
-      THEMES.forEach(t => html.classList.remove(t.className))
-      html.classList.add(mainTheme.className)
-    }
-  }, [storageKey])
-
   return (
     <ThemeCtx.Provider value={{ themeId, setThemeId }}>
       {children}
@@ -70,20 +49,8 @@ function ThemeProvider({ children, storageKey = 'yot_theme' }) {
   )
 }
 
-function AuthProvider({ children }) {
-  const [admin, setAdmin] = useState(null) // null=loading, false=not logged in, object=logged in
-  const checkAuth = async () => {
-    try {
-      const data = await getAdminAuthStatus()
-      setAdmin(data.logged_in ? data : false)
-    } catch {
-      setAdmin(false)
-    }
-  }
-  useEffect(() => { checkAuth() }, [])
-
-  // On every page load, delete any files left from the PREVIOUS session, then
-  // store the current session ID so the next load can clean it up.
+// ─── App ───────────────────────────────────────────────────────────
+export default function App() {
   useEffect(() => {
     const prevSession = localStorage.getItem('yot_session_id')
     if (prevSession && prevSession !== SESSION_ID) {
@@ -93,81 +60,43 @@ function AuthProvider({ children }) {
   }, [])
 
   return (
-    <AuthCtx.Provider value={{ admin, setAdmin, checkAuth }}>
-      {children}
-    </AuthCtx.Provider>
-  )
-}
-
-// ─── Protected Route ────────────────────────────────────────────────────────
-function ProtectedRoute({ children }) {
-  const { admin } = useAuth()
-  if (admin === null) {
-    return (
-      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
-        <div className="spinner w-10 h-10" />
-      </div>
-    )
-  }
-  if (!admin) return <Navigate to="/admin/login" replace />
-  return children
-}
-
-// ─── App ───────────────────────────────────────────────────────────
-export default function App() {
-  return (
     <BrowserRouter>
       <ThemeProvider>
-        <AuthProvider>
-          <Routes>
-            <Route path="/" element={<Home />} />
-            {/* Auth pages */}
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterPage />} />
-            <Route path="/reset-password" element={<ResetPasswordPage />} />
-            {/* Rides */}
-            <Route path="/rides" element={<RidesPage />} />
-            <Route path="/rides/:rideId/chat" element={<RideChatPage />} />
-            {/* Requests */}
-            <Route path="/requests" element={<RequestsPage />} />
-            {/* Dashboards — each page handles its own auth + role checks */}
-            <Route path="/user/dashboard" element={<UserDashboard />} />
-            <Route path="/driver/dashboard" element={<DriverDashboard />} />
-            {/* Legacy /dashboard → /user/dashboard */}
-            <Route path="/dashboard" element={<Navigate to="/user/dashboard" replace />} />
-            {/* Other pages */}
-            <Route path="/profile" element={<ProfilePage />} />
-            <Route path="/tourist-sites" element={<TouristSitesPage />} />
-            {/* Legacy redirects — real estate / property features removed */}
-            <Route path="/properties" element={<Navigate to="/tourist-sites" replace />} />
-            <Route path="/properties/:propertyId" element={<Navigate to="/tourist-sites" replace />} />
-            {/* Agent registration removed — redirect to home */}
-            <Route path="/agents" element={<Navigate to="/" replace />} />
-            <Route path="/property-inbox" element={<Navigate to="/" replace />} />
-            <Route path="/map" element={<UnifiedMapPage />} />
-            <Route path="/inbox" element={<InboxPage />} />
-            <Route path="/companions" element={<TravelCompanionsPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
-            <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin/register" element={<AdminLogin register />} />
-            <Route path="/const" element={
-              <ProtectedRoute>
-                <ThemeProvider storageKey="yot_admin_theme">
-                  <AdminDashboard />
-                </ThemeProvider>
-              </ProtectedRoute>
-            } />
-            <Route path="/admin/dashboard" element={
-              <ProtectedRoute>
-                <ThemeProvider storageKey="yot_admin_theme">
-                  <AdminDashboard />
-                </ThemeProvider>
-              </ProtectedRoute>
-            } />
-            {/* Catch-all → Home */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </AuthProvider>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          {/* Auth pages */}
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          {/* Rides */}
+          <Route path="/rides" element={<RidesPage />} />
+          <Route path="/rides/:rideId/chat" element={<RideChatPage />} />
+          {/* Requests */}
+          <Route path="/requests" element={<RequestsPage />} />
+          {/* Dashboards — each page handles its own auth + role checks */}
+          <Route path="/user/dashboard" element={<UserDashboard />} />
+          <Route path="/driver/dashboard" element={<DriverDashboard />} />
+          {/* Legacy /dashboard → /user/dashboard */}
+          <Route path="/dashboard" element={<Navigate to="/user/dashboard" replace />} />
+          {/* Profile, chat, notifications */}
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/inbox" element={<InboxPage />} />
+          <Route path="/notifications" element={<NotificationsPage />} />
+          {/* Legacy redirects */}
+          <Route path="/tourist-sites" element={<Navigate to="/" replace />} />
+          <Route path="/properties" element={<Navigate to="/" replace />} />
+          <Route path="/properties/:propertyId" element={<Navigate to="/" replace />} />
+          <Route path="/agents" element={<Navigate to="/" replace />} />
+          <Route path="/property-inbox" element={<Navigate to="/" replace />} />
+          <Route path="/map" element={<Navigate to="/rides" replace />} />
+          <Route path="/companions" element={<Navigate to="/rides" replace />} />
+          <Route path="/admin/login" element={<Navigate to="/" replace />} />
+          <Route path="/admin/register" element={<Navigate to="/" replace />} />
+          <Route path="/admin/dashboard" element={<Navigate to="/" replace />} />
+          <Route path="/const" element={<Navigate to="/" replace />} />
+          {/* Catch-all → Home */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
       </ThemeProvider>
     </BrowserRouter>
   )
