@@ -3662,7 +3662,7 @@ def download_worker(download_id, url, output_template, format_spec, output_ext=N
         _extractor_circuit_breaker.record_failure()
 
         # When bot-detection or HTTP 403 fires and no cookies are present, retry using only
-        # the POT-free clients (web_embedded + tv + mweb) that work without authentication.
+        # the POT-free clients (android_vr + web_embedded + tv) that work without authentication.
         final_error: Exception = e
         err_str_initial = str(e)
         if (_is_auth_error(err_str_initial) or _is_http_forbidden_error(err_str_initial)) and not os.path.isfile(COOKIES_FILE):

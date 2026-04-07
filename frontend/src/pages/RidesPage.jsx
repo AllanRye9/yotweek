@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../App'
 import RideChat from '../components/RideChat'
 import RaiseRequest from '../components/RaiseRequest'
-import TravelCompanion from '../components/TravelCompanion'
 import UserAuth from '../components/UserAuth'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
@@ -294,7 +292,7 @@ export default function RidesPage() {
 
           {/* Nav — desktop only; on mobile the tab bar below the ride list is used */}
           <nav className="hidden sm:flex gap-1 ml-2">
-            {[['rides', '🗺️ Rides'], ['requests', '🙋 Requests'], ['companions', '🌍 Companions']].map(([id, label]) => (
+            {[['rides', '🗺️ Rides'], ['requests', '🙋 Requests']].map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)}
                       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${rightTab === id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
                       style={rightTab !== id ? { color: 'var(--text-secondary)' } : {}}>
@@ -467,7 +465,7 @@ export default function RidesPage() {
           {/* Mobile-only tab bar (desktop uses header nav) */}
           <div className="flex rounded-xl overflow-hidden border sm:hidden"
                style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
-            {[['rides', '🗺️ Rides'], ['requests', '🙋 Requests'], ['companions', '🌍 Companions']].map(([id, label]) => (
+            {[['rides', '🗺️ Rides'], ['requests', '🙋 Requests']].map(([id, label]) => (
               <button key={id} onClick={() => setRightTab(id)}
                       className={`flex-1 py-2 text-xs font-medium transition-colors ${rightTab === id ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
                       style={rightTab !== id ? { color: 'var(--text-secondary)' } : {}}>
@@ -494,7 +492,6 @@ export default function RidesPage() {
           )}
 
           {rightTab === 'requests' && <RaiseRequest user={appUser} />}
-          {rightTab === 'companions' && <TravelCompanion user={appUser} />}
         </aside>
       </main>
 

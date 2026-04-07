@@ -12,7 +12,6 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../App'
 import ThemeSelector from './ThemeSelector'
 import { userLogout } from '../api'
 import { getDashboardPath } from '../routing'
@@ -28,7 +27,6 @@ const NAV_LINKS = [
 ]
 
 export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
-  const { admin } = useAuth()
   const navigate  = useNavigate()
   const location  = useLocation()
 
@@ -251,15 +249,6 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
                         Sign Out
                       </button>
                     </>
-                  )}
-                  {admin && (
-                    <Link
-                      to="/const"
-                      className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      🛠 Admin
-                    </Link>
                   )}
                   {user === false && (
                     <button

@@ -1,21 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../App'
-import DownloadForm from '../components/DownloadForm'
-import ActiveDownloads from '../components/ActiveDownloads'
-import FileList from '../components/FileList'
-import CVGenerator from '../components/CVGenerator'
-import DocConverter from '../components/DocConverter'
 import RideShare from '../components/RideShare'
 import RideChat from '../components/RideChat'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import DMInbox from '../components/DMInbox'
-import TouristSitesContent from '../components/TouristSitesContent'
 import {
   getUserProfile, userLogout, getNotifications,
   markAllNotificationsRead, markNotificationRead, clearAllNotifications,
-  getRideHistory, getRideChatInbox,
+  getRideHistory,
   listRides, getConfirmedUsers, cancelRide,
   driverApply, getDriverApplication,
 } from '../api'
@@ -25,15 +18,11 @@ import socket from '../socket'
 
 const TABS = [
   { id: 'overview',    label: '🏠 Overview',          icon: '🏠' },
-  { id: 'tourist_sites', label: '🗺️ Tourist Sites',   icon: '🗺️' },
   { id: 'rides',       label: '🚗 Rides',              icon: '🚗' },
   { id: 'inbox',       label: '💬 Inbox',              icon: '💬', badge: 'chat' },
   { id: 'notifications', label: '🔔 Notifications',   icon: '🔔', badge: 'notif' },
   { id: 'history',     label: '📋 History',            icon: '📋' },
   { id: 'driver_reg',  label: '🚕 Driver Reg.',         icon: '🚕' },
-  { id: 'download',    label: '⬇ Download',            icon: '⬇' },
-  { id: 'cv',          label: '📄 CV Builder',          icon: '📄' },
-  { id: 'convert',     label: '🔄 Converter',           icon: '🔄' },
   { id: 'profile',     label: '👤 Profile',             icon: '👤' },
 ]
 
@@ -99,11 +88,7 @@ function OverviewPanel({ user, dashStats, onSelectTab, onNavigate }) {
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[
-            { icon: '⬇️', title: 'Download Video',   desc: '1,000+ sites',           action: () => onSelectTab('download') },
-            { icon: '📄', title: 'Build a CV',        desc: 'PDF with ATS scan',      action: () => onSelectTab('cv') },
-            { icon: '🔄', title: 'Convert Docs',      desc: 'PDF, Word & more',       action: () => onSelectTab('convert') },
             { icon: '🚗', title: 'Share a Ride',       desc: 'Post or find rides',    action: () => onSelectTab('rides') },
-            { icon: '🗺️', title: 'Tourist Sites',     desc: 'Attractions near you',  action: () => onSelectTab('tourist_sites') },
             { icon: '✈️', title: 'Airport Pickup',    desc: 'Book a driver now',      action: () => onNavigate ? onNavigate('/rides') : onSelectTab('rides') },
           ].map(tile => (
             <button
@@ -423,7 +408,6 @@ function RidesDashboardTab({ user }) {
 // ─── Main Dashboard component ───────────────────────────────────────────────────
 
 export default function UserDashboard() {
-  const { admin } = useAuth()
   const navigate   = useNavigate()
 
   const [appUser,     setAppUser]     = useState(null)   // null=loading, false=not authed, object=authed
@@ -431,21 +415,16 @@ export default function UserDashboard() {
   const [tab,         setTab]         = useState('overview')
   const [dashStats,   setDashStats]   = useState(null)
   const [connected,   setConnected]   = useState(false)
-  const [fileListVersion, setFileListVersion] = useState(0)
   const [menuOpen,    setMenuOpen]    = useState(false)
   const [unreadNotifs, setUnreadNotifs] = useState(0)
   const [unreadChat,  setUnreadChat]  = useState(0)
   const [notifications, setNotifications] = useState([])
   const [rideHistory, setRideHistory] = useState([])
-  const [chatInbox,   setChatInbox]   = useState([])
   const [driverApp,   setDriverApp]   = useState(null)
   const [driverForm,  setDriverForm]  = useState({ vehicle_make:'', vehicle_model:'', vehicle_year:'', vehicle_color:'', license_plate:'' })
   const [driverApplying, setDriverApplying] = useState(false)
   const [driverApplyMsg, setDriverApplyMsg] = useState('')
   const profileRef     = useRef(null)
-  const activeDownloadsRef = useRef(null)
-  const fileListRef    = useRef(null)
-  const scrollTimerRef = useRef(null)
   const tabPanelRef    = useRef(null)
 
   // Load current user; redirect to login if not logged in, or driver dashboard if role=driver
@@ -475,21 +454,18 @@ export default function UserDashboard() {
   useEffect(() => {
     const onConnect    = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
-    const onFilesUpdated = () => setFileListVersion(v => v + 1)
     // Real-time chat notification from ride poster
     const onChatNotif = () => setUnreadChat(c => c + 1)
     // Real-time DM notification
     const onDmNotif = () => setUnreadChat(c => c + 1)
     socket.on('connect',                onConnect)
     socket.on('disconnect',             onDisconnect)
-    socket.on('files_updated',          onFilesUpdated)
     socket.on('ride_chat_notification', onChatNotif)
     socket.on('dm_notification',        onDmNotif)
     setConnected(socket.connected)
     return () => {
       socket.off('connect',                onConnect)
       socket.off('disconnect',             onDisconnect)
-      socket.off('files_updated',          onFilesUpdated)
       socket.off('ride_chat_notification', onChatNotif)
       socket.off('dm_notification',        onDmNotif)
     }
@@ -516,21 +492,6 @@ export default function UserDashboard() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
-
-  const refreshFiles = useCallback(() => setFileListVersion(v => v + 1), [])
-
-  const handleDownloadStarted = useCallback(({ download_id, title } = {}) => {
-    if (download_id) activeDownloadsRef.current?.subscribeToDownload(download_id, title)
-    refreshFiles()
-  }, [refreshFiles])
-
-  const handleDownloadDone = useCallback(() => {
-    refreshFiles()
-    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current)
-    scrollTimerRef.current = setTimeout(() => {
-      fileListRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 600)
-  }, [refreshFiles])
 
   const handleSelectTab = useCallback((id) => {
     if (id === 'inbox') {
@@ -647,13 +608,6 @@ export default function UserDashboard() {
             </button>
           </div>
 
-          {/* Admin link */}
-          {admin && (
-            <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex">
-              Admin
-            </Link>
-          )}
-
           {/* Logout button */}
           <button
             onClick={handleLogout}
@@ -675,15 +629,6 @@ export default function UserDashboard() {
         {/* Mobile dropdown */}
         {menuOpen && (
           <div className="sm:hidden border-t border-gray-800 bg-gray-900 px-4 py-3 space-y-2">
-            {admin && (
-              <Link
-                to="/const"
-                className="block text-sm text-gray-400 hover:text-white py-1"
-                onClick={() => setMenuOpen(false)}
-              >
-                🛠 Admin Dashboard
-              </Link>
-            )}
             <button
               onClick={() => { setMenuOpen(false); handleLogout() }}
               className="block w-full text-left text-sm text-gray-400 hover:text-white py-1"
@@ -754,34 +699,6 @@ export default function UserDashboard() {
           <div ref={tabPanelRef}>
             {tab === 'overview' && (
               <OverviewPanel user={appUser} dashStats={dashStats} onSelectTab={handleSelectTab} onNavigate={navigate} />
-            )}
-
-            {tab === 'tourist_sites' && (
-              <div className="card">
-                <div className="mb-4">
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🗺️ Tourist Sites</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">Discover tourist attractions, landmarks and places of interest near you.</p>
-                </div>
-                <TouristSitesContent />
-              </div>
-            )}
-
-            {tab === 'download' && (
-              <div className="card">
-                <DownloadForm onDownloadStarted={handleDownloadStarted} />
-              </div>
-            )}
-
-            {tab === 'cv' && (
-              <div className="card">
-                <CVGenerator />
-              </div>
-            )}
-
-            {tab === 'convert' && (
-              <div className="card">
-                <DocConverter />
-              </div>
             )}
 
             {tab === 'rides' && (
@@ -1028,18 +945,6 @@ export default function UserDashboard() {
                 )}
               </div>
             )}
-          </div>
-
-          {/* Active downloads — only shown when on download tab */}
-          {tab === 'download' && (
-            <div className="mt-5">
-              <ActiveDownloads ref={activeDownloadsRef} onComplete={refreshFiles} onDownloadDone={handleDownloadDone} />
-            </div>
-          )}
-
-          {/* File list */}
-          <div className="mt-5" ref={fileListRef}>
-            <FileList version={fileListVersion} />
           </div>
         </main>
       </div>

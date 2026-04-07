@@ -1,10 +1,7 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../App'
 import Reviews from '../components/Reviews'
 import ThemeSelector from '../components/ThemeSelector'
-import CVGenerator from '../components/CVGenerator'
-import DocConverter from '../components/DocConverter'
 import UserAuth from '../components/UserAuth'
 import RideShare from '../components/RideShare'
 import { getUserProfile } from '../api'
@@ -286,113 +283,34 @@ function AnimatedCounter({ value, label, icon }) {
 
 const TABS = [
   { id: 'rides',   label: '🚗 Ride Share',    icon: '🚗' },
-  { id: 'cv',      label: '📄 CV Generator', icon: '📄' },
-  { id: 'convert', label: '🔄 Doc Converter', icon: '🔄' },
 ]
 
 const SERVICE_CARDS = [
   { id: 'rides',   icon: '🚗', title: 'Ride Share',       desc: 'Post rides, find drivers & get alerts' },
-  { id: 'cv',      icon: '📄', title: 'CV Generator',     desc: 'Professional resumes with ATS scanning' },
-  { id: 'convert', icon: '🔄', title: 'Doc Converter',    desc: 'PDF, Word, Excel, images & more' },
 ]
 
-/** Three animated service cards with glowing borders that randomly interchange. */
-function ServiceCards({ activeTab, onSelectTab, onNavigateRides }) {
-  const [order, setOrder] = useState([0, 1, 2])
-  const cardRefs = useRef({})
-  const positionsRef = useRef({})
-  const reducedMotion = useRef(
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
-
-  // Save bounding-rect positions for FLIP animation
-  const savePositions = useCallback(() => {
-    SERVICE_CARDS.forEach(c => {
-      const el = cardRefs.current[c.id]
-      if (el) positionsRef.current[c.id] = el.getBoundingClientRect()
-    })
-  }, [])
-
-  // FLIP: after React re-orders the DOM, animate cards from old → new positions
-  useLayoutEffect(() => {
-    const prev = positionsRef.current
-    if (Object.keys(prev).length === 0) {
-      savePositions()
-      return
-    }
-    if (reducedMotion.current) {
-      savePositions()
-      return
-    }
-
-    SERVICE_CARDS.forEach(card => {
-      const el = cardRefs.current[card.id]
-      if (!el) return
-      const oldRect = prev[card.id]
-      if (!oldRect) return
-      const newRect = el.getBoundingClientRect()
-      const dx = oldRect.left - newRect.left
-      const dy = oldRect.top  - newRect.top
-      if (dx === 0 && dy === 0) return
-
-      el.style.transform  = 'translate(' + dx + 'px,' + dy + 'px)'
-      el.style.transition = 'none'
-      // Force reflow so the inverse transform is applied before we animate
-      void el.offsetHeight
-      el.style.transition = 'transform 0.8s cubic-bezier(.4,0,.2,1)'
-      el.style.transform  = ''
-    })
-
-    const tid = setTimeout(savePositions, 850)
-    return () => clearTimeout(tid)
-  }, [order, savePositions])
-
-  // Randomly swap two cards every ~4 s
-  useEffect(() => {
-    if (reducedMotion.current) return
-    const id = setInterval(() => {
-      savePositions()
-      setOrder(prev => {
-        const next = prev.slice()
-        const a = Math.floor(Math.random() * 3)
-        let b
-        do { b = Math.floor(Math.random() * 3) } while (b === a)
-        ;[next[a], next[b]] = [next[b], next[a]]
-        return next
-      })
-    }, 4000)
-    return () => clearInterval(id)
-  }, [savePositions])
+/** Animated service card with a glowing border. */
+function ServiceCards({ onNavigateRides }) {
+  const c = SERVICE_CARDS[0]
 
   return (
     <div className="service-cards-grid" role="tablist" aria-label="Services">
-      {order.map(idx => {
-        const c = SERVICE_CARDS[idx]
-        const isActive = activeTab === c.id
-        return (
-          <button
-            key={c.id}
-            ref={el => { cardRefs.current[c.id] = el }}
-            role="tab"
-            aria-selected={isActive}
-            className={'service-card' + (isActive ? ' service-card-active' : '')}
-            onClick={() => { if (c.id === 'rides') { onNavigateRides?.() } else { onSelectTab(c.id) } }}
-          >
-            <span className="service-card-icon" aria-hidden="true">{c.icon}</span>
-            <div className="service-card-title">{c.title}</div>
-            <div className="service-card-desc">{c.desc}</div>
-          </button>
-        )
-      })}
+      <button
+        role="tab"
+        aria-selected={true}
+        className="service-card service-card-active"
+        onClick={() => { onNavigateRides?.() }}
+      >
+        <span className="service-card-icon" aria-hidden="true">{c.icon}</span>
+        <div className="service-card-title">{c.title}</div>
+        <div className="service-card-desc">{c.desc}</div>
+      </button>
     </div>
   )
 }
 
 export default function Home() {
-  const { admin } = useAuth()
   const navigate  = useNavigate()
-  const [tab, setTab] = useState('rides')
   const [connected, setConnected] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -404,8 +322,6 @@ export default function Home() {
 
   // Ref to the tab-panel container so we can scroll to it on card click
   const tabPanelRef = useRef(null)
-
-  // Draggable help FAB state
   const fabRef = useRef(null)
   const fabDrag = useRef({ active: false, moved: false, startX: 0, startY: 0, origRight: 24, origBottom: 24 })
 
@@ -475,14 +391,6 @@ export default function Home() {
       .finally(() => setUserLoading(false))
   }, [navigate])
 
-  // When a card is clicked, switch tab and scroll the feature panel into view
-  const handleSelectTab = useCallback((id) => {
-    setTab(id)
-    setTimeout(() => {
-      tabPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 100)
-  }, [])
-
   return (
     <div className="min-h-screen bg-gray-950 flex flex-col">
       {/* Global auth modal — accessible from hero CTA and navbar */}
@@ -545,13 +453,6 @@ export default function Home() {
             </div>
           )}
 
-          {/* Admin link */}
-          {admin && (
-            <Link to="/const" className="btn-secondary btn-sm hidden sm:inline-flex">
-              Dashboard
-            </Link>
-          )}
-
           {/* Mobile menu */}
           <button
             className="btn-ghost btn-sm sm:hidden"
@@ -565,24 +466,6 @@ export default function Home() {
         {/* Mobile dropdown */}
         {menuOpen && (
           <div className="sm:hidden border-t border-gray-800 bg-gray-900 px-4 py-3 space-y-2">
-            {admin && (
-              <Link
-                to="/const"
-                className="block text-sm text-gray-400 hover:text-white py-1"
-                onClick={() => setMenuOpen(false)}
-              >
-                🛠 Admin Dashboard
-              </Link>
-            )}
-            {!admin && (
-              <Link
-                to="/admin/login"
-                className="block text-sm text-gray-500 hover:text-white py-1"
-                onClick={() => setMenuOpen(false)}
-              >
-                Admin Login
-              </Link>
-            )}
           </div>
         )}
       </nav>
@@ -623,7 +506,7 @@ export default function Home() {
       {/* ── Main Content ── */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-[15px] sm:pt-[19px] pb-20 sm:pb-8">
         {/* Animated service cards — glowing borders, random interchange */}
-        <ServiceCards activeTab={tab} onSelectTab={handleSelectTab} onNavigateRides={() => navigate('/rides')} />
+        <ServiceCards onNavigateRides={() => navigate('/rides')} />
 
         {/* Ride Share & Driver Alerts — dedicated page link */}
         <div className="mt-2 flex justify-center gap-3 flex-wrap">
@@ -660,8 +543,6 @@ export default function Home() {
                   </button>
                 </div>
           )}
-          {tab === 'cv'      && <CVGenerator />}
-          {tab === 'convert' && <DocConverter />}
         </div>
 
         {/* Reviews */}
@@ -679,12 +560,6 @@ export default function Home() {
           <a href="mailto:support@yotweek.com" className="hover:text-gray-400 transition-colors">
             support@yotweek.com
           </a>
-          {!admin && (
-            <>
-              {' · '}
-              <Link to="/admin/login" className="hover:text-gray-400 transition-colors">Admin</Link>
-            </>
-          )}
         </p>
       </footer>
 
