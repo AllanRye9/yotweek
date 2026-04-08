@@ -11,7 +11,7 @@
  *  - RideChat for ride conversations
  *  - Empty state placeholder
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import NavBar from '../components/NavBar'
 import DMChat from '../components/DMChat'
 import RideChat from '../components/RideChat'
@@ -68,32 +68,44 @@ export default function InboxPage() {
   const [rideLoading, setRideLoad] = useState(false)
   const [selectedRide, setSelectedRide] = useState(null)
   const [showSidebar, setShowSidebar] = useState(true)
+  const [banner, setBanner] = useState(null)   // { from, preview, conv_id }
+  const bannerTimer = useRef(null)
 
   useEffect(() => {
     getUserProfile().then(u => setAppUser(u)).catch(() => setAppUser(null))
   }, [])
 
-  useEffect(() => {
-    if (tab !== 'dm') return
+  const loadDmConvs = () => {
     setDmLoad(true)
     getDmConversations()
       .then(d => setDmConvs(d.conversations || d || []))
       .catch(() => setDmConvs([]))
       .finally(() => setDmLoad(false))
-  }, [tab])
+  }
+
+  const loadRideInbox = () => {
+    setRideLoad(true)
+    getRideChatInbox()
+      .then(d => setRideInbox(d.conversations || d.inbox || []))
+      .catch(() => setRideInbox([]))
+      .finally(() => setRideLoad(false))
+  }
+
+  useEffect(() => {
+    if (tab !== 'dm') return
+    loadDmConvs()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (tab !== 'rides') return
-    setRideLoad(true)
-    getRideChatInbox()
-      .then(d => setRideInbox(d.inbox || []))
-      .catch(() => setRideInbox([]))
-      .finally(() => setRideLoad(false))
-  }, [tab])
+    loadRideInbox()
+  }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Real-time DM update
+  // Real-time DM: update conversation list preview + show arrival banner
   useEffect(() => {
     const onMsg = (msg) => {
+      const myId = appUser?.user_id
+      // Update conversation preview in sidebar
       setDmConvs(prev => {
         const idx = prev.findIndex(c => c.conv_id === msg.conv_id)
         if (idx === -1) return prev
@@ -101,10 +113,44 @@ export default function InboxPage() {
         updated[idx] = { ...updated[idx], last_message: msg.content, timestamp: msg.ts, last_delivery: msg.status || 'sent' }
         return updated
       })
+      // Show banner only for incoming messages (not our own)
+      if (msg.sender_id && msg.sender_id !== myId) {
+        setDmConvs(prev => {
+          const conv = prev.find(c => c.conv_id === msg.conv_id)
+          if (conv) {
+            const from = conv.other_user?.name || conv.name || 'New message'
+            showBanner({ from, preview: msg.content, conv_id: msg.conv_id })
+          }
+          return prev
+        })
+      }
     }
-    socket.on('dm_message', onMsg)
-    return () => socket.off('dm_message', onMsg)
-  }, [])
+    const onNotif = (data) => {
+      // Refresh conversation list so unread counts and previews update
+      loadDmConvs()
+      // Show banner if we have sender info from the notification payload
+      if (data?.from) showBanner({ from: data.from, preview: data.preview || '', conv_id: data.conv_id })
+    }
+    const onRideNotif = () => {
+      loadRideInbox()
+    }
+    socket.on('dm_message',           onMsg)
+    socket.on('dm_notification',      onNotif)
+    socket.on('ride_chat_notification', onRideNotif)
+    return () => {
+      socket.off('dm_message',            onMsg)
+      socket.off('dm_notification',       onNotif)
+      socket.off('ride_chat_notification', onRideNotif)
+    }
+  }, [appUser?.user_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const showBanner = ({ from, preview, conv_id }) => {
+    setBanner({ from, preview, conv_id })
+    clearTimeout(bannerTimer.current)
+    bannerTimer.current = setTimeout(() => setBanner(null), 5000)
+  }
+
+  useEffect(() => () => clearTimeout(bannerTimer.current), [])
 
   const handleSelectConv = (conv) => { setSelectedConv(conv); setShowSidebar(false) }
   const handleSelectRide = (item) => { setSelectedRide(item);  setShowSidebar(false) }
@@ -118,7 +164,8 @@ export default function InboxPage() {
   // Build date-grouped DM list
   let prevGroup = null
   const dmWithGroups = dmConvs.map(c => {
-    const g    = convDateGroup(c.timestamp)
+    const ts = typeof c.last_message === 'object' ? (c.last_message?.ts || c.created_at) : (c.timestamp || c.created_at)
+    const g    = convDateGroup(ts)
     const show = g !== prevGroup
     prevGroup  = g
     return { ...c, _showGroup: show, _group: g }
@@ -127,6 +174,35 @@ export default function InboxPage() {
   return (
     <div style={{ background: 'var(--bg-page)', minHeight: '100vh' }} className="flex flex-col">
       <NavBar user={appUser || (appUser === null ? null : false)} title="Inbox" />
+
+      {/* ── New-message arrival banner ── */}
+      {banner && (
+        <div
+          className="sticky top-14 z-40 flex items-center gap-3 px-4 py-3 shadow-lg cursor-pointer"
+          style={{ background: '#1d4ed8', color: '#fff' }}
+          onClick={() => {
+            setBanner(null)
+            if (banner.conv_id) {
+              // Find conversation and select it
+              const conv = dmConvs.find(c => c.conv_id === banner.conv_id)
+              if (conv) { setTab('dm'); handleSelectConv(conv) }
+            }
+          }}
+        >
+          <span className="text-lg shrink-0">💬</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold truncate">New message from {banner.from}</p>
+            {banner.preview && (
+              <p className="text-xs truncate opacity-80">{banner.preview.slice(0, 80)}</p>
+            )}
+          </div>
+          <button
+            className="shrink-0 text-white/70 hover:text-white text-lg leading-none"
+            onClick={(e) => { e.stopPropagation(); setBanner(null) }}
+            aria-label="Dismiss"
+          >✕</button>
+        </div>
+      )}
 
       <div className="flex-1 flex max-w-4xl mx-auto w-full px-4 py-4 gap-4 min-h-0" style={{ maxHeight: 'calc(100vh - 56px)' }}>
 
@@ -155,6 +231,13 @@ export default function InboxPage() {
               ) : dmWithGroups.map((conv, i) => {
                 const other      = conv.other_user || {}
                 const isSelected = selectedConv?.conv_id === conv.conv_id
+                // last_message may be an object (from API) or a string (from socket update)
+                const lastMsgContent = typeof conv.last_message === 'object'
+                  ? (conv.last_message?.content || '')
+                  : (conv.last_message || '')
+                const lastMsgTs = typeof conv.last_message === 'object'
+                  ? (conv.last_message?.ts || conv.timestamp || conv.created_at)
+                  : (conv.timestamp || conv.created_at)
                 return (
                   <div key={conv.conv_id || i}>
                     {/* Date group separator */}
@@ -176,11 +259,11 @@ export default function InboxPage() {
                         </p>
                         <p className="text-xs truncate flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
                           {conv.last_delivery && <DeliveryDot state={conv.last_delivery} />}
-                          {conv.last_message || ''}
+                          {lastMsgContent}
                         </p>
                       </div>
                       <div className="flex flex-col items-end shrink-0 gap-0.5">
-                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{fmtTs(conv.timestamp)}</span>
+                        <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{fmtTs(lastMsgTs)}</span>
                         {conv.unread_count > 0 && (
                           <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-xs flex items-center justify-center font-bold leading-none">
                             {conv.unread_count}
@@ -209,11 +292,11 @@ export default function InboxPage() {
                     className="w-full text-left flex flex-col px-2 py-2 rounded-lg transition-colors hover:opacity-80"
                     style={{ background: isSelected ? 'var(--bg-surface)' : 'transparent' }}>
                     <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
-                      {item.origin} → {item.destination}
+                      {item.ride_info?.origin || item.origin || '?'} → {item.ride_info?.destination || item.destination || '?'}
                     </p>
-                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{item.last_message || ''}</p>
+                    <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{item.text || item.last_message || ''}</p>
                     <div className="flex items-center justify-between mt-0.5">
-                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{fmtTs(item.timestamp)}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{fmtTs(item.ts || item.timestamp)}</span>
                       {item.unread_count > 0 && (
                         <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-xs flex items-center justify-center font-bold">
                           {item.unread_count}

@@ -498,6 +498,10 @@ export default function UserDashboard() {
       navigate('/inbox')
       return
     }
+    if (id === 'profile') {
+      navigate('/profile')
+      return
+    }
     setTab(id)
     // Load data for specific tabs when first opened
     if (id === 'history') {

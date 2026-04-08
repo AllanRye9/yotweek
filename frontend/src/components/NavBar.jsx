@@ -34,7 +34,11 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
 
   // Track socket connection state
   useEffect(() => {
-    const onConnect    = () => setConnected(true)
+    const onConnect    = () => {
+      setConnected(true)
+      // Re-identify after reconnection
+      if (user?.user_id) socket.emit('identify', { user_id: user.user_id })
+    }
     const onDisconnect = () => setConnected(false)
     socket.on('connect',    onConnect)
     socket.on('disconnect', onDisconnect)
@@ -43,7 +47,12 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
       socket.off('connect',    onConnect)
       socket.off('disconnect', onDisconnect)
     }
-  }, [])
+  }, [user?.user_id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Identify socket with user_id whenever user becomes available
+  useEffect(() => {
+    if (user?.user_id) socket.emit('identify', { user_id: user.user_id })
+  }, [user?.user_id])
 
   // Close mobile menu on outside click
   useEffect(() => {

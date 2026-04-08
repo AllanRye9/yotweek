@@ -271,6 +271,7 @@ export default function RideChat({ ride, user, onClose }) {
     socket.emit('ride_chat_message', {
       ride_id:     rideId,
       text:        trimmed,
+      name:        myName,
       sender_name: myName,
       sender_id:   myId,
     })
@@ -289,6 +290,7 @@ export default function RideChat({ ride, user, onClose }) {
         socket.emit('ride_chat_message', {
           ride_id:     rideId,
           text:        `📍 I've confirmed my journey. My location: ${locationLabel}`,
+          name:        myName,
           sender_name: myName,
           sender_id:   myId,
         })
