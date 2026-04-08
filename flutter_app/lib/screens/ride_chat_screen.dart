@@ -155,15 +155,23 @@ class _RideChatScreenState extends State<RideChatScreen>
     if (text.isEmpty || _sending) return;
     _textCtrl.clear();
     _onTextChanged('');
-    _addLocalMessage(text);
     setState(() => _sending = true);
-    try {
-      // The backend ride-chat send endpoint is Socket.IO only; we surface the
-      // message locally and the next poll will sync server messages.
-      // If the backend ever adds a REST endpoint this call can be replaced.
-    } finally {
-      if (mounted) setState(() => _sending = false);
+    // NOTE: The backend ride-chat send endpoint is Socket.IO only (no REST
+    // equivalent).  We store the message optimistically for local display and
+    // inform the user to open the web interface to message the full group.
+    _addLocalMessage(text);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '⚠️ Ride chat requires the web interface for full messaging. '
+            'Your message is shown locally only.',
+          ),
+          duration: Duration(seconds: 4),
+        ),
+      );
     }
+    setState(() => _sending = false);
   }
 
   Future<void> _shareLocation() async {
@@ -186,20 +194,6 @@ class _RideChatScreenState extends State<RideChatScreen>
     final contactCtrl = TextEditingController(
       text: (_me?['phone'] ?? _me?['email'] ?? '').toString(),
     );
-    String? locationLabel;
-    double? lat;
-    double? lng;
-
-    // Pre-fetch location in the background
-    _tryGetLocation().then((pos) {
-      if (pos != null) {
-        lat = pos.latitude;
-        lng = pos.longitude;
-        locationLabel =
-            '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
-        if (mounted) (context as Element).markNeedsBuild();
-      }
-    });
 
     if (!mounted) return;
     await showModalBottomSheet(
@@ -210,28 +204,24 @@ class _RideChatScreenState extends State<RideChatScreen>
       builder: (ctx) => _ConfirmJourneySheet(
         nameCtrl: nameCtrl,
         contactCtrl: contactCtrl,
-        getLocationLabel: () => locationLabel,
-        onOpenMap: () async {
+        initialName: _myName,
+        onOpenMap: (onLocationSelected) async {
           await Navigator.push(
             ctx,
             MaterialPageRoute(
               builder: (_) => LocationMapScreen(
-                onShareLocation: (la, ln, lb) {
-                  lat = la;
-                  lng = ln;
-                  locationLabel = lb;
-                },
+                onShareLocation: onLocationSelected,
               ),
             ),
           );
         },
-        onConfirm: () async {
+        onConfirm: (lat, lng, locationLabel) async {
           await ApiService.instance.confirmJourney(
             _rideId,
             nameCtrl.text.trim().isNotEmpty ? nameCtrl.text.trim() : _myName,
             contactCtrl.text.trim(),
           );
-          if (locationLabel != null) {
+          if (locationLabel != null && lat != null && lng != null) {
             _addLocalMessage(
               '✅ Journey confirmed. 📍 My location: https://maps.google.com/?q=$lat,$lng',
             );
@@ -244,26 +234,6 @@ class _RideChatScreenState extends State<RideChatScreen>
     );
     nameCtrl.dispose();
     contactCtrl.dispose();
-  }
-
-  Future<Position?> _tryGetLocation() async {
-    try {
-      bool ok = await Geolocator.isLocationServiceEnabled();
-      if (!ok) return null;
-      var perm = await Geolocator.checkPermission();
-      if (perm == LocationPermission.denied) {
-        perm = await Geolocator.requestPermission();
-      }
-      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) {
-        return null;
-      }
-      return await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.medium,
-        timeLimit: const Duration(seconds: 8),
-      );
-    } catch (_) {
-      return null;
-    }
   }
 
   // ── Message display helpers ───────────────────────────────────────────────
@@ -582,14 +552,15 @@ class _RideChatScreenState extends State<RideChatScreen>
 class _ConfirmJourneySheet extends StatefulWidget {
   final TextEditingController nameCtrl;
   final TextEditingController contactCtrl;
-  final String? Function() getLocationLabel;
-  final VoidCallback onOpenMap;
-  final Future<void> Function() onConfirm;
+  final String initialName;
+  final Future<void> Function(
+      void Function(double lat, double lng, String label) onSelected) onOpenMap;
+  final Future<void> Function(double? lat, double? lng, String? label) onConfirm;
 
   const _ConfirmJourneySheet({
     required this.nameCtrl,
     required this.contactCtrl,
-    required this.getLocationLabel,
+    required this.initialName,
     required this.onOpenMap,
     required this.onConfirm,
   });
@@ -599,13 +570,46 @@ class _ConfirmJourneySheet extends StatefulWidget {
 }
 
 class _ConfirmJourneySheetState extends State<_ConfirmJourneySheet> {
-  bool _saving  = false;
+  bool    _saving       = false;
   String? _msg;
+  double? _lat;
+  double? _lng;
+  String? _locationLabel;
+
+  @override
+  void initState() {
+    super.initState();
+    // Try to get the device's location automatically when the sheet opens.
+    _autoFetchLocation();
+  }
+
+  Future<void> _autoFetchLocation() async {
+    try {
+      bool ok = await Geolocator.isLocationServiceEnabled();
+      if (!ok) return;
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied || perm == LocationPermission.deniedForever) return;
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+        timeLimit: const Duration(seconds: 8),
+      );
+      if (mounted) {
+        setState(() {
+          _lat = pos.latitude;
+          _lng = pos.longitude;
+          _locationLabel = '${pos.latitude.toStringAsFixed(5)}, ${pos.longitude.toStringAsFixed(5)}';
+        });
+      }
+    } catch (_) {}
+  }
 
   Future<void> _submit() async {
     setState(() { _saving = true; _msg = null; });
     try {
-      await widget.onConfirm();
+      await widget.onConfirm(_lat, _lng, _locationLabel);
     } on ApiException catch (e) {
       if (mounted) setState(() { _msg = e.message; _saving = false; });
     } catch (e) {
@@ -615,7 +619,6 @@ class _ConfirmJourneySheetState extends State<_ConfirmJourneySheet> {
 
   @override
   Widget build(BuildContext context) {
-    final locLabel = widget.getLocationLabel();
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom + 20,
@@ -652,24 +655,37 @@ class _ConfirmJourneySheetState extends State<_ConfirmJourneySheet> {
           // Location row
           Row(
             children: [
-              const Icon(Icons.location_on, color: Color(0xFF4ADE80), size: 18),
+              Icon(Icons.location_on,
+                  color: _locationLabel != null
+                      ? const Color(0xFF4ADE80)
+                      : Colors.grey,
+                  size: 18),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  locLabel != null
-                      ? '📍 $locLabel'
-                      : 'Tap the map to share your location',
-                  style: const TextStyle(fontSize: 13, color: Colors.grey),
+                  _locationLabel != null
+                      ? '📍 $_locationLabel'
+                      : 'Getting location…',
+                  style: TextStyle(
+                      fontSize: 13,
+                      color: _locationLabel != null ? Colors.white70 : Colors.grey),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               TextButton.icon(
                 icon: const Icon(Icons.map_outlined, size: 16),
-                label: const Text('View Map'),
+                label: const Text('Pick on Map'),
                 onPressed: () async {
-                  await widget.onOpenMap();
-                  if (mounted) setState(() {});
+                  await widget.onOpenMap((lat, lng, label) {
+                    if (mounted) {
+                      setState(() {
+                        _lat = lat;
+                        _lng = lng;
+                        _locationLabel = label;
+                      });
+                    }
+                  });
                 },
               ),
             ],

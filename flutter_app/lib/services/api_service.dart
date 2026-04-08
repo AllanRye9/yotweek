@@ -71,17 +71,25 @@ class ApiService {
   void _updateCookies(http.Response res) {
     final raw = res.headers['set-cookie'];
     if (raw == null) return;
-    // Parse each attribute set; split on commas not inside an attribute value.
-    for (final part in raw.split(RegExp(r',(?=\s*[^;]+=[^;]+)'))) {
-      final first = part.split(';').first.trim();
-      final eqIdx = first.indexOf('=');
-      if (eqIdx > 0) {
-        final key = first.substring(0, eqIdx).trim();
-        final val = first.substring(eqIdx + 1).trim();
+    bool changed = false;
+    // Each cookie entry starts with name=value, followed by "; " separated
+    // attributes (Path, Domain, Expires, etc.).  Multiple Set-Cookie headers
+    // are concatenated by the http package with ", " but "Expires" values also
+    // contain commas.  We split only on sequences that look like the start of a
+    // new cookie (alphanumeric name followed by "=").
+    final entries = raw.split(RegExp(r',\s*(?=[A-Za-z][A-Za-z0-9_\-]*=)'));
+    for (final entry in entries) {
+      final nameVal = entry.split(';').first.trim();
+      final eq = nameVal.indexOf('=');
+      if (eq <= 0) continue;
+      final key = nameVal.substring(0, eq).trim();
+      final val = nameVal.substring(eq + 1).trim();
+      if (_cookies[key] != val) {
         _cookies[key] = val;
+        changed = true;
       }
     }
-    _saveCookies();
+    if (changed) _saveCookies();
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
