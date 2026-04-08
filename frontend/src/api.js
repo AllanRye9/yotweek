@@ -85,11 +85,11 @@ export const changePassword = (current_password, new_password) =>
 export const uploadAvatar = (file) => {
   const fd = new FormData()
   fd.append('file', file, file.name)
-  return request('POST', '/api/auth/avatar', fd, false)
+  return request('POST', '/api/auth/profile/avatar', fd, false)
 }
 
 export const deleteAvatar = () =>
-  request('DELETE', '/api/auth/avatar')
+  request('DELETE', '/api/auth/profile/avatar')
 
 export const forgotPassword = (email) =>
   request('POST', '/api/auth/forgot_password', { email })

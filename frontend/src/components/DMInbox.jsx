@@ -46,9 +46,11 @@ export default function DMInbox({ currentUser }) {
   const [convSearch,     setConvSearch]      = useState('')
   const [totalUnread,    setTotalUnread]     = useState(0)
   const [clickedConv,    setClickedConv]    = useState(null)  // for click animation
+  const [showAllConvs,   setShowAllConvs]   = useState(false) // show more than 6
   const prevUnreadRef    = useRef(0)
   const searchTimerRef   = useRef(null)
 
+  const CONV_PAGE_SIZE = 6
   const myId = currentUser?.user_id
 
   // ── Load ride chat conversations ──────────────────────────────────────────
@@ -222,6 +224,8 @@ export default function DMInbox({ currentUser }) {
     ? conversations.filter(c => c.other_user?.name?.toLowerCase().includes(convSearch.toLowerCase()))
     : conversations
 
+  const visibleConversations = showAllConvs ? filteredConversations : filteredConversations.slice(0, CONV_PAGE_SIZE)
+
   return (
     <div className="flex h-[600px] rounded-xl overflow-hidden border border-gray-700 bg-gray-900">
 
@@ -390,7 +394,8 @@ export default function DMInbox({ currentUser }) {
               )}
             </div>
           ) : (
-            filteredConversations.map((conv) => {
+            <>
+            {visibleConversations.map((conv) => {
               const isQR = quickReply?.conv_id === conv.conv_id
               const isActive = activeConv?.conv_id === conv.conv_id
               const lastMsg = conv.last_message
@@ -401,6 +406,7 @@ export default function DMInbox({ currentUser }) {
                 ? `${senderUsername}: ${lastMsg.content || '…'}`
                 : 'No messages yet'
               const lastTs = lastMsg?.ts
+              const isOnline = conv.other_user?.online_status === 'online'
 
               return (
                 <div
@@ -429,6 +435,11 @@ export default function DMInbox({ currentUser }) {
                       <div className="w-9 h-9 rounded-full bg-blue-700 flex items-center justify-center text-xs font-bold text-white">
                         {conv.other_user?.name?.charAt(0)?.toUpperCase() || '?'}
                       </div>
+                      {/* Online status dot */}
+                      <span
+                        className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-gray-900 ${isOnline ? 'bg-green-400' : 'bg-gray-600'}`}
+                        title={isOnline ? 'Active now' : 'Offline'}
+                      />
                       {conv.unread_count > 0 && (
                         <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-blue-500 border border-gray-900 flex items-center justify-center text-white text-[9px] font-bold">
                           {conv.unread_count > 9 ? '9+' : conv.unread_count}
@@ -492,7 +503,17 @@ export default function DMInbox({ currentUser }) {
                   )}
                 </div>
               )
-            })
+            })}
+            {/* Show more / Show less */}
+            {filteredConversations.length > CONV_PAGE_SIZE && (
+              <button
+                onClick={() => setShowAllConvs(v => !v)}
+                className="w-full text-xs text-blue-400 hover:text-blue-300 py-2 border-t border-gray-800/60 transition-colors"
+              >
+                {showAllConvs ? 'Show less ▲' : `Show more (${filteredConversations.length - CONV_PAGE_SIZE} more) ▼`}
+              </button>
+            )}
+            </>
           )}
         </div>
       </div>

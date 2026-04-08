@@ -3300,9 +3300,10 @@ async def api_rides_list(request: Request = None, status: str | None = None):
                     "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport'),"
                     "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
                     f" FROM rides WHERE status IN ({pg_placeholders})"
-                    " AND (status != 'taken' OR taken_at IS NULL OR taken_at > %s OR user_id = %s)"
+                    " AND (status != 'taken' OR taken_at IS NULL OR taken_at > %s OR user_id = %s"
+                    "      OR ride_id IN (SELECT ride_id FROM ride_journey_confirmations WHERE user_id = %s))"
                     " ORDER BY departure ASC LIMIT 200",
-                    status_filter + [cutoff_ts, requester_id or ""],
+                    status_filter + [cutoff_ts, requester_id or "", requester_id or ""],
                 )
                 rows = cur.fetchall()
             else:
@@ -3310,9 +3311,10 @@ async def api_rides_list(request: Request = None, status: str | None = None):
                     "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport'),"
                     "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
                     f" FROM rides WHERE status IN ({sql_placeholders})"
-                    " AND (status != 'taken' OR taken_at IS NULL OR taken_at > ? OR user_id = ?)"
+                    " AND (status != 'taken' OR taken_at IS NULL OR taken_at > ? OR user_id = ?"
+                    "      OR ride_id IN (SELECT ride_id FROM ride_journey_confirmations WHERE user_id = ?))"
                     " ORDER BY departure ASC LIMIT 200",
-                    status_filter + [cutoff_ts, requester_id or ""],
+                    status_filter + [cutoff_ts, requester_id or "", requester_id or ""],
                 )
                 rows = cur.fetchall()
         finally:
@@ -4926,6 +4928,10 @@ async def api_dm_list_conversations(request: Request, search: str | None = None)
 
     search_lower = search.lower().strip() if search else None
 
+    # Snapshot of currently connected user IDs (protected by lock)
+    with _socket_user_lock:
+        online_user_ids = set(_user_to_sid.keys())
+
     conversations = []
     for row in rows:
         conv = dict(zip(["conv_id","user1_id","user2_id","unread_u1","unread_u2","created_at"], row))
@@ -4969,7 +4975,7 @@ async def api_dm_list_conversations(request: Request, search: str | None = None)
 
         conversations.append({
             "conv_id":      conv["conv_id"],
-            "other_user":   {"user_id": other_id, "name": other_name, "username": other_username, "online_status": "offline"},
+            "other_user":   {"user_id": other_id, "name": other_name, "username": other_username, "online_status": "online" if other_id in online_user_ids else "offline"},
             "unread_count": unread,
             "last_message": last_msg,
             "created_at":   conv["created_at"],
@@ -5385,7 +5391,7 @@ async def on_ride_chat_message(sid, data):
         return
     ride_id    = data.get("ride_id")
     text       = str(data.get("text", "")).strip()
-    name       = str(data.get("name", "Anonymous")).strip()
+    name       = str(data.get("name") or data.get("sender_name") or "Anonymous").strip()
     role       = str(data.get("role", "passenger")).strip()
     msg_id     = data.get("id") or f"{time.time()}-{sid}"
     media_type = data.get("media_type")  # 'image' | 'audio' | 'location' | None
@@ -5427,16 +5433,17 @@ async def on_ride_chat_message(sid, data):
 
     ts = time.time()
     msg = {
-        "ride_id":    ride_id,
-        "name":       name,
-        "text":       text,
-        "ts":         ts,
-        "role":       role,
-        "id":         msg_id,
-        "media_type": media_type,
-        "media_data": media_data,
-        "lat":        msg_lat,
-        "lng":        msg_lng,
+        "ride_id":     ride_id,
+        "name":        name,
+        "sender_name": name,
+        "text":        text,
+        "ts":          ts,
+        "role":        role,
+        "id":          msg_id,
+        "media_type":  media_type,
+        "media_data":  media_data,
+        "lat":         msg_lat,
+        "lng":         msg_lng,
     }
 
     # Persist the message to the database

@@ -123,6 +123,9 @@ export default function RideChat({ ride, user, onClose }) {
   const [distUnit, setDistUnit]   = useState('km')
   const [notifyMsg, setNotifyMsg] = useState('')
 
+  // Driver live-location sharing
+  const [locShareMsg, setLocShareMsg] = useState('')
+
   // Typing indicator
   const [typingUsers, setTypingUsers] = useState(new Set())
   const typingTimers = useRef({})
@@ -334,6 +337,33 @@ export default function RideChat({ ride, user, onClose }) {
     }
   }
 
+  const handleShareLiveLocation = () => {
+    setLocShareMsg('')
+    if (!navigator.geolocation) {
+      setLocShareMsg('❌ Geolocation not supported by your browser')
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        const mapsLink = `https://maps.google.com/?q=${latitude},${longitude}`
+        const locationText = `📍 Driver live location: ${mapsLink}`
+        socket.emit('ride_chat_message', {
+          ride_id:     rideId,
+          text:        locationText,
+          name:        myName,
+          sender_name: myName,
+          sender_id:   myId,
+          role:        'driver',
+        })
+        setLocShareMsg('✅ Location shared!')
+        setTimeout(() => setLocShareMsg(''), 3000)
+      },
+      () => setLocShareMsg('❌ Could not get your location'),
+      { timeout: 8000 }
+    )
+  }
+
   const fmtTime = (ts) => {
     if (!ts) return ''
     const d = typeof ts === 'number' && ts < 1e10 ? new Date(ts * 1000) : new Date(ts)
@@ -403,6 +433,12 @@ export default function RideChat({ ride, user, onClose }) {
             </button>
           </div>
           {notifyMsg && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{notifyMsg}</span>}
+
+          <button onClick={handleShareLiveLocation}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-green-700 hover:bg-green-600 text-white">
+            🗺️ Share My Location
+          </button>
+          {locShareMsg && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{locShareMsg}</span>}
         </div>
       )}
 

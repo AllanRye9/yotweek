@@ -4,6 +4,7 @@ import { getUserProfile, userLogout, getDriverDashboard } from '../api'
 import NavBar from '../components/NavBar'
 import RideShare from '../components/RideShare'
 import RideChat from '../components/RideChat'
+import DMInbox from '../components/DMInbox'
 import { getDashboardPath } from '../routing'
 
 export default function DriverDashboard() {
@@ -59,7 +60,7 @@ export default function DriverDashboard() {
       {/* Tab bar */}
       <nav className="border-b flex px-4 gap-1 overflow-x-auto"
            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
-        {[['overview', '📊 Overview'], ['rides', '🚘 My Rides'], ['chat', '💬 Messages']].map(([id, label]) => (
+        {[['overview', '📊 Overview'], ['rides', '🚘 My Rides'], ['inbox', '📬 Inbox'], ['chat', '💬 Ride Chat']].map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
@@ -149,7 +150,12 @@ export default function DriverDashboard() {
           <RideShare user={driver} onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }} />
         )}
 
-        {/* Chat */}
+        {/* DM Inbox */}
+        {tab === 'inbox' && (
+          <DMInbox currentUser={driver} />
+        )}
+
+        {/* Ride Chat */}
         {tab === 'chat' && (
           <div className="space-y-3">
             {selectedRide ? (
