@@ -1,26 +1,26 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { useAuth } from '../App'
+import { useAuth } from '../../App'
 import {
   getAdminDownloads, getAdminVisitors, getAdminAnalytics,
   adminCancelDownload, adminDeleteRecord, adminClearVisitors,
   adminClearAllDownloads, adminClearAllData,
   adminLogout, adminDbDownloadUrl, adminDbUpload,
   getCookieStatus, uploadCookies, deleteCookies,
-  getAdminRides,
+  getAdminRides, adminDeleteRide,
   getAdminDriverApplications, approveDriverApplication,
   getAdminAgentApplications, adminApproveAgentApplication,
   getAdminReviews, deleteAdminReview,
   getAdminProperties, adminDeleteProperty,
   getAdminUsers, adminDeleteUser,
   getAdminBroadcasts, adminCancelBroadcast,
-} from '../api'
-import AdminStats from '../components/admin/AdminStats'
-import AnalyticsCharts from '../components/admin/AnalyticsCharts'
-import ActivitySummary from '../components/admin/ActivitySummary'
-import DownloadsTable from '../components/admin/DownloadsTable'
-import VisitorsTable from '../components/admin/VisitorsTable'
-import ThemeSelector from '../components/ThemeSelector'
+} from '../../api'
+import AdminStats from '../../components/others/admin/AdminStats'
+import AnalyticsCharts from '../../components/others/admin/AnalyticsCharts'
+import ActivitySummary from '../../components/others/admin/ActivitySummary'
+import DownloadsTable from '../../components/others/admin/DownloadsTable'
+import VisitorsTable from '../../components/others/admin/VisitorsTable'
+import ThemeSelector from '../../components/ThemeSelector'
 
 const SIDEBAR_TABS = [
   { id: 'dashboard',    icon: '📊', label: 'Dashboard'    },
@@ -549,7 +549,8 @@ export default function AdminDashboard() {
                             <th className="py-2 pr-3">Driver</th>
                             <th className="py-2 pr-3">Departure</th>
                             <th className="py-2 pr-3">Seats</th>
-                            <th className="py-2">Notes</th>
+                            <th className="py-2 pr-3">Notes</th>
+                            <th className="py-2">Action</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -572,7 +573,23 @@ export default function AdminDashboard() {
                                 {new Date(r.departure).toLocaleString()}
                               </td>
                               <td className="py-2 pr-3 text-center">{r.seats}</td>
-                              <td className="py-2 max-w-[140px] truncate text-gray-500">{r.notes || '—'}</td>
+                              <td className="py-2 pr-3 max-w-[140px] truncate text-gray-500">{r.notes || '—'}</td>
+                              <td className="py-2">
+                                {r.status !== 'cancelled' && (
+                                  <button
+                                    className="text-xs px-2 py-1 rounded bg-red-900/60 hover:bg-red-800 text-red-300 hover:text-white transition-colors"
+                                    onClick={async () => {
+                                      if (!confirm('Cancel this ride?')) return
+                                      try {
+                                        await adminDeleteRide(r.ride_id)
+                                        fetchRides()
+                                      } catch { setError('Failed to cancel ride') }
+                                    }}
+                                  >
+                                    Cancel
+                                  </button>
+                                )}
+                              </td>
                             </tr>
                           ))}
                         </tbody>

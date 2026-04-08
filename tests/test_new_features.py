@@ -556,7 +556,7 @@ class TestDriverGeolocation:
         )))
         app_id = json.loads(apply_resp.body).get("app_id")
         if app_id:
-            admin_req = _make_request({"admin_user": "admin"})
+            admin_req = _make_request({"admin_logged_in": True})
             run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=True)))
 
         return session, email2
@@ -830,7 +830,7 @@ class TestAdminRides:
 
     def test_admin_rides_with_session_returns_data(self):
         import json
-        session = {"admin_user": "admin"}
+        session = {"admin_logged_in": True}
         req = _make_request(session)
         resp = run(api_admin_rides(req))
         assert resp.status_code == 200
@@ -856,7 +856,7 @@ class TestAdminRides:
         ride_id = json.loads(r.body)["ride_id"]
         run(api_ride_take(req_user, ride_id))
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         resp = run(api_admin_rides(admin_req))
         body = json.loads(resp.body)
         stats = body["stats"]
@@ -1330,7 +1330,7 @@ class TestDriverApplication:
         apply_resp = self._apply(user_id)
         app_id = json.loads(apply_resp.body)["app_id"]
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         approve_resp = run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=True)))
         data = json.loads(approve_resp.body)
         assert data.get("ok") is True
@@ -1348,7 +1348,7 @@ class TestDriverApplication:
         apply_resp = self._apply(user_id)
         app_id = json.loads(apply_resp.body)["app_id"]
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         reject_resp = run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=False)))
         data = json.loads(reject_resp.body)
         assert data["status"] == "rejected"
@@ -1420,7 +1420,7 @@ class TestDriverApplication:
                 conn.commit()
             finally:
                 conn.close()
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         run(app_mod.api_admin_driver_approve(admin_req, app_id, app_mod._DriverApproveRequest(approved=True)))
         assert len(emails_sent) == 1
         _, subject = emails_sent[0]
@@ -1454,7 +1454,7 @@ class TestDriverApplication:
                 conn.commit()
             finally:
                 conn.close()
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         run(app_mod.api_admin_driver_approve(admin_req, app_id, app_mod._DriverApproveRequest(approved=False)))
         assert len(emails_sent) == 1
         _, subject = emails_sent[0]
@@ -1755,7 +1755,7 @@ class TestNotifications:
             finally:
                 conn.close()
         # Approve
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         run(api_admin_driver_approve(admin_req, app_id, _DriverApproveRequest(approved=True)))
         # Check notification was created
         user_req = _make_request({"app_user_id": user_id})
@@ -2323,7 +2323,7 @@ class TestDriverRegBucketSync:
         calls = []
         monkeypatch.setattr(app_mod, "_bucket_write_json",
                             lambda folder, tp, rid, data: calls.append(folder) or False)
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         run(app_mod.api_admin_driver_approve(admin_req, app_id, app_mod._DriverApproveRequest(approved=True)))
         assert "driver_reg/verified" in calls
 
@@ -2455,7 +2455,7 @@ class TestAdminUsers:
         resp_user, _ = _register_user(name="AdminListableUser")
         registered_id = json.loads(resp_user.body)["user_id"]
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         resp = run(api_admin_users(admin_req))
         assert resp.status_code == 200
         body = json.loads(resp.body)
@@ -2466,7 +2466,7 @@ class TestAdminUsers:
     def test_list_includes_expected_fields(self):
         import json
         from api.app import api_admin_users
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         resp = run(api_admin_users(admin_req))
         body = json.loads(resp.body)
         if body["users"]:
@@ -2482,7 +2482,7 @@ class TestAdminUsers:
 
     def test_delete_nonexistent_returns_404(self):
         from api.app import api_admin_delete_user
-        req = _make_request({"admin_user": "admin"})
+        req = _make_request({"admin_logged_in": True})
         resp = run(api_admin_delete_user(req, "does-not-exist"))
         assert resp.status_code == 404
 
@@ -2492,7 +2492,7 @@ class TestAdminUsers:
         resp_user, _ = _register_user(name="DeleteableUser")
         user_id = json.loads(resp_user.body)["user_id"]
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         del_resp = run(api_admin_delete_user(admin_req, user_id))
         assert del_resp.status_code == 200
         assert json.loads(del_resp.body)["ok"] is True
@@ -2531,7 +2531,7 @@ class TestAdminBroadcasts:
         assert bcast_resp.status_code == 201
         bcast_id = json.loads(bcast_resp.body)["broadcast_id"]
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         resp = run(api_admin_broadcasts(admin_req))
         assert resp.status_code == 200
         body = json.loads(resp.body)
@@ -2547,7 +2547,7 @@ class TestAdminBroadcasts:
 
     def test_cancel_nonexistent_returns_404(self):
         from api.app import api_admin_delete_broadcast
-        req = _make_request({"admin_user": "admin"})
+        req = _make_request({"admin_logged_in": True})
         resp = run(api_admin_delete_broadcast(req, "does-not-exist"))
         assert resp.status_code == 404
 
@@ -2565,7 +2565,7 @@ class TestAdminBroadcasts:
         )))
         bcast_id = json.loads(bcast_resp.body)["broadcast_id"]
 
-        admin_req = _make_request({"admin_user": "admin"})
+        admin_req = _make_request({"admin_logged_in": True})
         del_resp = run(api_admin_delete_broadcast(admin_req, bcast_id))
         assert del_resp.status_code == 200
         assert json.loads(del_resp.body)["ok"] is True

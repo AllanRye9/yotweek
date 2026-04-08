@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
-import { deleteSession } from './api'
+import { deleteSession, getUserProfile } from './api'
 import { SESSION_ID } from './session'
 import { getAdminAuthStatus } from './api'
 import Home from './pages/Home'
@@ -16,6 +16,8 @@ import RideChatPage from './pages/RideChatPage'
 import RequestsPage from './pages/RequestsPage'
 import NotificationsPage from './pages/NotificationsPage'
 import UnifiedMapPage from './pages/others/UnifiedMapPage'
+import AdminDashboard from './pages/others/AdminDashboard'
+import AdminLogin from './pages/others/AdminLogin'
 import { createContext, useContext } from 'react'
 
 // ─── Theme Context ────────────────────────────────────────────────────────
@@ -74,6 +76,32 @@ function ThemeProvider({ children, storageKey = 'yot_theme' }) {
   )
 }
 
+// ─── Route guards ─────────────────────────────────────────────────────────
+
+/** Redirects unauthenticated admin users to /admin/login */
+function RequireAdmin({ children }) {
+  const { admin } = useAuth()
+  if (admin === null) return null // still loading
+  if (!admin) return <Navigate to="/admin/login" replace />
+  return children
+}
+
+/** Redirects unauthenticated app users to /login */
+function RequireAppAuth({ children }) {
+  const [checking, setChecking] = useState(true)
+  const [authed, setAuthed] = useState(false)
+
+  useEffect(() => {
+    getUserProfile()
+      .then(() => { setAuthed(true); setChecking(false) })
+      .catch(() => { setAuthed(false); setChecking(false) })
+  }, [])
+
+  if (checking) return null
+  if (!authed) return <Navigate to="/login" replace />
+  return children
+}
+
 // ─── App ───────────────────────────────────────────────────────────
 export default function App() {
   useEffect(() => {
@@ -94,11 +122,11 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
-          {/* Rides */}
-          <Route path="/rides" element={<RidesPage />} />
-          <Route path="/rides/:rideId/chat" element={<RideChatPage />} />
+          {/* Rides — login required */}
+          <Route path="/rides" element={<RequireAppAuth><RidesPage /></RequireAppAuth>} />
+          <Route path="/rides/:rideId/chat" element={<RequireAppAuth><RideChatPage /></RequireAppAuth>} />
           {/* Requests */}
-          <Route path="/requests" element={<RequestsPage />} />
+          <Route path="/requests" element={<RequireAppAuth><RequestsPage /></RequireAppAuth>} />
           {/* Dashboards — each page handles its own auth + role checks */}
           <Route path="/user/dashboard" element={<UserDashboard />} />
           <Route path="/driver/dashboard" element={<DriverDashboard />} />
@@ -110,6 +138,10 @@ export default function App() {
           <Route path="/notifications" element={<NotificationsPage />} />
           {/* Map — live driver locations */}
           <Route path="/map" element={<UnifiedMapPage />} />
+          {/* Admin panel */}
+          <Route path="/const" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+          <Route path="/admin/login" element={<AdminLogin />} />
+          <Route path="/admin/register" element={<AdminLogin register />} />
           {/* Legacy redirects */}
           <Route path="/tourist-sites" element={<Navigate to="/" replace />} />
           <Route path="/properties" element={<Navigate to="/" replace />} />
@@ -117,10 +149,7 @@ export default function App() {
           <Route path="/agents" element={<Navigate to="/" replace />} />
           <Route path="/property-inbox" element={<Navigate to="/" replace />} />
           <Route path="/companions" element={<Navigate to="/rides" replace />} />
-          <Route path="/admin/login" element={<Navigate to="/" replace />} />
-          <Route path="/admin/register" element={<Navigate to="/" replace />} />
-          <Route path="/admin/dashboard" element={<Navigate to="/" replace />} />
-          <Route path="/const" element={<Navigate to="/" replace />} />
+          <Route path="/admin/dashboard" element={<Navigate to="/const" replace />} />
           {/* Catch-all → Home */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

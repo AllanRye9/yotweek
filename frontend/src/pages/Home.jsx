@@ -286,25 +286,37 @@ const TABS = [
 ]
 
 const SERVICE_CARDS = [
-  { id: 'rides',   icon: '🚗', title: 'Ride Share',       desc: 'Post rides, find drivers & get alerts' },
+  { id: 'rides',   icon: '🚗', title: 'Ride Share',      desc: 'Post rides, find drivers & travel together' },
+  { id: 'map',     icon: '🗺️', title: 'Live Driver Map',  desc: 'Real-time locations of available drivers' },
+  { id: 'chat',    icon: '💬', title: 'Ride Chat',        desc: 'Message drivers & passengers in real time' },
+  { id: 'profile', icon: '👤', title: 'Your Profile',     desc: 'Manage your account, rides & preferences' },
 ]
 
-/** Animated service card with a glowing border. */
+/** Feature cards linking to core platform sections. */
 function ServiceCards({ onNavigateRides }) {
-  const c = SERVICE_CARDS[0]
+  const navigate = useNavigate()
+  const handlers = {
+    rides:   onNavigateRides,
+    map:     () => navigate('/map'),
+    chat:    () => navigate('/inbox'),
+    profile: () => navigate('/profile'),
+  }
 
   return (
     <div className="service-cards-grid" role="tablist" aria-label="Services">
-      <button
-        role="tab"
-        aria-selected={true}
-        className="service-card service-card-active"
-        onClick={() => { onNavigateRides?.() }}
-      >
-        <span className="service-card-icon" aria-hidden="true">{c.icon}</span>
-        <div className="service-card-title">{c.title}</div>
-        <div className="service-card-desc">{c.desc}</div>
-      </button>
+      {SERVICE_CARDS.map((c, i) => (
+        <button
+          key={c.id}
+          role="tab"
+          aria-selected={i === 0}
+          className={`service-card ${i === 0 ? 'service-card-active' : ''}`}
+          onClick={() => handlers[c.id]?.()}
+        >
+          <span className="service-card-icon" aria-hidden="true">{c.icon}</span>
+          <div className="service-card-title">{c.title}</div>
+          <div className="service-card-desc">{c.desc}</div>
+        </button>
+      ))}
     </div>
   )
 }
@@ -475,13 +487,13 @@ export default function Home() {
       <div className="bg-gradient-to-b from-gray-900 to-gray-950 border-b border-gray-800 py-[19px] sm:py-[27px] px-4">
         <div className="max-w-2xl mx-auto text-center">
           <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">
-            <span className="gradient-text">yotweek</span> — Your All-in-One Free Platform
+            <span className="gradient-text">yotweek</span> — Ride Sharing Made Simple
           </h1>
           <p className="text-gray-400 text-xs sm:text-sm">
-            Build a CV · Convert Docs · Share Rides · Discover Tourist Sites — All Free.
+            Find a ride · Offer seats · Chat with drivers · Travel together — All Free.
           </p>
           <p className="text-gray-500 text-xs mt-1">
-            Also available as a Flutter app.
+            Real-time ride sharing powered by live driver location tracking.
           </p>
 
           {/* Sign up CTA for non-logged-in users */}
@@ -515,13 +527,19 @@ export default function Home() {
             to="/rides"
             className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-yellow-700 hover:border-yellow-600 hover:text-yellow-100"
           >
-            🚗 Ride Share &amp; Driver Alerts
+            🚗 Browse Rides
           </Link>
           <Link
-            to="/tourist-sites"
+            to="/map"
             className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-blue-700 hover:border-blue-600 hover:text-blue-100"
           >
-            🗺️ Tourist Sites
+            🗺️ Live Driver Map
+          </Link>
+          <Link
+            to="/inbox"
+            className="text-sm px-4 py-1.5 rounded-full border transition-colors bg-gray-800/60 border-gray-700 text-gray-400 hover:bg-green-700 hover:border-green-600 hover:text-green-100"
+          >
+            💬 Messages
           </Link>
         </div>
 
@@ -553,15 +571,31 @@ export default function Home() {
       </main>
 
       {/* ── Footer ── */}
-      <footer className="border-t border-gray-800 py-6 px-4 pb-safe text-center text-xs text-gray-600">
-        <p>
-          yotweek © {new Date().getFullYear()}
-        </p>
-        <p className="mt-1">
-          <a href="mailto:support@yotweek.com" className="hover:text-gray-400 transition-colors">
-            support@yotweek.com
-          </a>
-        </p>
+      <footer className="border-t border-gray-800 py-8 px-4 pb-safe text-center text-xs text-gray-500">
+        <div className="max-w-3xl mx-auto space-y-4">
+          {/* Brand */}
+          <div className="flex items-center justify-center gap-2">
+            <img src="/yotweek.png" alt="" width={18} height={18} style={{ borderRadius: 4 }} aria-hidden="true" />
+            <span className="gradient-text font-bold text-sm">yotweek</span>
+          </div>
+          <p className="text-gray-600">Connecting passengers and drivers across communities.</p>
+          {/* Links */}
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-gray-600">
+            <a href="/rides" className="hover:text-gray-300 transition-colors">🚗 Browse Rides</a>
+            <a href="/map" className="hover:text-gray-300 transition-colors">🗺️ Live Map</a>
+            <a href="/inbox" className="hover:text-gray-300 transition-colors">💬 Messages</a>
+            <a href="/profile" className="hover:text-gray-300 transition-colors">👤 Profile</a>
+          </div>
+          {/* Legal */}
+          <div className="border-t border-gray-800 pt-4 space-y-1">
+            <p>
+              <a href="mailto:support@yotweek.com" className="hover:text-gray-400 transition-colors">
+                support@yotweek.com
+              </a>
+            </p>
+            <p>yotweek © {new Date().getFullYear()} · Ride safely and responsibly.</p>
+          </div>
+        </div>
       </footer>
 
       {/* ── Draggable Help FAB ── */}

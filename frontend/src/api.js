@@ -184,6 +184,7 @@ export const proximityNotify = (rideId, distance_km, unit = 'km') =>
   request('POST', `/api/rides/${encodeURIComponent(rideId)}/proximity_notify`, { distance_km, unit })
 
 export const getAdminRides = () => request('GET', '/api/admin/rides')
+export const adminDeleteRide = (rideId) => request('DELETE', `/api/admin/rides/${encodeURIComponent(rideId)}`)
 
 // ── Ride Requests ─────────────────────────────────────────────────────────────
 

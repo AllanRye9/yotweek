@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { adminLogin, adminRegister, checkAdminExists } from '../api'
-import { useAuth } from '../App'
+import { adminLogin, adminRegister, checkAdminExists } from '../../api'
+import { useAuth } from '../../App'
 
 export default function AdminLogin({ register = false }) {
   const { admin, checkAuth } = useAuth()

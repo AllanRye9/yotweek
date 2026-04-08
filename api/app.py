@@ -1397,6 +1397,7 @@ async def admin_auth_status(request: Request):
     logged_in = bool(request.session.get("admin_logged_in"))
     return JSONResponse({
         "logged_in": logged_in,
+        "authenticated": logged_in,
         "username": request.session.get("admin_username") if logged_in else None,
     })
 
@@ -2861,7 +2862,7 @@ async def api_driver_application_status(request: Request):
 @fastapi_app.get("/api/admin/driver_applications")
 async def api_admin_driver_applications(request: Request):
     """Return all pending driver applications (admin only)."""
-    if not request.session.get("admin_user"):
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     with _db_lock:
@@ -2899,7 +2900,7 @@ async def api_admin_driver_applications(request: Request):
 @fastapi_app.post("/api/admin/driver_applications/{app_id}/approve")
 async def api_admin_driver_approve(request: Request, app_id: str, body: _DriverApproveRequest):
     """Approve or reject a driver application (admin only)."""
-    if not request.session.get("admin_user"):
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     new_status = "approved" if body.approved else "rejected"
@@ -4365,8 +4366,7 @@ async def api_delete_travel_companion(request: Request, companion_id: str):
 @fastapi_app.get("/api/admin/rides")
 async def api_admin_rides(request: Request):
     """Return ride-sharing statistics for the admin dashboard."""
-    user_id = request.session.get("admin_user")
-    if not user_id:
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     with _db_lock:
@@ -4404,6 +4404,37 @@ async def api_admin_rides(request: Request):
             "cancelled": counts.get("cancelled", 0),
         },
     })
+
+
+@fastapi_app.delete("/api/admin/rides/{ride_id}")
+async def api_admin_delete_ride(request: Request, ride_id: str):
+    """Cancel any ride (admin only)."""
+    if not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            ph = "%s" if USE_POSTGRES else "?"
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(f"SELECT ride_id FROM rides WHERE ride_id={ph}", (ride_id,))
+                row = cur.fetchone()
+                if row is None:
+                    return JSONResponse({"error": "Ride not found."}, status_code=404)
+                cur.execute(f"UPDATE rides SET status='cancelled' WHERE ride_id={ph}", (ride_id,))
+            else:
+                cur = conn.execute(f"SELECT ride_id FROM rides WHERE ride_id={ph}", (ride_id,))
+                row = cur.fetchone()
+                if row is None:
+                    return JSONResponse({"error": "Ride not found."}, status_code=404)
+                conn.execute(f"UPDATE rides SET status='cancelled' WHERE ride_id={ph}", (ride_id,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    asyncio.ensure_future(sio.emit("ride_cancelled", {"ride_id": ride_id}))
+    return JSONResponse({"ok": True})
 
 
 # =========================================================
@@ -6801,7 +6832,7 @@ def _expire_stale_broadcasts():
 @fastapi_app.get("/api/admin/users")
 async def api_admin_users(request: Request):
     """Return all registered platform users (admin only)."""
-    if not request.session.get("admin_user"):
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     with _db_lock:
@@ -6830,7 +6861,7 @@ async def api_admin_users(request: Request):
 @fastapi_app.delete("/api/admin/users/{user_id}")
 async def api_admin_delete_user(request: Request, user_id: str):
     """Delete a platform user account and all their related data (admin only)."""
-    if not request.session.get("admin_user"):
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     with _db_lock:
@@ -6868,7 +6899,7 @@ async def api_admin_delete_user(request: Request, user_id: str):
 @fastapi_app.get("/api/admin/broadcasts")
 async def api_admin_broadcasts(request: Request):
     """Return all broadcasts (admin only)."""
-    if not request.session.get("admin_user"):
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     _expire_stale_broadcasts()
@@ -6902,7 +6933,7 @@ async def api_admin_broadcasts(request: Request):
 @fastapi_app.delete("/api/admin/broadcasts/{broadcast_id}")
 async def api_admin_delete_broadcast(request: Request, broadcast_id: str):
     """Cancel any broadcast (admin only)."""
-    if not request.session.get("admin_user"):
+    if not request.session.get("admin_logged_in"):
         return JSONResponse({"error": "Admin login required."}, status_code=401)
 
     with _db_lock:
