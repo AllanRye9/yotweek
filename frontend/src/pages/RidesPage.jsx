@@ -514,6 +514,7 @@ export default function RidesPage() {
   const [searchText, setSearchText] = useState('')
   const [dateFilter, setDateFilter] = useState('')
   const [seatsFilter, setSeatsFilter] = useState('')
+  const [priceSort, setPriceSort] = useState('')  // '' | 'asc' | 'desc'
 
   // Right panel
   const [rightTab, setRightTab] = useState('rides')
@@ -582,6 +583,11 @@ export default function RidesPage() {
     const matchDate = !dateFilter || (r.departure && r.departure.startsWith(dateFilter))
     const matchSeats = !seatsFilter || (r.seats >= parseInt(seatsFilter, 10))
     return matchText && matchDate && matchSeats
+  }).sort((a, b) => {
+    if (!priceSort) return 0
+    const fa = a.fare ?? Infinity
+    const fb = b.fare ?? Infinity
+    return priceSort === 'asc' ? fa - fb : fb - fa
   })
 
   const inputCls = 'rounded-lg px-3 py-2 text-sm outline-none'
@@ -715,6 +721,12 @@ export default function RidesPage() {
             <input type="number" min="1" max="20" placeholder="Min seats" value={seatsFilter}
                    onChange={e => setSeatsFilter(e.target.value)}
                    className={`${inputCls} w-28`} style={inputSty} />
+            <select value={priceSort} onChange={e => setPriceSort(e.target.value)}
+                    className={`${inputCls} w-36`} style={inputSty}>
+              <option value="">💰 Price: any</option>
+              <option value="asc">💰 Low → High</option>
+              <option value="desc">💰 High → Low</option>
+            </select>
           </div>
 
           {/* Ride list */}

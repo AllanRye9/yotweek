@@ -9,10 +9,11 @@ function passwordStrength(pw) {
   let score = 0
   if (pw.length >= 8)              score++
   if (/[A-Z]/.test(pw))           score++
+  if (/[a-z]/.test(pw))           score++
   if (/[0-9]/.test(pw))           score++
   if (/[^A-Za-z0-9]/.test(pw))    score++
-  const labels = ['', 'Weak', 'Fair', 'Good', 'Strong']
-  const colors = ['', 'bg-red-500', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500']
+  const labels = ['', 'Weak', 'Weak', 'Fair', 'Good', 'Strong']
+  const colors = ['', 'bg-red-500', 'bg-red-500', 'bg-yellow-500', 'bg-blue-500', 'bg-green-500']
   return { score, label: labels[score] || 'Weak', color: colors[score] || 'bg-red-500' }
 }
 
@@ -27,6 +28,9 @@ export default function RegisterPage() {
   const [email, setEmail]         = useState('')
   const [phone, setPhone]         = useState('')
   const [password, setPass]       = useState('')
+  const [confirmPass, setConfirm] = useState('')
+  const [showPass, setShowPass]   = useState(false)
+  const [showConfirm, setShowConfirm] = useState(false)
   const [role, setRole]           = useState('passenger')
   const [rememberMe, setRemember] = useState(false)
   const [loading, setLoading]     = useState(false)
@@ -34,6 +38,7 @@ export default function RegisterPage() {
   const [success, setSuccess]     = useState('')
   const [emailTouched, setEmailTouched] = useState(false)
   const [passTouched,  setPassTouched]  = useState(false)
+  const [confirmTouched, setConfirmTouched] = useState(false)
 
   const pwStrength = passwordStrength(password)
   const emailOk    = isValidEmail(email)
@@ -52,8 +57,9 @@ export default function RegisterPage() {
     e.preventDefault()
     setError('')
     if (!emailOk) return setError('Please enter a valid email address.')
-    if (pwStrength.score < 2)
-      return setError('Password must be at least 8 chars with uppercase, number, and/or symbol.')
+    if (pwStrength.score < 3)
+      return setError('Password must be at least 8 chars with uppercase, lowercase, number, and/or symbol.')
+    if (confirmPass !== password) return setError('Passwords do not match.')
     setLoading(true)
     try {
       const regData = await userRegister(name.trim(), email.trim(), password, role, phone.trim())
@@ -141,21 +147,31 @@ export default function RegisterPage() {
               />
 
               <div>
-                <input
-                  type="password"
-                  placeholder="Password (uppercase, number, symbol)"
-                  value={password}
-                  onChange={e => setPass(e.target.value)}
-                  onBlur={() => setPassTouched(true)}
-                  required
-                  className={`w-full rounded-lg bg-gray-800 border text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                    passTouched && pwStrength.score < 2 ? 'border-red-500' : 'border-gray-600'
-                  }`}
-                />
+                <div className="relative">
+                  <input
+                    type={showPass ? 'text' : 'password'}
+                    placeholder="Password (uppercase, lowercase, number, symbol)"
+                    value={password}
+                    onChange={e => setPass(e.target.value)}
+                    onBlur={() => setPassTouched(true)}
+                    required
+                    className={`w-full rounded-lg bg-gray-800 border text-gray-100 text-sm p-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      passTouched && pwStrength.score < 3 ? 'border-red-500' : 'border-gray-600'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPass(v => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 text-xs"
+                    tabIndex={-1}
+                  >
+                    {showPass ? '🙈' : '👁️'}
+                  </button>
+                </div>
                 {password && (
                   <div className="mt-1.5 space-y-1">
                     <div className="flex gap-1">
-                      {[1,2,3,4].map(i => (
+                      {[1,2,3,4,5].map(i => (
                         <div
                           key={i}
                           className={`h-1 flex-1 rounded-full transition-colors ${
@@ -166,6 +182,33 @@ export default function RegisterPage() {
                     </div>
                     <p className="text-xs text-gray-500">{pwStrength.label} password</p>
                   </div>
+                )}
+              </div>
+
+              <div>
+                <div className="relative">
+                  <input
+                    type={showConfirm ? 'text' : 'password'}
+                    placeholder="Confirm password"
+                    value={confirmPass}
+                    onChange={e => setConfirm(e.target.value)}
+                    onBlur={() => setConfirmTouched(true)}
+                    required
+                    className={`w-full rounded-lg bg-gray-800 border text-gray-100 text-sm p-2.5 pr-10 focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      confirmTouched && confirmPass !== password ? 'border-red-500' : 'border-gray-600'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirm(v => !v)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-200 text-xs"
+                    tabIndex={-1}
+                  >
+                    {showConfirm ? '🙈' : '👁️'}
+                  </button>
+                </div>
+                {confirmTouched && confirmPass !== password && (
+                  <p className="text-red-400 text-xs mt-1">Passwords do not match.</p>
                 )}
               </div>
 

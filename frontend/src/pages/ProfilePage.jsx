@@ -19,6 +19,8 @@ import {
   userLogout,
   uploadAvatar,
   updateProfileDetails,
+  updateUserLocation,
+  getRideHistory,
 } from '../api'
 import NavBar from '../components/NavBar'
 import UserAuth from '../components/UserAuth'
@@ -345,6 +347,131 @@ function AccountActions({ onLogout, navigate }) {
   )
 }
 
+// ─── Location Sharing ─────────────────────────────────────────────────────────
+function LocationSharing() {
+  const [status, setStatus]       = useState('')
+  const [tracking, setTracking]   = useState(false)
+  const [msg, setMsg]             = useState('')
+  const watchIdRef                = useRef(null)
+
+  const shareOnce = () => {
+    if (!navigator.geolocation) { setMsg('Geolocation not supported.'); return }
+    setStatus('locating')
+    setMsg('')
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await updateUserLocation(pos.coords.latitude, pos.coords.longitude)
+          setMsg('📍 Location shared successfully.')
+        } catch {
+          setMsg('Failed to share location.')
+        }
+        setStatus('')
+      },
+      () => { setMsg('Could not get location.'); setStatus('') },
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  }
+
+  const toggleLive = () => {
+    if (tracking) {
+      if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
+      watchIdRef.current = null
+      setTracking(false)
+      setMsg('Live tracking stopped.')
+      return
+    }
+    if (!navigator.geolocation) { setMsg('Geolocation not supported.'); return }
+    setMsg('📡 Live tracking started…')
+    setTracking(true)
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      async (pos) => {
+        try { await updateUserLocation(pos.coords.latitude, pos.coords.longitude) } catch {}
+      },
+      () => { setMsg('Live tracking error.'); setTracking(false) },
+      { enableHighAccuracy: true }
+    )
+  }
+
+  useEffect(() => () => {
+    if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
+  }, [])
+
+  const btn = { padding: '9px 18px', borderRadius: 9, border: 'none', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', transition: 'opacity 0.15s' }
+
+  return (
+    <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '20px 24px', marginBottom: 20 }}>
+      <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Location Sharing</h2>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button
+          onClick={shareOnce}
+          disabled={status === 'locating'}
+          style={{ ...btn, background: '#3b82f6', color: '#fff', opacity: status === 'locating' ? 0.6 : 1 }}
+        >
+          📍 {status === 'locating' ? 'Locating…' : 'Share Once'}
+        </button>
+        <button
+          onClick={toggleLive}
+          style={{ ...btn, background: tracking ? '#ef4444' : '#10b981', color: '#fff' }}
+        >
+          {tracking ? '⏹ Stop Live Tracking' : '📡 Start Live Tracking'}
+        </button>
+      </div>
+      {msg && <p style={{ marginTop: 10, fontSize: '0.82rem', color: 'var(--text-secondary)' }}>{msg}</p>}
+    </section>
+  )
+}
+
+// ─── Rides History ────────────────────────────────────────────────────────────
+function RidesHistory() {
+  const [rides,   setRides]   = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error,   setError]   = useState('')
+
+  useEffect(() => {
+    getRideHistory()
+      .then(d => setRides(d.rides || []))
+      .catch(() => setError('Failed to load rides.'))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const fmtDate = (s) => { try { return new Date(s).toLocaleString([], { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
+
+  return (
+    <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '20px 24px', marginBottom: 20 }}>
+      <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 14, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Rides</h2>
+      {loading && <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Loading…</p>}
+      {error   && <p style={{ fontSize: '0.85rem', color: '#f87171' }}>{error}</p>}
+      {!loading && !error && rides.length === 0 && (
+        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No rides yet.</p>
+      )}
+      {!loading && rides.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {rides.map(r => (
+            <div key={r.ride_id} style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)', borderRadius: 12, padding: '12px 16px' }}>
+              <p style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-primary)' }}>
+                {r.origin} → {r.destination}
+              </p>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 4, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                {r.departure && <span>🕐 {fmtDate(r.departure)}</span>}
+                {r.seats     && <span>🪑 {r.seats} seat(s)</span>}
+                <span style={{
+                  padding: '1px 8px', borderRadius: 9999, fontWeight: 600, fontSize: '0.72rem',
+                  background: r.status === 'open' ? 'rgba(16,185,129,0.15)' : 'rgba(107,114,128,0.15)',
+                  color:      r.status === 'open' ? '#6ee7b7' : 'var(--text-muted)',
+                  border: `1px solid ${r.status === 'open' ? 'rgba(16,185,129,0.3)' : 'var(--border-color)'}`,
+                }}>
+                  {r.status || 'open'}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProfilePage() {
   const navigate  = useNavigate()
@@ -381,6 +508,16 @@ export default function ProfilePage() {
         )}
         <NavBar user={appUser} onLogin={() => setShowAuth(true)} title="Profile" />
         <main style={{ flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto', padding: '24px 20px 60px', boxSizing: 'border-box' }}>
+          {/* Back button */}
+          <button
+            onClick={() => navigate(-1)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, padding: '7px 16px', borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', transition: 'opacity 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+          >
+            ← Back
+          </button>
+
           {loading && !appUser ? (
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 20, animation: 'pp-pulse 1.5s ease-in-out infinite' }}>
               <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
@@ -403,6 +540,18 @@ export default function ProfilePage() {
           ) : (
             <>
               <IdentityBanner user={appUser} onAvatarChange={url => handleUpdate({ avatar_url: url })} />
+
+              {/* User ID card */}
+              <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '14px 24px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '1.1rem' }}>🪪</span>
+                <div>
+                  <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>User ID</p>
+                  <p style={{ fontSize: '0.88rem', fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{appUser.user_id}</p>
+                </div>
+              </section>
+
+              <LocationSharing />
+              <RidesHistory />
               <ProfileStats user={appUser} />
               <div id="profile-details-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20, marginBottom: 20 }}>
                 <DetailsPanel user={appUser} onUpdate={handleUpdate} />
