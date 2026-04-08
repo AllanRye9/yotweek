@@ -176,7 +176,11 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
                 className="w-full h-full rounded-full object-cover"
               />
             ) : (
-              (user.name || '?').charAt(0).toUpperCase()
+              <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                <circle cx="20" cy="20" r="20" fill="#b45309"/>
+                <circle cx="20" cy="15" r="7" fill="#fef3c7"/>
+                <ellipse cx="20" cy="34" rx="12" ry="8" fill="#fef3c7"/>
+              </svg>
             )}
           </Link>
         ) : user === false ? (

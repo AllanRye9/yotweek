@@ -133,8 +133,8 @@ export const approveDriverApplication = (appId, approved) =>
 
 export const getDriverDashboard = () => request('GET', '/api/driver/dashboard')
 
-export const updateDriverLocation = (lat, lng, empty = true, seats = 0) =>
-  request('POST', '/api/driver/location', { lat, lng, empty, seats })
+export const updateDriverLocation = (lat, lng, empty = true, seats = 0, location_alert = false) =>
+  request('POST', '/api/driver/location', { lat, lng, empty, seats, location_alert })
 
 export const getNearbyDrivers = (lat, lng, radius_km = 10) =>
   request('GET', `/api/driver/nearby?lat=${lat}&lng=${lng}&radius_km=${radius_km}`)
@@ -171,6 +171,8 @@ export const getRide = (rideId) =>
 export const cancelRide = (rideId) => request('DELETE', `/api/rides/${encodeURIComponent(rideId)}`)
 
 export const takeRide = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/take`)
+
+export const repostRide = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/repost`)
 
 export const alertRideClients = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/alert`)
 

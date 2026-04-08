@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { listRides, postRide, cancelRide, takeRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare, alertRideClients } from '../api'
+import { listRides, postRide, cancelRide, takeRide, repostRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare, alertRideClients } from '../api'
 import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../sounds'
 import socket from '../socket'
 import RideChat from './RideChat'
@@ -152,6 +152,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [focusedField, setFocusedField] = useState(null)
   const [broadcasting, setBroadcasting] = useState(false)
   const [broadcastMsg, setBroadcastMsg] = useState('')
+  const [alertingLocation, setAlertingLocation] = useState(false)
   const [nearbyDrivers, setNearbyDrivers] = useState([])
   const [chatRide, setChatRide] = useState(null)
   const [chatDefaultMsg, setChatDefaultMsg] = useState('')
@@ -161,6 +162,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [arrivedAlert, setArrivedAlert] = useState(null)       // driver_arrived event payload
   const [arrivedVisible, setArrivedVisible] = useState(false)
   const arrivedTimerRef = useRef(null)
+  // Driver location alert (rich notification for passengers)
+  const [locationAlert, setLocationAlert] = useState(null)
+  const [locationAlertVisible, setLocationAlertVisible] = useState(false)
+  const locationAlertTimerRef = useRef(null)
   // Location search filter
   const [locationFilter, setLocationFilter] = useState('')
   const [userLat, setUserLat] = useState(user?.lat ?? null)
@@ -364,17 +369,29 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         setTimeout(() => setArrivedAlert(null), 500)
       }, 15000)
     }
+    const onDriverLocationAlert = (data) => {
+      playDriverAlertSound()
+      setLocationAlert(data)
+      setLocationAlertVisible(true)
+      if (locationAlertTimerRef.current) clearTimeout(locationAlertTimerRef.current)
+      locationAlertTimerRef.current = setTimeout(() => {
+        setLocationAlertVisible(false)
+        setTimeout(() => setLocationAlert(null), 500)
+      }, 20000)
+    }
     socket.on('new_ride', onNewRide)
     socket.on('ride_cancelled', onCancelled)
     socket.on('ride_taken', onTaken)
     socket.on('driver_nearby', onDriverNearby)
     socket.on('driver_arrived', onDriverArrived)
+    socket.on('driver_location_alert', onDriverLocationAlert)
     return () => {
       socket.off('new_ride', onNewRide)
       socket.off('ride_cancelled', onCancelled)
       socket.off('ride_taken', onTaken)
       socket.off('driver_nearby', onDriverNearby)
       socket.off('driver_arrived', onDriverArrived)
+      socket.off('driver_location_alert', onDriverLocationAlert)
     }
   }, [userLat, userLng])
 
@@ -426,6 +443,14 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     catch (err) { alert(err.message || 'Failed to mark ride as taken.') }
   }
 
+  const handleRepost = async (rideId) => {
+    try {
+      const data = await repostRide(rideId)
+      setBroadcastMsg(`✅ Ride reposted! New ID: ${data.ride_id?.slice(0, 8)}…`)
+      setTimeout(() => setBroadcastMsg(''), 6000)
+    } catch (err) { alert(err.message || 'Repost failed.') }
+  }
+
   const handleBroadcast = () => {
     if (!navigator.geolocation) { setBroadcastMsg('Geolocation not supported.'); return }
     setBroadcasting(true)
@@ -435,7 +460,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          await updateDriverLocation(pos.coords.latitude, pos.coords.longitude, true, emptySeatCount)
+          await updateDriverLocation(pos.coords.latitude, pos.coords.longitude, true, emptySeatCount, false)
           setBroadcastMsg('📡 Your empty-car alert was sent to nearby passengers!')
           const d = await getNearbyDrivers(pos.coords.latitude, pos.coords.longitude, 20)
           setNearbyDrivers(d.drivers || [])
@@ -443,6 +468,24 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         finally { setBroadcasting(false); setTimeout(() => setBroadcastMsg(''), 6000) }
       },
       () => { setBroadcastMsg('Location permission denied.'); setBroadcasting(false) },
+      { enableHighAccuracy: true, timeout: 8000 }
+    )
+  }
+
+  const handleLocationAlertPost = () => {
+    if (!navigator.geolocation) { setBroadcastMsg('Geolocation not supported.'); return }
+    setAlertingLocation(true)
+    const openRide = rides.find(r => r.status === 'open' && r.user_id === user?.user_id)
+    const emptySeatCount = openRide?.seats ?? 0
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await updateDriverLocation(pos.coords.latitude, pos.coords.longitude, true, emptySeatCount, true)
+          setBroadcastMsg('🚨 Location alert sent to passengers within 5km!')
+        } catch (err) { setBroadcastMsg(err.message || 'Alert failed.') }
+        finally { setAlertingLocation(false); setTimeout(() => setBroadcastMsg(''), 8000) }
+      },
+      () => { setBroadcastMsg('Location permission denied.'); setAlertingLocation(false) },
       { enableHighAccuracy: true, timeout: 8000 }
     )
   }
@@ -563,9 +606,60 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         </div>
       )}
 
-
-
-      {/* ── Driver broadcast ── */}
+      {/* ── Driver location alert (rich notification with driver profile + chat) ── */}
+      {locationAlert && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 w-[90vw] max-w-sm rounded-xl p-4 shadow-2xl border-2 border-orange-400 bg-orange-950 driver-alert-toast ${locationAlertVisible ? 'driver-alert-enter' : 'driver-alert-exit'}`}>
+          <div className="flex items-center gap-3 mb-2">
+            {locationAlert.avatar_url
+              ? <img src={locationAlert.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover border-2 border-orange-400 shrink-0" />
+              : <div className="w-10 h-10 rounded-full bg-orange-800 border-2 border-orange-400 flex items-center justify-center shrink-0">
+                  <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                    <circle cx="20" cy="20" r="20" fill="#7c2d12"/>
+                    <circle cx="20" cy="15" r="7" fill="#fed7aa"/>
+                    <ellipse cx="20" cy="34" rx="12" ry="8" fill="#fed7aa"/>
+                  </svg>
+                </div>
+            }
+            <div className="min-w-0">
+              <p className="font-bold text-sm text-orange-200">🚨 Driver Location Alert</p>
+              {locationAlert.driver_name && <p className="text-orange-300 text-xs font-medium truncate">👤 {locationAlert.driver_name}</p>}
+            </div>
+          </div>
+          <p className="text-orange-100 text-xs mb-2">{locationAlert.message}</p>
+          {locationAlert.seats > 0 && <p className="text-orange-300 text-xs mb-2">💺 {locationAlert.seats} empty seat{locationAlert.seats !== 1 ? 's' : ''} available</p>}
+          {locationAlert.lat != null && locationAlert.lng != null && (
+            <a
+              href={`https://www.google.com/maps?q=${locationAlert.lat},${locationAlert.lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mb-2 text-xs text-blue-300 hover:text-blue-200 underline flex items-center gap-1"
+            >
+              🗺️ View Driver on Google Maps
+            </a>
+          )}
+          <div className="flex gap-2 mt-2">
+            {locationAlert.driver_id && (
+              <button
+                onClick={() => {
+                  const driverRide = rides.find(r => r.user_id === locationAlert.driver_id && r.status === 'open')
+                  if (driverRide) { setChatRide(driverRide); setChatDefaultMsg('Hi, I saw your location alert. Are you available?') }
+                  setLocationAlertVisible(false)
+                  setTimeout(() => setLocationAlert(null), 300)
+                }}
+                className="flex-1 text-xs px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white font-medium transition-colors"
+              >
+                💬 Chat with Driver
+              </button>
+            )}
+            <button
+              onClick={() => { setLocationAlertVisible(false); setTimeout(() => setLocationAlert(null), 300) }}
+              className="text-xs px-3 py-1.5 rounded-lg border border-orange-700 text-orange-300 hover:text-orange-100 transition-colors"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
       {sections.driverBroadcast && isDriver && (
         <div className="rounded-xl border border-yellow-700/60 bg-yellow-900/20 p-4 space-y-3">
           <h3 className="font-semibold text-yellow-300 flex items-center gap-2">
@@ -578,6 +672,12 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               {broadcasting
                 ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Broadcasting…</span>
                 : '📡 Alert Nearby Passengers (Empty Car)'}
+            </button>
+            <button onClick={handleLocationAlertPost} disabled={alertingLocation}
+              className="py-2 rounded-lg text-sm font-semibold text-white bg-orange-700 hover:bg-orange-600 disabled:opacity-50 transition-colors driver-broadcast-btn">
+              {alertingLocation
+                ? <span className="flex items-center justify-center gap-2"><span className="inline-block driver-broadcast-spinner" />Sending Alert…</span>
+                : '🚨 Post Location Alert (5km)'}
             </button>
             {/* Private client alert: alert clients who booked this ride that driver has arrived */}
             {rides.some(r => r.status === 'open' && r.user_id === user?.user_id) && (
@@ -595,7 +695,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
               </button>
             )}
           </div>
-          {broadcastMsg && <p className={`text-xs ${broadcastMsg.startsWith('📡') ? 'text-green-300' : 'text-red-300'}`}>{broadcastMsg}</p>}
+          {broadcastMsg && <p className={`text-xs ${broadcastMsg.startsWith('📡') || broadcastMsg.startsWith('✅') || broadcastMsg.startsWith('🚨') ? 'text-green-300' : 'text-red-300'}`}>{broadcastMsg}</p>}
           {alertClientMsg && <p className={`text-xs ${alertClientMsg.startsWith('✅') ? 'text-green-300' : alertClientMsg.startsWith('ℹ') ? 'text-blue-300' : 'text-red-300'}`}>{alertClientMsg}</p>}
           {nearbyDrivers.length > 0 && <div className="text-xs text-yellow-200/60">{nearbyDrivers.length} other driver(s) nearby.</div>}
         </div>
@@ -1019,6 +1119,12 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                       Cancel
                     </button>
                   </>
+                )}
+                {user && ride.user_id === user.user_id && ride.status === 'taken' && (
+                  <button onClick={() => handleRepost(ride.ride_id)}
+                    className="text-xs text-green-400 hover:text-green-300 border border-green-700/50 hover:border-green-500 rounded-lg px-2 py-1 transition-colors">
+                    ♻️ Repost
+                  </button>
                 )}
               </div>
             </div>

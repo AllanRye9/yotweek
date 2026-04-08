@@ -293,13 +293,23 @@ const SERVICE_CARDS = [
 ]
 
 /** Feature cards linking to core platform sections. */
-function ServiceCards({ onNavigateRides }) {
+function ServiceCards({ onNavigateRides, user, onLoginPrompt }) {
   const navigate = useNavigate()
+
+  const requireAuth = (fn) => () => {
+    if (user === false || user === null) {
+      // null = still loading, false = not logged in
+      if (user === false) { onLoginPrompt?.(); return }
+      return // still loading — do nothing
+    }
+    fn()
+  }
+
   const handlers = {
-    rides:   onNavigateRides,
-    map:     () => navigate('/map'),
-    chat:    () => navigate('/inbox'),
-    profile: () => navigate('/profile'),
+    rides:   requireAuth(onNavigateRides || (() => navigate('/rides'))),
+    map:     requireAuth(() => navigate('/map')),
+    chat:    requireAuth(() => navigate('/inbox')),
+    profile: requireAuth(() => navigate('/profile')),
   }
 
   return (
@@ -519,7 +529,7 @@ export default function Home() {
       {/* ── Main Content ── */}
       <main className="flex-1 max-w-5xl mx-auto w-full px-4 pt-[15px] sm:pt-[19px] pb-20 sm:pb-8">
         {/* Animated service cards — glowing borders, random interchange */}
-        <ServiceCards onNavigateRides={() => navigate('/rides')} />
+        <ServiceCards onNavigateRides={() => navigate('/rides')} user={appUser} onLoginPrompt={() => setShowAuthModal(true)} />
 
         {/* Ride Share & Driver Alerts — dedicated page link */}
         <div className="mt-2 flex justify-center gap-3 flex-wrap">

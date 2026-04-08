@@ -828,7 +828,8 @@ def init_db():
                         conn.rollback()
                         pass  # column already exists
                 for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL"), ("ride_type", "TEXT DEFAULT 'airport'"),
-                                    ("vehicle_color", "TEXT DEFAULT ''"), ("vehicle_type", "TEXT DEFAULT ''"), ("plate_number", "TEXT DEFAULT ''")]:
+                                    ("vehicle_color", "TEXT DEFAULT ''"), ("vehicle_type", "TEXT DEFAULT ''"), ("plate_number", "TEXT DEFAULT ''"),
+                                    ("taken_at", "TEXT")]:
                     try:
                         cur.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1094,7 +1095,8 @@ def init_db():
                     except Exception:
                         pass  # column already exists
                 for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL"), ("ride_type", "TEXT DEFAULT 'airport'"),
-                                    ("vehicle_color", "TEXT DEFAULT ''"), ("vehicle_type", "TEXT DEFAULT ''"), ("plate_number", "TEXT DEFAULT ''")]:
+                                    ("vehicle_color", "TEXT DEFAULT ''"), ("vehicle_type", "TEXT DEFAULT ''"), ("plate_number", "TEXT DEFAULT ''"),
+                                    ("taken_at", "TEXT")]:
                     try:
                         conn.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -1538,7 +1540,9 @@ async def admin_db_upload(request: Request):
 # USER AUTHENTICATION MODULE
 # =========================================================
 
-_APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "6"))
+_APP_USER_PROXIMITY_KM = float(os.environ.get("APP_USER_PROXIMITY_KM", "10"))
+# Radius for explicit location-alert notifications (km)
+_DRIVER_ALERT_PROXIMITY_KM = float(os.environ.get("DRIVER_ALERT_PROXIMITY_KM", "5"))
 # Base fare per km for airport pickup rides (env-configurable, $1/km as per platform standard)
 _FARE_PER_KM = float(os.environ.get("FARE_PER_KM", "1.0"))
 
@@ -3254,11 +3258,15 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
 
 
 @fastapi_app.get("/api/rides/list")
-async def api_rides_list(status: str | None = None):
+async def api_rides_list(request: Request = None, status: str | None = None):
     """Return rides ordered by departure time.
 
     Query param ``status`` can be 'open', 'taken', 'cancelled', or omitted to
     return open and taken rides (everything visible to passengers).
+
+    Taken rides that were marked taken more than 1 hour ago are hidden from
+    non-poster users (the driver can always see their own rides via the
+    driver dashboard query).
     """
     _VALID_RIDE_STATUSES = ("open", "taken", "cancelled")
     # Default: show open and taken rides so passengers can see status tags.
@@ -3266,6 +3274,12 @@ async def api_rides_list(status: str | None = None):
         status_filter = [status]
     else:
         status_filter = ["open", "taken"]
+
+    # Determine if the requester is the driver who posted a ride (used for filtering)
+    requester_id = request.session.get("app_user_id") if request is not None else None
+
+    # Cutoff: taken rides older than 1 hour are hidden from non-poster users.
+    cutoff_ts = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)).isoformat()
 
     # Build parameterised placeholders from a fixed count — no user data
     # enters the SQL string itself, so this is safe from injection.
@@ -3285,16 +3299,20 @@ async def api_rides_list(status: str | None = None):
                 cur.execute(
                     "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport'),"
                     "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
-                    f" FROM rides WHERE status IN ({pg_placeholders}) ORDER BY departure ASC LIMIT 200",
-                    status_filter,
+                    f" FROM rides WHERE status IN ({pg_placeholders})"
+                    " AND (status != 'taken' OR taken_at IS NULL OR taken_at > %s OR user_id = %s)"
+                    " ORDER BY departure ASC LIMIT 200",
+                    status_filter + [cutoff_ts, requester_id or ""],
                 )
                 rows = cur.fetchall()
             else:
                 cur = conn.execute(
                     "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport'),"
                     "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
-                    f" FROM rides WHERE status IN ({sql_placeholders}) ORDER BY departure ASC LIMIT 200",
-                    status_filter,
+                    f" FROM rides WHERE status IN ({sql_placeholders})"
+                    " AND (status != 'taken' OR taken_at IS NULL OR taken_at > ? OR user_id = ?)"
+                    " ORDER BY departure ASC LIMIT 200",
+                    status_filter + [cutoff_ts, requester_id or ""],
                 )
                 rows = cur.fetchall()
         finally:
@@ -3674,9 +3692,9 @@ async def api_ride_take(request: Request, ride_id: str):
                 return JSONResponse({"error": "Cannot mark a cancelled ride as taken."}, status_code=409)
 
             if USE_POSTGRES:
-                cur.execute("UPDATE rides SET status='taken' WHERE ride_id=%s", (ride_id,))
+                cur.execute("UPDATE rides SET status='taken', taken_at=%s WHERE ride_id=%s", (datetime.now(timezone.utc).isoformat(), ride_id,))
             else:
-                conn.execute("UPDATE rides SET status='taken' WHERE ride_id=?", (ride_id,))
+                conn.execute("UPDATE rides SET status='taken', taken_at=? WHERE ride_id=?", (datetime.now(timezone.utc).isoformat(), ride_id,))
             conn.commit()
         finally:
             conn.close()
@@ -3701,6 +3719,100 @@ async def api_ride_take(request: Request, ride_id: str):
         link_label="View in Inbox",
     )
     return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/rides/{ride_id}/repost")
+async def api_ride_repost(request: Request, ride_id: str):
+    """Allow the driver (original poster) to repost a taken or cancelled ride
+    as a brand-new open ride with the same details.
+
+    Only the driver who originally posted the ride may repost it.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["user_id", "driver_name", "origin", "destination", "origin_lat", "origin_lng",
+                    "dest_lat", "dest_lng", "fare", "departure", "seats", "notes", "ride_type",
+                    "vehicle_color", "vehicle_type", "plate_number"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT user_id,driver_name,origin,destination,origin_lat,origin_lng,"
+                    "dest_lat,dest_lng,fare,departure,seats,notes,"
+                    "COALESCE(ride_type,'airport'),COALESCE(vehicle_color,''),"
+                    "COALESCE(vehicle_type,''),COALESCE(plate_number,'') FROM rides WHERE ride_id=%s",
+                    (ride_id,),
+                )
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(
+                    "SELECT user_id,driver_name,origin,destination,origin_lat,origin_lng,"
+                    "dest_lat,dest_lng,fare,departure,seats,notes,"
+                    "COALESCE(ride_type,'airport'),COALESCE(vehicle_color,''),"
+                    "COALESCE(vehicle_type,''),COALESCE(plate_number,'') FROM rides WHERE ride_id=?",
+                    (ride_id,),
+                )
+                row = cur.fetchone()
+
+            if row is None:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+
+            original = dict(zip(cols, row))
+            if original["user_id"] != user_id:
+                return JSONResponse({"error": "Not authorised — you can only repost your own rides."}, status_code=403)
+
+            new_ride_id = str(uuid.uuid4())
+            created_at  = datetime.now(timezone.utc).isoformat()
+
+            if USE_POSTGRES:
+                cur.execute(
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,
+                       dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type,vehicle_color,vehicle_type,plate_number)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s)""",
+                    (new_ride_id, user_id, original["driver_name"], original["origin"], original["destination"],
+                     original["origin_lat"], original["origin_lng"], original["dest_lat"], original["dest_lng"],
+                     original["fare"], original["departure"], original["seats"], original["notes"],
+                     created_at, original["ride_type"], original["vehicle_color"], original["vehicle_type"],
+                     original["plate_number"]),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,
+                       dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type,vehicle_color,vehicle_type,plate_number)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?)""",
+                    (new_ride_id, user_id, original["driver_name"], original["origin"], original["destination"],
+                     original["origin_lat"], original["origin_lng"], original["dest_lat"], original["dest_lng"],
+                     original["fare"], original["departure"], original["seats"], original["notes"],
+                     created_at, original["ride_type"], original["vehicle_color"], original["vehicle_type"],
+                     original["plate_number"]),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    ride_data = {
+        "ride_id":       new_ride_id,
+        "driver_name":   original["driver_name"],
+        "origin":        original["origin"],
+        "destination":   original["destination"],
+        "fare":          original["fare"],
+        "departure":     original["departure"],
+        "seats":         original["seats"],
+        "notes":         original["notes"],
+        "created_at":    created_at,
+        "ride_type":     original["ride_type"],
+        "vehicle_color": original["vehicle_color"],
+        "vehicle_type":  original["vehicle_type"],
+        "plate_number":  original["plate_number"],
+        "origin_lat":    original["origin_lat"],
+        "origin_lng":    original["origin_lng"],
+    }
+    asyncio.ensure_future(sio.emit("new_ride", ride_data))
+    return JSONResponse({"ok": True, "ride_id": new_ride_id}, status_code=201)
 
 
 @fastapi_app.post("/api/rides/{ride_id}/alert_clients")
@@ -4518,10 +4630,11 @@ async def api_admin_delete_ride(request: Request, ride_id: str):
 # =========================================================
 
 class _DriverLocationUpdate(BaseModel):
-    lat:   float
-    lng:   float
-    empty: bool = True  # True = car is empty / available
-    seats: int  = 0     # Number of empty seats available
+    lat:            float
+    lng:            float
+    empty:          bool = True   # True = car is empty / available
+    seats:          int  = 0      # Number of empty seats available
+    location_alert: bool = False  # True = driver explicitly posts a location alert
 
 
 @fastapi_app.post("/api/driver/location")
@@ -4529,6 +4642,13 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
     """Driver broadcasts their current location. Notifies nearby connected users.
 
     Requires an approved driver application (verified driver).
+
+    When ``location_alert`` is True the driver is explicitly posting a location
+    alert. A richer ``driver_location_alert`` event (including driver profile
+    details and a chat link) is emitted only to users within
+    ``_DRIVER_ALERT_PROXIMITY_KM`` (default 5 km) who are currently logged in.
+    The standard ``driver_nearby`` real-time update is always sent to users
+    within ``_APP_USER_PROXIMITY_KM`` (default 10 km).
     """
     user_id = request.session.get("app_user_id")
     if not user_id:
@@ -4541,14 +4661,15 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
     ts = time.time()
     with _driver_loc_lock:
         _driver_locations[user_id] = {
-            "user_id":  user_id,
-            "name":     user["name"],
-            "lat":      body.lat,
-            "lng":      body.lng,
-            "empty":    body.empty,
-            "seats":    body.seats,
-            "verified": True,
-            "ts":       ts,
+            "user_id":    user_id,
+            "name":       user["name"],
+            "avatar_url": user.get("avatar_url") or "",
+            "lat":        body.lat,
+            "lng":        body.lng,
+            "empty":      body.empty,
+            "seats":      body.seats,
+            "verified":   True,
+            "ts":         ts,
         }
 
     # Notify nearby users who have shared their location.
@@ -4558,6 +4679,7 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
     notification = {
         "driver_id":   user_id,
         "driver_name": user["name"],
+        "avatar_url":  user.get("avatar_url") or "",
         "lat":         body.lat,
         "lng":         body.lng,
         "empty":       body.empty,
@@ -4565,6 +4687,15 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
         "radius_km":   _APP_USER_PROXIMITY_KM,
         "message":     f"Driver {user['name']} is nearby and {seats_label}!",
     }
+
+    # Rich location-alert payload (sent only when driver explicitly alerts)
+    alert_notification = {
+        **notification,
+        "is_location_alert": True,
+        "radius_km":         _DRIVER_ALERT_PROXIMITY_KM,
+        "message":           f"🚨 Driver {user['name']} posted a location alert nearby — {seats_label}!",
+    }
+
     # Emit to users who have previously identified themselves via socket.
     # For each identified socket, only notify if the user has a stored location
     # within APP_USER_PROXIMITY_KM; otherwise fall back to broadcasting.
@@ -4585,6 +4716,13 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
                 if dist <= _APP_USER_PROXIMITY_KM:
                     await sio.emit("driver_nearby", notification, room=sid)
                     targets_sent = True
+                    # If within alert radius and driver posted explicit alert, send rich alert
+                    if body.location_alert and dist <= _DRIVER_ALERT_PROXIMITY_KM:
+                        await sio.emit("driver_location_alert", alert_notification, room=sid)
+            elif body.location_alert:
+                # No stored location for this user — send alert regardless (no distance filter)
+                await sio.emit("driver_location_alert", alert_notification, room=sid)
+                targets_sent = True
         if not targets_sent:
             # No location-aware passengers connected — broadcast to all identified
             # passengers (those without a stored location), skipping all drivers.
@@ -4593,10 +4731,14 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
                 if u is None or u.get("role") == "driver":
                     continue
                 await sio.emit("driver_nearby", notification, room=sid)
+                if body.location_alert:
+                    await sio.emit("driver_location_alert", alert_notification, room=sid)
                 targets_sent = True
         if not targets_sent:
             # Absolutely no identified passengers — broadcast to all anonymous sockets
             await sio.emit("driver_nearby", notification)
+            if body.location_alert:
+                await sio.emit("driver_location_alert", alert_notification)
 
     asyncio.ensure_future(_notify())
 
