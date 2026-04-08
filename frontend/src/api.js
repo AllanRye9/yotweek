@@ -226,6 +226,22 @@ export const getRideChatMessages = (rideId) =>
 
 export const getRideChatInbox = () => request('GET', '/api/rides/chat/inbox')
 
+export const deleteRideChatMessage = (rideId, msgId) =>
+  request('DELETE', `/api/rides/${encodeURIComponent(rideId)}/chat/${encodeURIComponent(msgId)}`)
+
+// ── Driver Reviews ────────────────────────────────────────────────────────────
+
+export const getDriverReviews = (driverUserId) =>
+  request('GET', `/api/drivers/${encodeURIComponent(driverUserId)}/reviews`)
+
+export const submitDriverReview = (driverUserId, rating, comment = '') =>
+  request('POST', `/api/drivers/${encodeURIComponent(driverUserId)}/reviews`, { rating, comment })
+
+// ── AI Assistant ──────────────────────────────────────────────────────────────
+
+export const aiChat = (message, context = 'rides') =>
+  request('POST', '/api/ai/chat', { message, context })
+
 // ── Unified Map ───────────────────────────────────────────────────────────────
 
 export const getUnifiedMapNearby = (lat, lng, radius_km = 25, mode = 'drivers') =>

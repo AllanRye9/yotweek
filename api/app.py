@@ -3482,6 +3482,82 @@ async def api_rides_estimate_fare(start: str, destination: str, seats: int = 1):
     })
 
 
+@fastapi_app.get("/api/fare_estimate")
+async def api_fare_estimate_alias(start: str, destination: str, seats: int = 1):
+    """Alias for /api/rides/estimate_fare — kept for backwards compatibility."""
+    return await api_rides_estimate_fare(start=start, destination=destination, seats=seats)
+
+
+@fastapi_app.get("/api/geocode")
+async def api_geocode_alias(address: str):
+    """Alias for /api/rides/geocode — kept for backwards compatibility."""
+    return await api_rides_geocode(address=address)
+
+
+@fastapi_app.delete("/api/rides/{ride_id}/chat/{msg_id}")
+async def api_delete_ride_chat_message(request: Request, ride_id: str, msg_id: str):
+    """Delete a single chat message.  Only the original sender (by name) or the ride poster can delete."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if not user:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    sender_name = user.get("name", "")
+
+    ph = "%s" if USE_POSTGRES else "?"
+    with _db_lock:
+        conn = _get_db()
+        try:
+            # Fetch the message to validate ownership
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT sender_name FROM ride_chat_messages WHERE msg_id=%s AND ride_id=%s",
+                    (msg_id, ride_id),
+                )
+                row = cur.fetchone()
+            else:
+                cur = conn.execute(
+                    "SELECT sender_name FROM ride_chat_messages WHERE msg_id=? AND ride_id=?",
+                    (msg_id, ride_id),
+                )
+                row = cur.fetchone()
+            if not row:
+                return JSONResponse({"error": "Message not found."}, status_code=404)
+            msg_sender = row[0]
+
+            # Check if the requester is the ride poster
+            if USE_POSTGRES:
+                cur.execute("SELECT user_id FROM rides WHERE ride_id=%s", (ride_id,))
+                ride_row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id FROM rides WHERE ride_id=?", (ride_id,))
+                ride_row = cur.fetchone()
+            poster_user_id = ride_row[0] if ride_row else None
+
+            if msg_sender != sender_name and user_id != poster_user_id:
+                return JSONResponse({"error": "Not authorised to delete this message."}, status_code=403)
+
+            # Delete
+            if USE_POSTGRES:
+                cur.execute(
+                    "DELETE FROM ride_chat_messages WHERE msg_id=%s AND ride_id=%s",
+                    (msg_id, ride_id),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM ride_chat_messages WHERE msg_id=? AND ride_id=?",
+                    (msg_id, ride_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
 @fastapi_app.get("/api/rides/{ride_id}")
 async def api_get_ride(request: Request, ride_id: str):
     """Fetch details for a single ride by ride_id.
@@ -5303,84 +5379,6 @@ async def on_ride_chat_message(sid, data):
     log_preview = text[:80] if text else f"[{media_type}]"
     logger.info(f"Ride chat [{ride_id}] from {name}: {log_preview}")
 
-    # Auto-response: when a passenger sends their first message in the chat,
-    # immediately reply with a structured booking prompt so the driver (or
-    # system) collects all required details without back-and-forth friction.
-    if role != "driver" and text:
-        try:
-            with _db_lock:
-                conn = _get_db()
-                try:
-                    if USE_POSTGRES:
-                        cur = conn.cursor()
-                        cur.execute(
-                            "SELECT COUNT(*) FROM ride_chat_messages"
-                            " WHERE ride_id=%s AND sender_role != 'driver'",
-                            (ride_id,),
-                        )
-                        passenger_msg_count = cur.fetchone()[0]
-                    else:
-                        cur = conn.execute(
-                            "SELECT COUNT(*) FROM ride_chat_messages"
-                            " WHERE ride_id=? AND sender_role != 'driver'",
-                            (ride_id,),
-                        )
-                        passenger_msg_count = cur.fetchone()[0]
-                finally:
-                    conn.close()
-
-            if passenger_msg_count == 1:
-                # This is the passenger's first message — send the auto-response.
-                auto_id = f"auto-{ride_id}-{time.time()}"
-                auto_msg = {
-                    "ride_id":    ride_id,
-                    "name":       "System",
-                    "text":       (
-                        "Please share your current location, full name, and "
-                        "contact number to complete your booking."
-                    ),
-                    "ts":         time.time(),
-                    "role":       "system",
-                    "id":         auto_id,
-                    "media_type": None,
-                    "media_data": None,
-                    "lat":        None,
-                    "lng":        None,
-                }
-                auto_created = datetime.now(timezone.utc).isoformat()
-                with _db_lock:
-                    conn = _get_db()
-                    try:
-                        if USE_POSTGRES:
-                            cur = conn.cursor()
-                            cur.execute(
-                                "INSERT INTO ride_chat_messages"
-                                " (msg_id,ride_id,sender_name,sender_role,text,"
-                                "  media_type,media_data,lat,lng,ts,created_at)"
-                                " VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
-                                " ON CONFLICT (msg_id) DO NOTHING",
-                                (auto_id, ride_id, "System", "system",
-                                 auto_msg["text"], None, None,
-                                 None, None, auto_msg["ts"], auto_created),
-                            )
-                        else:
-                            conn.execute(
-                                "INSERT OR IGNORE INTO ride_chat_messages"
-                                " (msg_id,ride_id,sender_name,sender_role,text,"
-                                "  media_type,media_data,lat,lng,ts,created_at)"
-                                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                                (auto_id, ride_id, "System", "system",
-                                 auto_msg["text"], None, None,
-                                 None, None, auto_msg["ts"], auto_created),
-                            )
-                        conn.commit()
-                    finally:
-                        conn.close()
-                await sio.emit("ride_chat_message", auto_msg, room=room)
-                logger.info(f"Ride chat [{ride_id}] auto-response sent to {name}")
-        except Exception as e:
-            logger.warning(f"Failed to send auto-response for ride {ride_id}: {e}")
-
 
 @sio.on("ride_chat_typing")
 async def on_ride_chat_typing(sid, data):
@@ -6955,6 +6953,176 @@ async def api_admin_delete_broadcast(request: Request, broadcast_id: str):
         finally:
             conn.close()
     return JSONResponse({"ok": True})
+
+
+# ── Driver reviews ────────────────────────────────────────────────────────────
+
+# Ensure the driver_reviews table exists (created lazily at first use).
+def _ensure_driver_reviews_table(conn):
+    """Create driver_reviews table if it does not already exist."""
+    ph_auto = "SERIAL" if USE_POSTGRES else "INTEGER"
+    conflict_clause = "ON CONFLICT DO NOTHING" if USE_POSTGRES else ""
+    if USE_POSTGRES:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS driver_reviews (
+                id SERIAL PRIMARY KEY,
+                review_id TEXT UNIQUE NOT NULL,
+                driver_user_id TEXT NOT NULL,
+                reviewer_id TEXT NOT NULL,
+                reviewer_name TEXT NOT NULL,
+                rating INTEGER NOT NULL,
+                comment TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+    else:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS driver_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                review_id TEXT UNIQUE NOT NULL,
+                driver_user_id TEXT NOT NULL,
+                reviewer_id TEXT NOT NULL,
+                reviewer_name TEXT NOT NULL,
+                rating INTEGER NOT NULL,
+                comment TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+    conn.commit()
+
+
+@fastapi_app.get("/api/drivers/{driver_user_id}/reviews")
+async def api_get_driver_reviews(driver_user_id: str):
+    """Return all reviews for a driver, newest first."""
+    ph = "%s" if USE_POSTGRES else "?"
+    with _db_lock:
+        conn = _get_db()
+        try:
+            _ensure_driver_reviews_table(conn)
+            cols = ["review_id", "driver_user_id", "reviewer_id", "reviewer_name",
+                    "rating", "comment", "created_at"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT review_id,driver_user_id,reviewer_id,reviewer_name,rating,comment,created_at"
+                    " FROM driver_reviews WHERE driver_user_id=%s ORDER BY created_at DESC LIMIT 100",
+                    (driver_user_id,),
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    "SELECT review_id,driver_user_id,reviewer_id,reviewer_name,rating,comment,created_at"
+                    " FROM driver_reviews WHERE driver_user_id=? ORDER BY created_at DESC LIMIT 100",
+                    (driver_user_id,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    reviews = [dict(zip(cols, r)) for r in rows]
+    total = len(reviews)
+    avg = round(sum(r["rating"] for r in reviews) / total, 2) if total else 0.0
+    return JSONResponse({"reviews": reviews, "total": total, "average_rating": avg})
+
+
+class _DriverReviewRequest(BaseModel):
+    rating: int
+    comment: str = ""
+
+
+@fastapi_app.post("/api/drivers/{driver_user_id}/reviews")
+async def api_post_driver_review(request: Request, driver_user_id: str, body: _DriverReviewRequest):
+    """Submit a star-rating review for a driver."""
+    reviewer_id = request.session.get("app_user_id")
+    if not reviewer_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+    if not (1 <= body.rating <= 5):
+        return JSONResponse({"error": "Rating must be between 1 and 5."}, status_code=400)
+    if reviewer_id == driver_user_id:
+        return JSONResponse({"error": "You cannot review yourself."}, status_code=400)
+
+    reviewer = _get_app_user(reviewer_id)
+    reviewer_name = reviewer.get("name", "Anonymous") if reviewer else "Anonymous"
+    review_id = str(uuid.uuid4())
+    created_at = datetime.now(timezone.utc).isoformat()
+
+    ph = "%s" if USE_POSTGRES else "?"
+    with _db_lock:
+        conn = _get_db()
+        try:
+            _ensure_driver_reviews_table(conn)
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO driver_reviews"
+                    " (review_id,driver_user_id,reviewer_id,reviewer_name,rating,comment,created_at)"
+                    " VALUES (%s,%s,%s,%s,%s,%s,%s)"
+                    " ON CONFLICT (review_id) DO NOTHING",
+                    (review_id, driver_user_id, reviewer_id, reviewer_name,
+                     body.rating, body.comment[:500], created_at),
+                )
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO driver_reviews"
+                    " (review_id,driver_user_id,reviewer_id,reviewer_name,rating,comment,created_at)"
+                    " VALUES (?,?,?,?,?,?,?)",
+                    (review_id, driver_user_id, reviewer_id, reviewer_name,
+                     body.rating, body.comment[:500], created_at),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True, "review_id": review_id}, status_code=201)
+
+
+# ── AI Assistant ──────────────────────────────────────────────────────────────
+
+class _AIRequest(BaseModel):
+    message: str
+    context: str = "rides"  # 'rides' | 'general'
+
+
+# Simple rule-based AI assistant for ride sharing — no API key required.
+_AI_RULES = [
+    (["hello", "hi", "hey"], "Hello! I'm YotBot 🤖, your YotRides assistant. I can help with fares, bookings, and ride tips. What do you need?"),
+    (["fare", "cost", "price", "how much"], "Fares are calculated at $1 per km. Use the Fare Estimator on the left panel to get an instant quote for your trip!"),
+    (["book", "reserve", "seat"], "To book a ride, find one in the list and click '💬 Book'. You'll be able to chat with the driver and confirm your journey."),
+    (["cancel", "cancellation"], "You can cancel your own posted rides using the 🗑️ button next to each ride. Contact the driver via chat for any cancellation queries."),
+    (["safe", "safety", "secure"], "YotRides promotes safe travels. Always confirm the driver's identity and vehicle plate before boarding. Share your trip details with a trusted contact."),
+    (["driver", "become driver", "register driver"], "To become a driver on YotRides, go to your Profile and apply for driver status. You'll need to provide vehicle information."),
+    (["location", "where", "gps"], "Make sure to share your pickup location with the driver in the chat. Use the '✅ Confirm Journey' button and provide your exact location."),
+    (["payment", "pay", "cash"], "Payments are arranged directly with the driver. Agree on the payment method in the chat before your trip."),
+    (["review", "rating", "stars"], "You can leave a star rating and review for your driver after the trip. Good reviews help build a trusted community!"),
+    (["help", "support", "problem"], "For help, you can reach out in the ride chat or contact our support team. I'm also here to answer quick questions!"),
+    (["thank", "thanks"], "You're welcome! Safe travels with YotRides! 🚗✨"),
+]
+
+_AI_DEFAULT = (
+    "I'm not sure about that one. Try asking about fares, bookings, cancellations, "
+    "safety tips, or driver registration. I'm always here to help!"
+)
+
+
+def _ai_respond(message: str) -> str:
+    msg_lower = message.lower()
+    for keywords, response in _AI_RULES:
+        if any(kw in msg_lower for kw in keywords):
+            return response
+    return _AI_DEFAULT
+
+
+@fastapi_app.post("/api/ai/chat")
+async def api_ai_chat(body: _AIRequest):
+    """Simple rule-based AI assistant for the YotRides platform.
+
+    No external API key required. Returns a text response based on keyword matching.
+    """
+    if not body.message or not body.message.strip():
+        return JSONResponse({"error": "message is required."}, status_code=400)
+    reply = _ai_respond(body.message.strip())
+    return JSONResponse({"reply": reply})
 
 
 # =========================================================

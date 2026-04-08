@@ -7,7 +7,7 @@ import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import {
   getUserProfile, getNotifications, markAllNotificationsRead,
-  listRides, estimateFare, geocodeAddress, postRide, cancelRide,
+  listRides, estimateFare, geocodeAddress, postRide, cancelRide, aiChat,
 } from '../api'
 import socket from '../socket'
 
@@ -178,9 +178,91 @@ function FareEstimator() {
       {result && (
         <div className="rounded-lg p-3 text-sm space-y-1"
              style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
-          <p><span style={{ color: 'var(--text-muted)' }}>Distance:</span> {result.distance_km?.toFixed(1)} km</p>
-          <p><span style={{ color: 'var(--text-muted)' }}>Est. fare:</span> <strong>${result.estimated_fare?.toFixed(2)}</strong></p>
-          {result.per_seat && <p><span style={{ color: 'var(--text-muted)' }}>Per seat:</span> ${result.per_seat?.toFixed(2)}</p>}
+          <p><span style={{ color: 'var(--text-muted)' }}>Distance:</span> {result.dist_km?.toFixed(1)} km</p>
+          <p><span style={{ color: 'var(--text-muted)' }}>Total fare:</span> <strong>${result.total_fare?.toFixed(2)}</strong></p>
+          {result.per_seat_cost != null && <p><span style={{ color: 'var(--text-muted)' }}>Per seat ({seats}):</span> ${result.per_seat_cost?.toFixed(2)}</p>}
+          {(result.origin_display || result.dest_display) && (
+            <p className="text-xs pt-1" style={{ color: 'var(--text-muted)' }}>
+              {result.origin_display} → {result.dest_display}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── AI Assistant ──────────────────────────────────────────────────────────────
+
+function AIAssistant() {
+  const [open, setOpen]       = useState(false)
+  const [messages, setMessages] = useState([{ role: 'bot', text: 'Hi! I\'m YotBot 🤖. Ask me about fares, bookings, safety, or anything rides-related!' }])
+  const [input, setInput]     = useState('')
+  const [loading, setLoading] = useState(false)
+  const bottomRef             = useRef(null)
+
+  useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, open])
+
+  const handleSend = async () => {
+    const trimmed = input.trim()
+    if (!trimmed || loading) return
+    setMessages(prev => [...prev, { role: 'user', text: trimmed }])
+    setInput('')
+    setLoading(true)
+    try {
+      const d = await aiChat(trimmed, 'rides')
+      setMessages(prev => [...prev, { role: 'bot', text: d.reply }])
+    } catch {
+      setMessages(prev => [...prev, { role: 'bot', text: 'Sorry, I couldn\'t process that. Try again!' }])
+    } finally { setLoading(false) }
+  }
+
+  const inputCls = 'w-full rounded-lg px-3 py-2 text-sm outline-none'
+  const inputSty = { background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }
+
+  return (
+    <div className="rounded-xl border"
+         style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+      <button onClick={() => setOpen(v => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold"
+              style={{ color: 'var(--text-primary)' }}>
+        <span>🤖 YotBot AI Assistant</span>
+        <span style={{ color: 'var(--text-muted)' }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-3 pb-3 space-y-2">
+          <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+            {messages.map((m, i) => (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-xs ${
+                  m.role === 'user' ? 'bg-amber-500 text-black' : ''
+                }`}
+                     style={m.role !== 'user' ? { background: 'var(--bg-surface)', color: 'var(--text-primary)' } : {}}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex justify-start">
+                <div className="px-3 py-2 rounded-xl text-xs" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
+                  thinking…
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+          <div className="flex gap-2">
+            <input value={input} onChange={e => setInput(e.target.value)}
+                   onKeyDown={e => { if (e.key === 'Enter') handleSend() }}
+                   placeholder="Ask me anything…" maxLength={200}
+                   className={inputCls} style={inputSty} />
+            <button onClick={handleSend} disabled={!input.trim() || loading}
+                    className="px-3 py-2 rounded-lg text-sm bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 shrink-0">
+              ➤
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -286,7 +368,11 @@ export default function RidesPage() {
       <header className="sticky top-0 z-30 border-b"
               style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
         <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4">
-          <Link to="/rides" className="text-amber-500 font-bold text-lg leading-none whitespace-nowrap">
+          {/* Home + brand */}
+          <Link to="/" className="flex items-center gap-2 text-amber-500 font-bold text-lg leading-none whitespace-nowrap hover:text-amber-400 transition-colors">
+            🏠
+          </Link>
+          <Link to="/rides" className="text-amber-500 font-bold text-lg leading-none whitespace-nowrap hover:text-amber-400 transition-colors">
             🚗 YotRides
           </Link>
 
@@ -488,10 +574,16 @@ export default function RidesPage() {
               ) : (
                 <FareEstimator />
               )}
+              <AIAssistant />
             </div>
           )}
 
-          {rightTab === 'requests' && <RaiseRequest user={appUser} />}
+          {rightTab === 'requests' && (
+            <div className="space-y-3">
+              <RaiseRequest user={appUser} />
+              <AIAssistant />
+            </div>
+          )}
         </aside>
       </main>
 

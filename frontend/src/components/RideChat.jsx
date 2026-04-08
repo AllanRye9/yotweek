@@ -1,6 +1,100 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import socket from '../socket'
-import { getRideChatMessages, confirmJourney, getConfirmedUsers, proximityNotify } from '../api'
+import { getRideChatMessages, confirmJourney, getConfirmedUsers, proximityNotify, deleteRideChatMessage, getDriverReviews, submitDriverReview } from '../api'
+
+// ── StarRating ────────────────────────────────────────────────────────────────
+function StarRating({ value, onChange, size = 'text-xl' }) {
+  const [hover, setHover] = useState(0)
+  return (
+    <div className="flex gap-0.5">
+      {[1,2,3,4,5].map(s => (
+        <button key={s} type="button"
+          className={`${size} transition-colors ${(hover || value) >= s ? 'text-amber-400' : ''}`}
+          style={(hover || value) < s ? { color: 'var(--text-muted)' } : {}}
+          onMouseEnter={() => setHover(s)} onMouseLeave={() => setHover(0)}
+          onClick={() => onChange && onChange(s)}>★</button>
+      ))}
+    </div>
+  )
+}
+
+// ── DriverReviewsPanel ────────────────────────────────────────────────────────
+function DriverReviewsPanel({ driverUserId, currentUserId }) {
+  const [reviews, setReviews] = useState([])
+  const [avg, setAvg]         = useState(0)
+  const [form, setForm]       = useState({ rating: 0, comment: '' })
+  const [submitting, setSubmitting] = useState(false)
+  const [msg, setMsg]         = useState('')
+  const [open, setOpen]       = useState(false)
+
+  useEffect(() => {
+    if (!driverUserId || !open) return
+    getDriverReviews(driverUserId)
+      .then(d => { setReviews(d.reviews || []); setAvg(d.average_rating || 0) })
+      .catch(() => {})
+  }, [driverUserId, open])
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.rating) { setMsg('Please select a rating'); return }
+    setSubmitting(true); setMsg('')
+    try {
+      await submitDriverReview(driverUserId, form.rating, form.comment)
+      setMsg('✅ Review submitted!')
+      setForm({ rating: 0, comment: '' })
+      const d = await getDriverReviews(driverUserId)
+      setReviews(d.reviews || [])
+      setAvg(d.average_rating || 0)
+    } catch (e) { setMsg('❌ ' + (e?.message || 'Failed')) }
+    finally { setSubmitting(false) }
+  }
+
+  return (
+    <div className="border-t" style={{ borderColor: 'var(--border-color)' }}>
+      <button onClick={() => setOpen(v => !v)}
+              className="w-full px-4 py-2 text-xs font-medium flex items-center justify-between"
+              style={{ color: 'var(--text-secondary)' }}>
+        <span>⭐ Driver Reviews {avg > 0 ? `(${avg.toFixed(1)}/5)` : ''}</span>
+        <span>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-3 space-y-3">
+          {reviews.length === 0 && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No reviews yet.</p>}
+          <div className="space-y-2 max-h-36 overflow-y-auto">
+            {reviews.map((r, i) => (
+              <div key={r.review_id || i} className="rounded-lg p-2 text-xs"
+                   style={{ background: 'var(--bg-surface)' }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold bg-amber-600 text-white shrink-0">
+                    {(r.reviewer_name || 'A')[0].toUpperCase()}
+                  </div>
+                  <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{r.reviewer_name}</span>
+                  <span className="text-amber-400">{'★'.repeat(r.rating)}{'☆'.repeat(5 - r.rating)}</span>
+                </div>
+                {r.comment && <p className="mt-1 ml-8" style={{ color: 'var(--text-secondary)' }}>{r.comment}</p>}
+              </div>
+            ))}
+          </div>
+          {currentUserId && (
+            <form onSubmit={handleSubmit} className="space-y-2">
+              <StarRating value={form.rating} onChange={v => setForm(f => ({ ...f, rating: v }))} />
+              <input placeholder="Your comment (optional)" value={form.comment}
+                     onChange={e => setForm(f => ({ ...f, comment: e.target.value }))}
+                     maxLength={200}
+                     className="w-full rounded-lg px-2 py-1.5 text-xs outline-none"
+                     style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
+              {msg && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{msg}</p>}
+              <button type="submit" disabled={submitting}
+                      className="w-full px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50">
+                {submitting ? 'Submitting…' : 'Submit Review'}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * RideChat — Live group chat for a single ride.
@@ -17,6 +111,7 @@ export default function RideChat({ ride, user, onClose }) {
   const [realName, setRealName]       = useState('')
   const [contact, setContact]         = useState('')
   const [confirmMsg, setConfirmMsg]   = useState('')
+  const [locationLabel, setLocationLabel] = useState('')
 
   // Confirmed passengers (drivers)
   const [showPassengers, setShowPassengers]   = useState(false)
@@ -34,6 +129,9 @@ export default function RideChat({ ride, user, onClose }) {
   const myTypingTimer = useRef(null)
   const isTypingRef = useRef(false)
 
+  // Message being hovered (for delete button)
+  const [hoveredMsg, setHoveredMsg] = useState(null)
+
   // Message status: track last timestamp seen by others in chat
   const [othersLastActive, setOthersLastActive] = useState(0)
 
@@ -42,6 +140,25 @@ export default function RideChat({ ride, user, onClose }) {
   const isDriver  = user?.user_id === ride?.user_id
   const myId      = user?.user_id
   const myName    = user?.name || user?.display_name || 'Guest'
+
+  // Auto-fill user location when "Confirm Journey" is opened
+  const handleOpenConfirm = () => {
+    setShowConfirm(true)
+    setRealName(user?.name || '')
+    setContact(user?.phone || user?.email || '')
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords
+          const label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
+          setLocationLabel(label)
+          if (!contact) setContact(user?.phone || user?.email || '')
+        },
+        () => setLocationLabel(''),
+        { timeout: 5000 }
+      )
+    }
+  }
 
   // Load history + join socket room
   useEffect(() => {
@@ -55,7 +172,6 @@ export default function RideChat({ ride, user, onClose }) {
     socket.emit('join_ride_chat', { ride_id: rideId, name: myName })
     return () => {
       socket.emit('leave_ride_chat', { ride_id: rideId })
-      // Clean up typing timers
       Object.values(typingTimers.current).forEach(t => clearTimeout(t))
       clearTimeout(myTypingTimer.current)
     }
@@ -67,7 +183,7 @@ export default function RideChat({ ride, user, onClose }) {
       if (msg.ride_id !== rideId) return
       setMessages(prev => {
         // Replace pending optimistic message if it matches
-        if (msg.sender_id === myId) {
+        if (msg.sender_name === myName) {
           const pendingIdx = prev.findIndex(m => m._pending && m.text === (msg.text || msg.content))
           if (pendingIdx >= 0) {
             const next = [...prev]
@@ -76,8 +192,7 @@ export default function RideChat({ ride, user, onClose }) {
           }
         }
         if (prev.some(m => m.msg_id === msg.msg_id && msg.msg_id != null)) return prev
-        // Update othersLastActive when someone else speaks
-        if (msg.sender_id !== myId) {
+        if (msg.sender_name !== myName) {
           setOthersLastActive(msg.ts || Date.now() / 1000)
         }
         return [...prev, msg]
@@ -85,7 +200,7 @@ export default function RideChat({ ride, user, onClose }) {
     }
     socket.on('ride_chat_message', handler)
     return () => socket.off('ride_chat_message', handler)
-  }, [rideId, myId])
+  }, [rideId, myName])
 
   // Typing indicator events
   useEffect(() => {
@@ -161,15 +276,35 @@ export default function RideChat({ ride, user, onClose }) {
 
   const handleConfirm = async () => {
     setConfirmMsg('')
+    const nameToSend = realName || myName
+    const contactToSend = contact || locationLabel
     try {
-      await confirmJourney(rideId, realName, contact)
+      await confirmJourney(rideId, nameToSend, contactToSend)
       setConfirmMsg('✅ Journey confirmed!')
+      // Send a chat message to notify the driver
+      if (locationLabel) {
+        socket.emit('ride_chat_message', {
+          ride_id:     rideId,
+          text:        `📍 I've confirmed my journey. My location: ${locationLabel}`,
+          sender_name: myName,
+          sender_id:   myId,
+        })
+      }
       setShowConfirm(false)
       setRealName('')
       setContact('')
     } catch (e) {
       setConfirmMsg('❌ ' + (e?.message || 'Failed'))
     }
+  }
+
+  const handleDeleteMessage = async (msg) => {
+    const msgId = msg.msg_id || msg.id
+    if (!msgId) { setMessages(prev => prev.filter(m => m !== msg)); return }
+    try {
+      await deleteRideChatMessage(rideId, msgId)
+      setMessages(prev => prev.filter(m => (m.msg_id || m.id) !== msgId))
+    } catch {}
   }
 
   const handleLoadPassengers = async () => {
@@ -208,20 +343,20 @@ export default function RideChat({ ride, user, onClose }) {
   // Message status ticks
   const MessageTicks = ({ msg }) => {
     if (msg._pending) {
-      return <span className="text-gray-500 text-xs ml-1" title="Sending">✓</span>
+      return <span className="text-xs ml-1 opacity-50" title="Sending">✓</span>
     }
     const ts = msg.ts || 0
     if (ts <= othersLastActive && othersLastActive > 0) {
       return <span className="text-blue-400 text-xs ml-1" title="Seen">✓✓</span>
     }
-    return <span className="text-gray-400 text-xs ml-1" title="Delivered">✓✓</span>
+    return <span className="text-xs ml-1 opacity-50" title="Delivered">✓✓</span>
   }
 
   return (
     <div className="flex flex-col h-full rounded-xl overflow-hidden border"
          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
 
-      {/* Header */}
+      {/* Header — display real place names */}
       <div className="flex items-center justify-between px-4 py-3 border-b"
            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
         <div className="flex-1 min-w-0">
@@ -243,14 +378,12 @@ export default function RideChat({ ride, user, onClose }) {
       {isDriver && (
         <div className="px-4 py-2 border-b flex flex-wrap gap-2"
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
-          {/* Confirmed passengers */}
           <button onClick={handleLoadPassengers}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                  style={{ background: 'var(--accent)', color: '#000' }}>
+                  style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
             👥 Passengers
           </button>
 
-          {/* Proximity notify */}
           <div className="flex items-center gap-1 flex-wrap">
             <input
               type="number" min="0.1" step="0.1" placeholder="Distance"
@@ -296,7 +429,7 @@ export default function RideChat({ ride, user, onClose }) {
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
           {!showConfirm ? (
             <button
-              onClick={() => setShowConfirm(true)}
+              onClick={handleOpenConfirm}
               className="w-full relative inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white overflow-hidden shadow-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-amber-500/40 active:scale-[0.98]"
               style={{
                 background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)',
@@ -310,13 +443,16 @@ export default function RideChat({ ride, user, onClose }) {
           ) : (
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
-                <input placeholder="Your real name" value={realName} onChange={e => setRealName(e.target.value)}
+                <input placeholder="Your name" value={realName} onChange={e => setRealName(e.target.value)}
                        className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
                        style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
                 <input placeholder="Contact (phone/email)" value={contact} onChange={e => setContact(e.target.value)}
                        className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
                        style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
               </div>
+              {locationLabel && (
+                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>📍 Location: {locationLabel}</p>
+              )}
               <div className="flex gap-2">
                 <button
                   onClick={handleConfirm}
@@ -348,41 +484,67 @@ export default function RideChat({ ride, user, onClose }) {
           <p className="text-center text-xs py-8" style={{ color: 'var(--text-muted)' }}>No messages yet. Say hello!</p>
         )}
         {messages.map((msg, i) => {
-          const mine = msg.sender_id === myId
+          const senderName = msg.sender_name || msg.name || 'User'
+          const mine = senderName === myName
           const prevMsg = messages[i - 1]
-          const showSender = !mine && (i === 0 || prevMsg?.sender_id !== msg.sender_id)
+          const prevSender = prevMsg?.sender_name || prevMsg?.name
+          const showSender = !mine && (i === 0 || prevSender !== senderName)
+          const msgId = msg.msg_id || msg.id
+          const canDelete = mine || isDriver
           return (
-            <div key={msg.msg_id || msg._localId || i}
+            <div key={msgId || msg._localId || i}
                  className={`flex ${mine ? 'justify-end' : 'justify-start'} ${
-                   i > 0 && prevMsg?.sender_id === msg.sender_id ? 'mt-0.5' : 'mt-2'
-                 }`}>
-              {/* Avatar for incoming messages (first in group) */}
+                   i > 0 && prevSender === senderName ? 'mt-0.5' : 'mt-2'
+                 }`}
+                 onMouseEnter={() => setHoveredMsg(msgId || msg._localId || i)}
+                 onMouseLeave={() => setHoveredMsg(null)}>
+              {/* Avatar for incoming messages */}
               {!mine && (
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mr-1.5 mt-auto mb-0.5 ${
-                  showSender ? 'bg-amber-600 text-white' : 'opacity-0'
+                  showSender ? 'bg-amber-600 text-white' : 'opacity-0 pointer-events-none'
                 }`}>
-                  {(msg.sender_name || 'U').charAt(0).toUpperCase()}
+                  {senderName.charAt(0).toUpperCase()}
                 </div>
               )}
-              <div className={`max-w-[72%] space-y-0.5`}>
+              <div className="max-w-[72%] space-y-0.5">
                 {!mine && showSender && (
                   <p className="text-xs font-semibold ml-0.5" style={{ color: 'var(--accent)' }}>
-                    {msg.sender_name || 'User'}
+                    {senderName}
                   </p>
                 )}
-                <div className={`relative px-3 py-2 rounded-2xl text-sm break-words ${
-                  mine
-                    ? 'bg-amber-500 text-black rounded-tr-sm'
-                    : 'rounded-tl-sm'
-                }`}
-                     style={mine ? {} : { background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
-                  <p className="break-words leading-snug">{msg.text || msg.content}</p>
-                  <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${mine ? 'opacity-70' : 'opacity-50'}`}>
-                    <span className="text-xs">{fmtTime(msg.ts || msg.timestamp)}</span>
-                    {mine && <MessageTicks msg={msg} />}
+                <div className="flex items-end gap-1">
+                  {mine && canDelete && hoveredMsg === (msgId || msg._localId || i) && (
+                    <button onClick={() => handleDeleteMessage(msg)}
+                            className="text-xs opacity-60 hover:opacity-100 hover:text-red-400 shrink-0 mb-1"
+                            title="Delete message"
+                            style={{ color: 'var(--text-muted)' }}>🗑</button>
+                  )}
+                  <div className={`relative px-3 py-2 rounded-2xl text-sm break-words ${
+                    mine
+                      ? 'bg-amber-500 text-black rounded-tr-sm'
+                      : 'rounded-tl-sm'
+                  }`}
+                       style={mine ? {} : { background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
+                    <p className="break-words leading-snug">{msg.text || msg.content}</p>
+                    <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${mine ? 'opacity-70' : 'opacity-50'}`}>
+                      <span className="text-xs">{fmtTime(msg.ts || msg.timestamp)}</span>
+                      {mine && <MessageTicks msg={msg} />}
+                    </div>
                   </div>
+                  {!mine && canDelete && isDriver && hoveredMsg === (msgId || msg._localId || i) && (
+                    <button onClick={() => handleDeleteMessage(msg)}
+                            className="text-xs opacity-60 hover:opacity-100 hover:text-red-400 shrink-0 mb-1"
+                            title="Delete message"
+                            style={{ color: 'var(--text-muted)' }}>🗑</button>
+                  )}
                 </div>
               </div>
+              {/* Own avatar */}
+              {mine && (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ml-1.5 mt-auto mb-0.5 bg-amber-500 text-black">
+                  {myName.charAt(0).toUpperCase()}
+                </div>
+              )}
             </div>
           )
         })}
@@ -394,9 +556,9 @@ export default function RideChat({ ride, user, onClose }) {
                  style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>
               <div className="flex gap-1 items-center">
                 <span className="flex gap-0.5">
-                  {[0, 1, 2].map(i => (
-                    <span key={i} className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
-                          style={{ animationDelay: `${i * 0.15}s` }} />
+                  {[0, 1, 2].map(j => (
+                    <span key={j} className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
+                          style={{ animationDelay: `${j * 0.15}s` }} />
                   ))}
                 </span>
                 <span className="text-xs ml-1 italic">
@@ -427,6 +589,11 @@ export default function RideChat({ ride, user, onClose }) {
           ➤
         </button>
       </div>
+
+      {/* Driver reviews */}
+      {ride?.user_id && (
+        <DriverReviewsPanel driverUserId={ride.user_id} currentUserId={myId} />
+      )}
     </div>
   )
 }
