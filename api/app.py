@@ -3301,7 +3301,7 @@ async def api_rides_list(request: Request = None, status: str | None = None):
                     "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
                     f" FROM rides WHERE status IN ({pg_placeholders})"
                     " AND (status != 'taken' OR taken_at IS NULL OR taken_at > %s OR user_id = %s"
-                    "      OR ride_id IN (SELECT ride_id FROM ride_journey_confirmations WHERE user_id = %s))"
+                    "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = %s))"
                     " ORDER BY departure ASC LIMIT 200",
                     status_filter + [cutoff_ts, requester_id or "", requester_id or ""],
                 )
@@ -3312,7 +3312,7 @@ async def api_rides_list(request: Request = None, status: str | None = None):
                     "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
                     f" FROM rides WHERE status IN ({sql_placeholders})"
                     " AND (status != 'taken' OR taken_at IS NULL OR taken_at > ? OR user_id = ?"
-                    "      OR ride_id IN (SELECT ride_id FROM ride_journey_confirmations WHERE user_id = ?))"
+                    "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = ?))"
                     " ORDER BY departure ASC LIMIT 200",
                     status_filter + [cutoff_ts, requester_id or "", requester_id or ""],
                 )
