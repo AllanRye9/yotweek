@@ -5,10 +5,11 @@ import RideChat from '../components/RideChat'
 import ThemeSelector from '../components/ThemeSelector'
 import UserProfile from '../components/UserProfile'
 import DMInbox from '../components/DMInbox'
+import RideShareMap from '../components/RideShareMap'
 import {
   getUserProfile, userLogout, getNotifications,
   markAllNotificationsRead, markNotificationRead, clearAllNotifications,
-  getRideHistory,
+  getRideHistory, getTrackedRides,
   listRides, getConfirmedUsers, cancelRide,
   driverApply, getDriverApplication,
 } from '../api'
@@ -19,6 +20,8 @@ import socket from '../socket'
 const TABS = [
   { id: 'overview',    label: '🏠 Overview',          icon: '🏠' },
   { id: 'rides',       label: '🚗 Rides',              icon: '🚗' },
+  { id: 'map',         label: '🗺️ Map',                icon: '🗺️' },
+  { id: 'tracking',    label: '📡 Ride Tracking',      icon: '📡' },
   { id: 'inbox',       label: '💬 Inbox',              icon: '💬', badge: 'chat' },
   { id: 'notifications', label: '🔔 Notifications',   icon: '🔔', badge: 'notif' },
   { id: 'history',     label: '📋 History',            icon: '📋' },
@@ -88,7 +91,6 @@ function OverviewPanel({ user, dashStats, onSelectTab, onNavigate }) {
         <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Quick Actions</h3>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {[
-            { icon: '🚗', title: 'Share a Ride',       desc: 'Post or find rides',    action: () => onSelectTab('rides') },
             { icon: '✈️', title: 'Airport Pickup',    desc: 'Book a driver now',      action: () => onNavigate ? onNavigate('/rides') : onSelectTab('rides') },
           ].map(tile => (
             <button
@@ -420,6 +422,8 @@ export default function UserDashboard() {
   const [unreadChat,  setUnreadChat]  = useState(0)
   const [notifications, setNotifications] = useState([])
   const [rideHistory, setRideHistory] = useState([])
+  const [trackedRides, setTrackedRides] = useState([])
+  const [trackingLoading, setTrackingLoading] = useState(false)
   const [driverApp,   setDriverApp]   = useState(null)
   const [driverForm,  setDriverForm]  = useState({ vehicle_make:'', vehicle_model:'', vehicle_year:'', vehicle_color:'', license_plate:'' })
   const [driverApplying, setDriverApplying] = useState(false)
@@ -506,6 +510,13 @@ export default function UserDashboard() {
     // Load data for specific tabs when first opened
     if (id === 'history') {
       getRideHistory().then(d => setRideHistory(d.rides || [])).catch(() => {})
+    }
+    if (id === 'tracking') {
+      setTrackingLoading(true)
+      getTrackedRides().then(d => setTrackedRides(d.rides || [])).catch(() => {}).finally(() => setTrackingLoading(false))
+    }
+    if (id === 'map') {
+      // RideShareMap auto-loads driver locations
     }
     if (id === 'notifications') {
       setUnreadNotifs(0)
@@ -709,6 +720,52 @@ export default function UserDashboard() {
               <RidesDashboardTab user={appUser} />
             )}
 
+            {/* ── Map tab (left-nav only) ── */}
+            {tab === 'map' && (
+              <div className="card space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🗺️ Live Driver Map</h2>
+                  <button onClick={() => handleSelectTab('overview')} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">← Back</button>
+                </div>
+                <RideShareMap driverLocations={mapDrivers} autoLoadDrivers={true} onRequestRide={() => {}} mapHeight={400} />
+              </div>
+            )}
+
+            {/* ── Ride Tracking tab ── */}
+            {tab === 'tracking' && (
+              <div className="card space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">📡 Ride Tracking</h2>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setTrackingLoading(true); getTrackedRides().then(d => setTrackedRides(d.rides || [])).catch(() => {}).finally(() => setTrackingLoading(false)) }} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
+                    <button onClick={() => handleSelectTab('overview')} className="text-xs text-gray-400 hover:text-gray-200 transition-colors">← Back</button>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">Rides you have confirmed via "Confirm Journey".</p>
+                {trackingLoading ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">Loading…</p>
+                ) : trackedRides.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">No tracked rides yet. Confirm a journey to start tracking.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {trackedRides.map(r => (
+                      <div key={r.ride_id} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4 space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-white">{r.origin} → {r.destination}</p>
+                          <span className={`ride-status-tag ${r.status === 'open' ? 'ride-tag-open' : r.status === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'}`}>{r.status}</span>
+                        </div>
+                        <p className="text-xs text-gray-400">
+                          🚗 {r.driver_name} · 🕐 {r.departure ? new Date(r.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                        </p>
+                        <p className="text-xs text-gray-500">Confirmed as: {r.real_name} · {r.contact}</p>
+                        <p className="text-xs text-gray-600">Confirmed on: {r.confirmed_at ? new Date(r.confirmed_at).toLocaleString() : ''}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {tab === 'profile' && (
               <div className="card">
                 <UserProfile
@@ -720,12 +777,15 @@ export default function UserDashboard() {
               </div>
             )}
 
-            {/* ── History tab ── */}
+            {/* ── History tab — shows completed (taken) and cancelled rides only ── */}
             {tab === 'history' && (
               <div className="card space-y-4">
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">📋 Ride History</h2>
-                {rideHistory.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-6 text-center">No ride history yet.</p>
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">📋 Ride History</h2>
+                  <button onClick={() => handleSelectTab('overview')} className="text-xs text-gray-400 hover:text-gray-200 transition-colors">← Back</button>
+                </div>
+                {rideHistory.filter(r => r.status === 'taken' || r.status === 'cancelled').length === 0 ? (
+                  <p className="text-sm text-gray-500 py-6 text-center">No completed or cancelled rides yet.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs text-left">
@@ -739,10 +799,10 @@ export default function UserDashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rideHistory.map(r => (
+                        {rideHistory.filter(r => r.status === 'taken' || r.status === 'cancelled').map(r => (
                           <tr key={r.ride_id} className="border-b border-gray-800/60 hover:bg-gray-800/30 text-gray-300">
                             <td className="py-2 pr-3">
-                              <span className={`ride-status-tag ${r.status === 'open' ? 'ride-tag-open' : r.status === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'}`}>
+                              <span className={`ride-status-tag ${r.status === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'}`}>
                                 {r.status}
                               </span>
                             </td>

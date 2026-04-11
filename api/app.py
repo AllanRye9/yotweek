@@ -3132,6 +3132,49 @@ async def api_ride_history(request: Request):
     rides = [dict(zip(cols, r)) for r in rows]
     return JSONResponse({"rides": rides})
 
+
+@fastapi_app.get("/api/rides/tracking")
+async def api_ride_tracking(request: Request):
+    """Return all rides the logged-in user has confirmed (Ride Tracking)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
+                    "departure", "seats", "status", "confirmed_at", "real_name", "contact"]
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    """SELECT r.ride_id, r.user_id, r.driver_name, r.origin, r.destination,
+                              r.departure, r.seats, r.status, c.created_at, c.real_name, c.contact
+                       FROM rides r
+                       JOIN ride_journey_confirmations c ON r.ride_id = c.ride_id
+                       WHERE c.user_id = %s
+                       ORDER BY c.created_at DESC""",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+            else:
+                cur = conn.execute(
+                    """SELECT r.ride_id, r.user_id, r.driver_name, r.origin, r.destination,
+                              r.departure, r.seats, r.status, c.created_at, c.real_name, c.contact
+                       FROM rides r
+                       JOIN ride_journey_confirmations c ON r.ride_id = c.ride_id
+                       WHERE c.user_id = ?
+                       ORDER BY c.created_at DESC""",
+                    (user_id,),
+                )
+                rows = cur.fetchall()
+        finally:
+            conn.close()
+
+    rides = [dict(zip(cols, r)) for r in rows]
+    return JSONResponse({"rides": rides})
+
+
 # =========================================================
 # RIDE SHARING MODULE
 # =========================================================
@@ -3317,8 +3360,11 @@ async def api_rides_list(request: Request = None, status: str | None = None):
                     f" FROM rides WHERE status IN ({pg_placeholders})"
                     " AND (status != 'taken' OR taken_at IS NULL OR taken_at > %s OR user_id = %s"
                     "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = %s))"
+                    " AND (seats > 0 OR user_id = %s"
+                    "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = %s))"
                     " ORDER BY departure ASC LIMIT 200",
-                    status_filter + [cutoff_ts, requester_id or "", requester_id or ""],
+                    status_filter + [cutoff_ts, requester_id or "", requester_id or "",
+                                     requester_id or "", requester_id or ""],
                 )
                 rows = cur.fetchall()
             else:
@@ -3328,8 +3374,11 @@ async def api_rides_list(request: Request = None, status: str | None = None):
                     f" FROM rides WHERE status IN ({sql_placeholders})"
                     " AND (status != 'taken' OR taken_at IS NULL OR taken_at > ? OR user_id = ?"
                     "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = ?))"
+                    " AND (seats > 0 OR user_id = ?"
+                    "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = ?))"
                     " ORDER BY departure ASC LIMIT 200",
-                    status_filter + [cutoff_ts, requester_id or "", requester_id or ""],
+                    status_filter + [cutoff_ts, requester_id or "", requester_id or "",
+                                     requester_id or "", requester_id or ""],
                 )
                 rows = cur.fetchall()
         finally:
@@ -3986,16 +4035,17 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
     if not real_name or not contact:
         return JSONResponse({"error": "Real name and contact are required."}, status_code=400)
 
+    new_seats = None
     with _db_lock:
         conn = _get_db()
         try:
             # Verify ride exists
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id, driver_name, origin, destination FROM rides WHERE ride_id=%s", (ride_id,))
+                cur.execute("SELECT user_id, driver_name, origin, destination, seats FROM rides WHERE ride_id=%s", (ride_id,))
                 ride_row = cur.fetchone()
             else:
-                cur = conn.execute("SELECT user_id, driver_name, origin, destination FROM rides WHERE ride_id=?", (ride_id,))
+                cur = conn.execute("SELECT user_id, driver_name, origin, destination, seats FROM rides WHERE ride_id=?", (ride_id,))
                 ride_row = cur.fetchone()
             if not ride_row:
                 return JSONResponse({"error": "Ride not found."}, status_code=404)
@@ -4004,6 +4054,20 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             driver_name    = ride_row[1]
             origin         = ride_row[2]
             destination    = ride_row[3]
+            current_seats  = ride_row[4]
+
+            # Check if this user has already confirmed (to avoid double seat decrement)
+            if USE_POSTGRES:
+                cur.execute(
+                    "SELECT 1 FROM ride_journey_confirmations WHERE ride_id=%s AND user_id=%s",
+                    (ride_id, user_id),
+                )
+                already_confirmed = cur.fetchone() is not None
+            else:
+                already_confirmed = conn.execute(
+                    "SELECT 1 FROM ride_journey_confirmations WHERE ride_id=? AND user_id=?",
+                    (ride_id, user_id),
+                ).fetchone() is not None
 
             confirmation_id = str(uuid.uuid4())
             created_at      = datetime.now(timezone.utc).isoformat()
@@ -4021,6 +4085,22 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
                        VALUES (?,?,?,?,?,?)""",
                     (confirmation_id, ride_id, user_id, real_name, contact, created_at),
                 )
+
+            # Decrement available seats only for a first-time confirmation
+            if not already_confirmed and current_seats > 0:
+                new_seat_count = max(0, current_seats - 1)
+                if USE_POSTGRES:
+                    cur.execute(
+                        "UPDATE rides SET seats = %s WHERE ride_id = %s",
+                        (new_seat_count, ride_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE rides SET seats = ? WHERE ride_id = ?",
+                        (new_seat_count, ride_id),
+                    )
+                new_seats = new_seat_count
+
             conn.commit()
         finally:
             conn.close()
@@ -4045,7 +4125,14 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             "contact":   contact,
         }, room=dsid))
 
-    return JSONResponse({"ok": True, "message": "Journey confirmed successfully."})
+    # Broadcast seat update to all clients in the ride room for real-time UI update
+    if new_seats is not None:
+        asyncio.ensure_future(sio.emit("ride_seats_updated", {
+            "ride_id": ride_id,
+            "seats":   new_seats,
+        }))
+
+    return JSONResponse({"ok": True, "message": "Journey confirmed successfully.", "seats": new_seats})
 
 
 @fastapi_app.get("/api/rides/{ride_id}/confirmed_users")

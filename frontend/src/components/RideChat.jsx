@@ -112,6 +112,9 @@ export default function RideChat({ ride, user, onClose }) {
   const [contact, setContact]         = useState('')
   const [confirmMsg, setConfirmMsg]   = useState('')
   const [locationLabel, setLocationLabel] = useState('')
+  const [confirmSuccess, setConfirmSuccess] = useState(false)  // animation flag
+  const [currentSeats, setCurrentSeats] = useState(ride?.seats ?? null)  // real-time seat count
+  const [wantToShare, setWantToShare] = useState(true)  // passenger share preference
 
   // Confirmed passengers (drivers)
   const [showPassengers, setShowPassengers]   = useState(false)
@@ -179,6 +182,15 @@ export default function RideChat({ ride, user, onClose }) {
       clearTimeout(myTypingTimer.current)
     }
   }, [rideId, myName])
+
+  // Listen for real-time seat updates (emitted after Confirm Journey)
+  useEffect(() => {
+    const onSeatsUpdated = ({ ride_id, seats }) => {
+      if (ride_id === rideId) setCurrentSeats(seats)
+    }
+    socket.on('ride_seats_updated', onSeatsUpdated)
+    return () => socket.off('ride_seats_updated', onSeatsUpdated)
+  }, [rideId])
 
   // Listen for incoming messages
   useEffect(() => {
@@ -283,18 +295,23 @@ export default function RideChat({ ride, user, onClose }) {
     const nameToSend = realName || myName
     const contactToSend = contact || locationLabel
     try {
-      await confirmJourney(rideId, nameToSend, contactToSend)
+      const result = await confirmJourney(rideId, nameToSend, contactToSend)
       setConfirmMsg('✅ Journey confirmed!')
+      setConfirmSuccess(true)
+      // Update seat count if backend returned new seat total
+      if (result?.seats != null) setCurrentSeats(result.seats)
+      setTimeout(() => setConfirmSuccess(false), 2000)
       // Send a chat message to notify the driver
-      if (locationLabel) {
-        socket.emit('ride_chat_message', {
-          ride_id:     rideId,
-          text:        `📍 I've confirmed my journey. My location: ${locationLabel}`,
-          name:        myName,
-          sender_name: myName,
-          sender_id:   myId,
-        })
-      }
+      const noteText = wantToShare
+        ? `📍 I've confirmed my journey. ${locationLabel ? `My location: ${locationLabel}` : ''} I'm happy to share the ride.`
+        : `📍 I've confirmed my journey. ${locationLabel ? `My location: ${locationLabel}` : ''} I prefer a private ride.`
+      socket.emit('ride_chat_message', {
+        ride_id:     rideId,
+        text:        noteText.trim(),
+        name:        myName,
+        sender_name: myName,
+        sender_id:   myId,
+      })
       setShowConfirm(false)
       setRealName('')
       setContact('')
@@ -465,6 +482,17 @@ export default function RideChat({ ride, user, onClose }) {
       {!isDriver && (
         <div className="px-4 py-3 border-b"
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
+          {currentSeats != null && (
+            <p className="text-xs mb-2 font-medium" style={{ color: currentSeats === 0 ? '#f87171' : '#6ee7b7' }}>
+              💺 {currentSeats === 0 ? 'No seats available' : `${currentSeats} seat${currentSeats !== 1 ? 's' : ''} available`}
+            </p>
+          )}
+          {confirmSuccess && (
+            <div className="mb-2 rounded-xl px-4 py-2 text-sm font-semibold text-center text-white animate-bounce"
+                 style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+              🎉 Journey Confirmed!
+            </div>
+          )}
           {!showConfirm ? (
             <button
               onClick={handleOpenConfirm}
@@ -491,6 +519,10 @@ export default function RideChat({ ride, user, onClose }) {
               {locationLabel && (
                 <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>📍 Location: {locationLabel}</p>
               )}
+              <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+                <input type="checkbox" checked={wantToShare} onChange={e => setWantToShare(e.target.checked)} className="w-3.5 h-3.5 rounded" />
+                <span>I'm happy to share this ride with others</span>
+              </label>
               <div className="flex gap-2">
                 <button
                   onClick={handleConfirm}

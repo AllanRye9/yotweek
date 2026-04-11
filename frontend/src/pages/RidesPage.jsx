@@ -11,6 +11,29 @@ import {
 } from '../api'
 import socket from '../socket'
 
+// ── Uganda Districts ──────────────────────────────────────────────────────────
+const UGANDA_DISTRICTS = [
+  'Abim', 'Adjumani', 'Agago', 'Alebtong', 'Amolatar', 'Amudat', 'Amuria', 'Amuru',
+  'Apac', 'Arua', 'Budaka', 'Bududa', 'Bugiri', 'Buhweju', 'Buikwe', 'Bukedea',
+  'Bukomansimbi', 'Bukwa', 'Bulambuli', 'Buliisa', 'Bundibugyo', 'Bunyangabu',
+  'Bushenyi', 'Busia', 'Butaleja', 'Butebo', 'Buvuma', 'Buyende', 'Dokolo',
+  'Gomba', 'Gulu', 'Hoima', 'Ibanda', 'Iganga', 'Isingiro', 'Jinja', 'Kaabong',
+  'Kabale', 'Kabarole', 'Kaberamaido', 'Kagadi', 'Kakumiro', 'Kalangala',
+  'Kaliro', 'Kalungu', 'Kampala', 'Kamuli', 'Kamwenge', 'Kanungu', 'Kapchorwa',
+  'Kapelebyong', 'Kasanda', 'Kasese', 'Katakwi', 'Kayunga', 'Kazo', 'Kibale',
+  'Kiboga', 'Kibuku', 'Kikuube', 'Kiruhura', 'Kiryandongo', 'Kisoro', 'Kitgum',
+  'Koboko', 'Kole', 'Kotido', 'Kumi', 'Kwania', 'Kween', 'Kyankwanzi',
+  'Kyegegwa', 'Kyenjojo', 'Kyotera', 'Lamwo', 'Lira', 'Luuka', 'Luwero',
+  'Lwengo', 'Lyantonde', 'Madi-Okollo', 'Manafwa', 'Maracha', 'Masaka',
+  'Masindi', 'Mayuge', 'Mbale', 'Mbarara', 'Mitooma', 'Mityana', 'Moroto',
+  'Moyo', 'Mpigi', 'Mubende', 'Mukono', 'Nabilatuk', 'Nakapiripirit', 'Nakaseke',
+  'Nakasongola', 'Namayingo', 'Namisindwa', 'Namutumba', 'Napak', 'Nebbi',
+  'Ngora', 'Ntoroko', 'Ntungamo', 'Nwoya', 'Obongi', 'Omoro', 'Otuke', 'Oyam',
+  'Pader', 'Pakwach', 'Pallisa', 'Rakai', 'Rubanda', 'Rubirizi', 'Rukiga',
+  'Rukungiri', 'Rwampara', 'Sembabule', 'Serere', 'Sheema', 'Sironko', 'Soroti',
+  'Tororo', 'Wakiso', 'Yumbe', 'Zombo',
+]
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDep(dep) {
@@ -25,6 +48,7 @@ function PostRideModal({ onClose, onPosted }) {
   const [form, setForm] = useState({
     origin: '', destination: '', departure: '', seats: 1,
     fare: '', vehicle_type: 'sedan', vehicle_color: '', notes: '',
+    share_ride: true,  // user preference: allow sharing
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState('')
@@ -60,7 +84,7 @@ function PostRideModal({ onClose, onPosted }) {
         originCoords?.lat || null, originCoords?.lng || null,
         destCoords?.lat || null,   destCoords?.lng || null,
         form.fare ? parseFloat(form.fare) : null,
-        'shared',
+        form.share_ride ? 'shared' : 'airport',
         form.vehicle_color, form.vehicle_type, ''
       )
       onPosted()
@@ -85,14 +109,30 @@ function PostRideModal({ onClose, onPosted }) {
           <button onClick={onClose} className="text-lg leading-none opacity-60 hover:opacity-100">✕</button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <input placeholder="Origin" value={form.origin}
-                 onChange={e => set('origin', e.target.value)}
-                 onBlur={() => handleGeocode('origin')}
-                 className={inputCls} style={inputSty} />
-          <input placeholder="Destination" value={form.destination}
-                 onChange={e => set('destination', e.target.value)}
-                 onBlur={() => handleGeocode('destination')}
-                 className={inputCls} style={inputSty} />
+          <div>
+            <input placeholder="Origin (e.g. Kampala, Entebbe)" value={form.origin}
+                   list="origin-suggestions"
+                   onChange={e => set('origin', e.target.value)}
+                   onBlur={() => handleGeocode('origin')}
+                   className={inputCls} style={inputSty} />
+            <datalist id="origin-suggestions">
+              {UGANDA_DISTRICTS.map(d => <option key={d} value={d} />)}
+              <option value="Entebbe International Airport" />
+              <option value="Kampala City Centre" />
+            </datalist>
+          </div>
+          <div>
+            <input placeholder="Destination (e.g. Jinja, Mbarara)" value={form.destination}
+                   list="dest-suggestions"
+                   onChange={e => set('destination', e.target.value)}
+                   onBlur={() => handleGeocode('destination')}
+                   className={inputCls} style={inputSty} />
+            <datalist id="dest-suggestions">
+              {UGANDA_DISTRICTS.map(d => <option key={d} value={d} />)}
+              <option value="Entebbe International Airport" />
+              <option value="Kampala City Centre" />
+            </datalist>
+          </div>
           <input type="datetime-local" value={form.departure}
                  onChange={e => set('departure', e.target.value)}
                  className={inputCls} style={inputSty} />
@@ -121,6 +161,11 @@ function PostRideModal({ onClose, onPosted }) {
           <textarea placeholder="Notes (optional)" value={form.notes}
                     onChange={e => set('notes', e.target.value)}
                     rows={2} className={inputCls} style={inputSty} />
+          <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
+            <input type="checkbox" checked={form.share_ride} onChange={e => set('share_ride', e.target.checked)}
+                   className="w-4 h-4 rounded" />
+            <span>Allow passengers to share this ride</span>
+          </label>
           {error && <p className="text-xs text-red-400">{error}</p>}
           <button type="submit" disabled={submitting}
                   className="w-full px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50">
@@ -515,6 +560,7 @@ export default function RidesPage() {
   const [dateFilter, setDateFilter] = useState('')
   const [seatsFilter, setSeatsFilter] = useState('')
   const [priceSort, setPriceSort] = useState('')  // '' | 'asc' | 'desc'
+  const [districtFilter, setDistrictFilter] = useState('')  // Uganda district
 
   // Right panel
   const [rightTab, setRightTab] = useState('rides')
@@ -582,7 +628,8 @@ export default function RidesPage() {
     const matchText = !q || r.origin?.toLowerCase().includes(q) || r.destination?.toLowerCase().includes(q)
     const matchDate = !dateFilter || (r.departure && r.departure.startsWith(dateFilter))
     const matchSeats = !seatsFilter || (r.seats >= parseInt(seatsFilter, 10))
-    return matchText && matchDate && matchSeats
+    const matchDistrict = !districtFilter || r.origin?.toLowerCase().includes(districtFilter.toLowerCase()) || r.destination?.toLowerCase().includes(districtFilter.toLowerCase())
+    return matchText && matchDate && matchSeats && matchDistrict
   }).sort((a, b) => {
     if (!priceSort) return 0
     const fa = a.fare ?? Infinity
@@ -726,6 +773,13 @@ export default function RidesPage() {
               <option value="">💰 Price: any</option>
               <option value="asc">💰 Low → High</option>
               <option value="desc">💰 High → Low</option>
+            </select>
+            <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}
+                    className={`${inputCls} w-40`} style={inputSty}>
+              <option value="">🇺🇬 All Districts</option>
+              {UGANDA_DISTRICTS.map(d => (
+                <option key={d} value={d}>{d}</option>
+              ))}
             </select>
           </div>
 

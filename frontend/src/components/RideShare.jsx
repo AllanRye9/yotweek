@@ -4,6 +4,32 @@ import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../s
 import socket from '../socket'
 import RideChat from './RideChat'
 
+// Uganda districts for location autocomplete
+const UGANDA_PLACES = [
+  'Entebbe International Airport', 'Kampala City Centre', 'Entebbe', 'Kampala', 'Jinja',
+  'Mbarara', 'Gulu', 'Lira', 'Mbale', 'Masaka', 'Hoima', 'Arua', 'Kabale', 'Kasese',
+  'Soroti', 'Tororo', 'Fort Portal', 'Mukono', 'Wakiso', 'Busia', 'Moroto', 'Kitgum',
+  'Abim', 'Adjumani', 'Agago', 'Alebtong', 'Amolatar', 'Amudat', 'Amuria', 'Amuru',
+  'Apac', 'Budaka', 'Bududa', 'Bugiri', 'Buhweju', 'Buikwe', 'Bukedea',
+  'Bukomansimbi', 'Bukwa', 'Bulambuli', 'Buliisa', 'Bundibugyo', 'Bunyangabu',
+  'Bushenyi', 'Butaleja', 'Butebo', 'Buvuma', 'Buyende', 'Dokolo',
+  'Gomba', 'Ibanda', 'Iganga', 'Isingiro', 'Kaabong',
+  'Kabarole', 'Kaberamaido', 'Kagadi', 'Kakumiro', 'Kalangala',
+  'Kaliro', 'Kalungu', 'Kamuli', 'Kamwenge', 'Kanungu', 'Kapchorwa',
+  'Kapelebyong', 'Kasanda', 'Katakwi', 'Kayunga', 'Kazo', 'Kibale',
+  'Kiboga', 'Kibuku', 'Kikuube', 'Kiruhura', 'Kiryandongo', 'Kisoro',
+  'Koboko', 'Kole', 'Kotido', 'Kumi', 'Kwania', 'Kween', 'Kyankwanzi',
+  'Kyegegwa', 'Kyenjojo', 'Kyotera', 'Lamwo', 'Luuka', 'Luwero',
+  'Lwengo', 'Lyantonde', 'Madi-Okollo', 'Manafwa', 'Maracha',
+  'Masindi', 'Mayuge', 'Mitooma', 'Mityana', 'Moyo', 'Mpigi', 'Mubende',
+  'Nabilatuk', 'Nakapiripirit', 'Nakaseke', 'Nakasongola', 'Namayingo',
+  'Namisindwa', 'Namutumba', 'Napak', 'Nebbi', 'Ngora', 'Ntoroko',
+  'Ntungamo', 'Nwoya', 'Obongi', 'Omoro', 'Otuke', 'Oyam',
+  'Pader', 'Pakwach', 'Pallisa', 'Rakai', 'Rubanda', 'Rubirizi', 'Rukiga',
+  'Rukungiri', 'Rwampara', 'Sembabule', 'Serere', 'Sheema', 'Sironko',
+  'Yumbe', 'Zombo',
+]
+
 /** Haversine distance in km between two lat/lng points. */
 function _distKm(lat1, lng1, lat2, lng2) {
   const R = 6371
@@ -746,18 +772,24 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
             {/* Origin + Destination in one grid row */}
             <div className="grid grid-cols-2 gap-1.5">
               <div className="flex gap-1">
-                <input type="text" placeholder={postRideType === 'airport' ? '✈️ Pickup' : '📍 Pickup'} value={origin}
+                <input type="text" list="rs-origin-list" placeholder={postRideType === 'airport' ? '✈️ Pickup' : '📍 Pickup'} value={origin}
                   onChange={e => setOrigin(e.target.value)}
                   required className={`${inputCls('origin')} flex-1 min-w-0`} />
+                <datalist id="rs-origin-list">
+                  {UGANDA_PLACES.map(p => <option key={p} value={p} />)}
+                </datalist>
                 <button type="button" title="My location" onClick={handleGeoOrigin} disabled={geoLoading}
                   className="px-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors disabled:opacity-50">
                   {geoLoading ? '…' : '📍'}
                 </button>
               </div>
               <div className="flex gap-1">
-                <input type="text" placeholder="🏁 Destination" value={destination}
+                <input type="text" list="rs-dest-list" placeholder="🏁 Destination" value={destination}
                   onChange={e => setDest(e.target.value)}
                   required className={`${inputCls('dest')} flex-1 min-w-0`} />
+                <datalist id="rs-dest-list">
+                  {UGANDA_PLACES.map(p => <option key={p} value={p} />)}
+                </datalist>
                 <button type="button" title="My location" onClick={handleGeoDest} disabled={geoDestLoading}
                   className="px-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors disabled:opacity-50">
                   {geoDestLoading ? '…' : '📍'}

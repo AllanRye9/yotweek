@@ -145,6 +145,8 @@ export const getAllDriverLocations = () => request('GET', '/api/driver/locations
 
 export const getRideHistory = () => request('GET', '/api/rides/history')
 
+export const getTrackedRides = () => request('GET', '/api/rides/tracking')
+
 // ── Ride Booking ──────────────────────────────────────────────────────────────
 
 export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null, dest_lat = null, dest_lng = null, fare = null, ride_type = '', vehicle_color = '', vehicle_type = '', plate_number = '') =>
