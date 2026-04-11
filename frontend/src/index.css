@@ -1810,3 +1810,88 @@ html:not(.theme-dark) .bg-gradient-to-b {
     animation: none !important;
   }
 }
+
+/* ── Ride request card animations ───────────────────────────────────────────── */
+
+@keyframes ride-request-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ride-request-card {
+  animation: ride-request-slide-in 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both;
+}
+
+/* New request pulse glow */
+@keyframes ride-request-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+  50%       { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.2); }
+}
+
+.ride-request-new {
+  animation: ride-request-slide-in 0.28s cubic-bezier(0.34, 1.4, 0.64, 1) both,
+             ride-request-glow 2s ease-in-out 0.3s 3;
+}
+
+/* ── Driver online status pulse ─────────────────────────────────────────────── */
+
+@keyframes driver-online-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(1.4); }
+}
+
+.driver-online-pulse {
+  animation: driver-online-pulse 1.8s ease-in-out infinite;
+}
+
+/* ── Ride status tags ────────────────────────────────────────────────────────── */
+
+.ride-status-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  letter-spacing: 0.02em;
+}
+
+.ride-tag-open {
+  background: rgba(59,130,246,0.15);
+  color: #93c5fd;
+  border: 1px solid rgba(59,130,246,0.3);
+}
+
+.ride-tag-taken {
+  background: rgba(16,185,129,0.15);
+  color: #6ee7b7;
+  border: 1px solid rgba(16,185,129,0.3);
+}
+
+.ride-tag-cancelled {
+  background: rgba(107,114,128,0.15);
+  color: #9ca3af;
+  border: 1px solid rgba(107,114,128,0.3);
+}
+
+/* ── Notification badge green ────────────────────────────────────────────────── */
+
+.notif-badge-green {
+  animation: driver-online-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ride-request-card,
+  .ride-request-new,
+  .driver-online-pulse,
+  .notif-badge-green {
+    animation: none !important;
+  }
+}

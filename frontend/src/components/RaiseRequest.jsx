@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createRideRequest, listRideRequests, cancelRideRequest, acceptRideRequest } from '../api'
 import socket from '../socket'
 
@@ -7,6 +7,7 @@ import socket from '../socket'
  *
  * Passengers can raise a ride request when no matching ride is found.
  * Drivers can see open requests and accept them (which opens a DM chat).
+ * Users can delete their own requests.
  */
 export default function RaiseRequest({ user, onConvCreated }) {
   const isDriver = user?.role === 'driver'
@@ -15,6 +16,7 @@ export default function RaiseRequest({ user, onConvCreated }) {
   const [requests,      setRequests]      = useState([])
   const [loading,       setLoading]       = useState(false)
   const [loadError,     setLoadError]     = useState('')
+  const [newIds,        setNewIds]        = useState(new Set()) // IDs that just arrived
 
   // Post form
   const [showForm,      setShowForm]      = useState(false)
@@ -28,15 +30,35 @@ export default function RaiseRequest({ user, onConvCreated }) {
   const [postError,     setPostError]     = useState('')
   const [postOk,        setPostOk]        = useState('')
 
-  // Accept state
+  // Accept / cancel state
   const [accepting,     setAccepting]     = useState({})
+  const [cancelling,    setCancelling]    = useState({})
+
+  // Track previous request IDs to detect new arrivals
+  const prevIdsRef = useRef(new Set())
 
   const loadRequests = useCallback(async () => {
     setLoading(true)
     setLoadError('')
     try {
       const data = await listRideRequests('open')
-      setRequests(data.requests || [])
+      const incoming = data.requests || []
+      const incomingIds = new Set(incoming.map(r => r.request_id))
+
+      // Detect newly arrived IDs (not in previous set)
+      const brandNew = new Set()
+      incomingIds.forEach(id => {
+        if (!prevIdsRef.current.has(id) && prevIdsRef.current.size > 0) {
+          brandNew.add(id)
+        }
+      })
+
+      prevIdsRef.current = incomingIds
+      setRequests(incoming)
+      if (brandNew.size > 0) {
+        setNewIds(brandNew)
+        setTimeout(() => setNewIds(new Set()), 6000) // remove glow after 6s
+      }
     } catch (err) {
       setLoadError(err.message || 'Failed to load requests.')
     } finally {
@@ -44,7 +66,11 @@ export default function RaiseRequest({ user, onConvCreated }) {
     }
   }, [])
 
-  useEffect(() => { loadRequests() }, [loadRequests])
+  useEffect(() => {
+    loadRequests()
+    // Seed prevIdsRef on first load without triggering "new" animations
+    prevIdsRef.current = new Set()
+  }, [loadRequests]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for new requests via socket
   useEffect(() => {
@@ -53,6 +79,18 @@ export default function RaiseRequest({ user, onConvCreated }) {
         if (prev.some(r => r.request_id === req.request_id)) return prev
         return [req, ...prev]
       })
+      setNewIds(prev => {
+        const next = new Set(prev)
+        next.add(req.request_id)
+        return next
+      })
+      setTimeout(() => {
+        setNewIds(prev => {
+          const next = new Set(prev)
+          next.delete(req.request_id)
+          return next
+        })
+      }, 6000)
     }
     socket.on('new_ride_request', onNewRequest)
     return () => socket.off('new_ride_request', onNewRequest)
@@ -84,12 +122,15 @@ export default function RaiseRequest({ user, onConvCreated }) {
   }
 
   const handleCancel = async (requestId) => {
-    if (!window.confirm('Cancel this ride request?')) return
+    if (!window.confirm('Delete this ride request?')) return
+    setCancelling(prev => ({ ...prev, [requestId]: true }))
     try {
       await cancelRideRequest(requestId)
       setRequests(prev => prev.filter(r => r.request_id !== requestId))
     } catch (err) {
-      alert(err.message || 'Failed to cancel request.')
+      alert(err.message || 'Failed to delete request.')
+    } finally {
+      setCancelling(prev => ({ ...prev, [requestId]: false }))
     }
   }
 
@@ -118,6 +159,11 @@ export default function RaiseRequest({ user, onConvCreated }) {
         <div>
           <h3 className="font-semibold text-gray-200 flex items-center gap-2">
             🙋 Ride Requests
+            {requests.length > 0 && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                {requests.length}
+              </span>
+            )}
           </h3>
           <p className="text-xs text-gray-400 mt-0.5">
             {isDriver
@@ -231,53 +277,66 @@ export default function RaiseRequest({ user, onConvCreated }) {
       )}
 
       <div className="space-y-2">
-        {requests.map(req => (
-          <div key={req.request_id}
-            className="rounded-xl p-3 space-y-1.5 transition-all hover:opacity-90"
-            style={{ border: '1px solid var(--border-color)', background: 'var(--bg-surface)' }}>
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>📍 {req.origin}</span>
-                  <span className="text-xs" style={{ color: 'var(--text-muted)' }}>→</span>
-                  <span className="font-semibold text-sm text-amber-400">{req.destination}</span>
-                </div>
-                <div className="flex gap-1.5 mt-1 flex-wrap">
-                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
-                    🕐 {new Date(req.desired_date).toLocaleString()}
-                  </span>
-                  <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
-                    👥 {req.passengers} pax
-                  </span>
-                  {(req.price_min != null || req.price_max != null) && (
-                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
-                      💰 {req.price_min != null ? `$${req.price_min}` : ''}{req.price_min != null && req.price_max != null ? '–' : ''}{req.price_max != null ? `$${req.price_max}` : ''}
+        {requests.map(req => {
+          const isOwn   = user && req.user_id === user.user_id
+          const isNew   = newIds.has(req.request_id)
+          return (
+            <div key={req.request_id}
+              className={`rounded-xl p-3 space-y-2 transition-all ${isNew ? 'ride-request-new' : 'ride-request-card'}`}
+              style={{ border: `1px solid ${isNew ? 'rgba(245,158,11,0.5)' : 'var(--border-color)'}`, background: 'var(--bg-surface)' }}>
+
+              {/* Route + new badge */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {isNew && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500 text-black font-bold animate-bounce">New</span>
+                    )}
+                    <span className="font-semibold text-sm" style={{ color: 'var(--text-primary)' }}>📍 {req.origin}</span>
+                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>→</span>
+                    <span className="font-semibold text-sm text-amber-400">{req.destination}</span>
+                  </div>
+                  <div className="flex gap-1.5 mt-1 flex-wrap">
+                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'var(--bg-card)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+                      🕐 {new Date(req.desired_date).toLocaleString()}
                     </span>
+                    <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(245,158,11,0.12)', color: '#f59e0b', border: '1px solid rgba(245,158,11,0.3)' }}>
+                      👥 {req.passengers} pax
+                    </span>
+                    {(req.price_min != null || req.price_max != null) && (
+                      <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: 'rgba(16,185,129,0.12)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
+                        💰 {req.price_min != null ? `$${req.price_min}` : ''}{req.price_min != null && req.price_max != null ? '–' : ''}{req.price_max != null ? `$${req.price_max}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>👤 {req.passenger_name}</p>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex flex-col gap-1 shrink-0">
+                  {isDriver && (
+                    <button
+                      onClick={() => handleAccept(req.request_id)}
+                      disabled={accepting[req.request_id]}
+                      className="text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
+                      style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
+                      {accepting[req.request_id] ? '…' : '✅ Accept'}
+                    </button>
+                  )}
+                  {isOwn && !isDriver && (
+                    <button
+                      onClick={() => handleCancel(req.request_id)}
+                      disabled={cancelling[req.request_id]}
+                      className="text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
+                      style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}>
+                      {cancelling[req.request_id] ? '…' : '🗑 Delete'}
+                    </button>
                   )}
                 </div>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>👤 {req.passenger_name}</p>
-              </div>
-              <div className="flex flex-col gap-1 shrink-0">
-                {isDriver && (
-                  <button
-                    onClick={() => handleAccept(req.request_id)}
-                    disabled={accepting[req.request_id]}
-                    className="text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50"
-                    style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7', border: '1px solid rgba(16,185,129,0.3)' }}>
-                    {accepting[req.request_id] ? '…' : '✅ Accept'}
-                  </button>
-                )}
-                {user && user.user_id === req.user_id && !isDriver && (
-                  <button
-                    onClick={() => handleCancel(req.request_id)}
-                    className="text-xs px-2.5 py-1 rounded-lg bg-red-900/40 hover:bg-red-800/40 border border-red-800/50 text-red-400 transition-colors">
-                    🗑 Cancel
-                  </button>
-                )}
               </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )

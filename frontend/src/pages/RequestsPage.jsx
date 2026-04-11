@@ -6,10 +6,11 @@
  * Passengers see their own requests with status indicators.
  * Filter/sort bar at the top.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getUserProfile, getRideRequests, createRideRequest, cancelRideRequest, acceptRideRequest, dmStartConversation } from '../api'
 import NavBar from '../components/NavBar'
+import socket from '../socket'
 
 const SORT_OPTIONS = [
   { id: 'date',     label: '📅 Nearest Departure' },
@@ -23,21 +24,27 @@ function fmtDate(s) {
   catch { return s }
 }
 
-function RequestCard({ req, currentUser, onAccept, onDecline, onMessage, accepting, messaging }) {
+function RequestCard({ req, currentUser, onAccept, onDecline, onMessage, accepting, messaging, isNew }) {
   const isOwn  = currentUser && req.user_id === currentUser.user_id
   const isDriver = currentUser?.role === 'driver'
 
   return (
-    <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+    <div className={`rounded-xl p-4 space-y-3 ${isNew ? 'ride-request-new' : 'ride-request-card'}`}
+      style={{ background: 'var(--bg-card)', border: `1px solid ${isNew ? 'rgba(245,158,11,0.5)' : 'var(--border-color)'}` }}>
       {/* Header row: avatar + name + status */}
       <div className="flex items-start gap-3">
         <div className="w-10 h-10 rounded-full bg-blue-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
           {(req.passenger_name || req.user_name || '?').charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-            {req.passenger_name || req.user_name || 'Passenger'}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+              {req.passenger_name || req.user_name || 'Passenger'}
+            </p>
+            {isNew && (
+              <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500 text-black font-bold animate-bounce">New</span>
+            )}
+          </div>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
             Ride Request
           </p>
@@ -117,6 +124,7 @@ export default function RequestsPage() {
   const [user,       setUser]       = useState(null)
   const [requests,   setRequests]   = useState([])
   const [declined,   setDeclined]   = useState(new Set())
+  const [newIds,     setNewIds]     = useState(new Set())
   const [loading,    setLoading]    = useState(true)
   const [creating,   setCreating]   = useState(false)
   const [showForm,   setShowForm]   = useState(false)
@@ -126,6 +134,7 @@ export default function RequestsPage() {
   const [sortBy,     setSortBy]     = useState('date')
   const [search,     setSearch]     = useState('')
   const [formStep,   setFormStep]   = useState(1)
+  const prevIdsRef = useRef(new Set())
 
   const [form, setForm] = useState({
     origin: '', destination: '', desired_date: '', desired_time: '',
@@ -135,7 +144,22 @@ export default function RequestsPage() {
   const loadRequests = useCallback(async () => {
     try {
       const data = await getRideRequests('open')
-      setRequests(data.requests || [])
+      const incoming = data.requests || []
+      const incomingIds = new Set(incoming.map(r => r.request_id))
+
+      const brandNew = new Set()
+      incomingIds.forEach(id => {
+        if (!prevIdsRef.current.has(id) && prevIdsRef.current.size > 0) {
+          brandNew.add(id)
+        }
+      })
+
+      prevIdsRef.current = incomingIds
+      setRequests(incoming)
+      if (brandNew.size > 0) {
+        setNewIds(brandNew)
+        setTimeout(() => setNewIds(new Set()), 6000)
+      }
     } catch {}
   }, [])
 
@@ -151,6 +175,20 @@ export default function RequestsPage() {
     const id = setInterval(loadRequests, 20_000)
     return () => clearInterval(id)
   }, [loadRequests])
+
+  // Real-time new ride request via socket
+  useEffect(() => {
+    const onNew = (req) => {
+      setRequests(prev => {
+        if (prev.some(r => r.request_id === req.request_id)) return prev
+        return [req, ...prev]
+      })
+      setNewIds(prev => { const n = new Set(prev); n.add(req.request_id); return n })
+      setTimeout(() => setNewIds(prev => { const n = new Set(prev); n.delete(req.request_id); return n }), 6000)
+    }
+    socket.on('new_ride_request', onNew)
+    return () => socket.off('new_ride_request', onNew)
+  }, [])
 
   const handleCreate = async (e) => {
     e.preventDefault()
@@ -481,6 +519,7 @@ export default function RequestsPage() {
                 onMessage={handleMessage}
                 accepting={accepting}
                 messaging={messaging}
+                isNew={newIds.has(req.request_id)}
               />
             ))}
           </section>
@@ -509,6 +548,7 @@ export default function RequestsPage() {
                 onMessage={handleMessage}
                 accepting={accepting}
                 messaging={messaging}
+                isNew={newIds.has(req.request_id)}
               />
             ))}
           </div>

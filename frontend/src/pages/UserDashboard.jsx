@@ -12,6 +12,7 @@ import {
   getRideHistory, getTrackedRides,
   listRides, getConfirmedUsers, cancelRide,
   driverApply, getDriverApplication,
+  getAllDriverLocations, dmStartConversation,
 } from '../api'
 import socket from '../socket'
 
@@ -20,6 +21,7 @@ import socket from '../socket'
 const TABS = [
   { id: 'overview',    label: '🏠 Overview',          icon: '🏠' },
   { id: 'rides',       label: '🚗 Rides',              icon: '🚗' },
+  { id: 'requests',    label: '🙋 Requests',           icon: '🙋' },
   { id: 'map',         label: '🗺️ Map',                icon: '🗺️' },
   { id: 'tracking',    label: '📡 Ride Tracking',      icon: '📡' },
   { id: 'inbox',       label: '💬 Inbox',              icon: '💬', badge: 'chat' },
@@ -424,6 +426,9 @@ export default function UserDashboard() {
   const [rideHistory, setRideHistory] = useState([])
   const [trackedRides, setTrackedRides] = useState([])
   const [trackingLoading, setTrackingLoading] = useState(false)
+  const [mapDrivers,  setMapDrivers]  = useState([])
+  const [mapLoading,  setMapLoading]  = useState(false)
+  const [trackingDriverLocations, setTrackingDriverLocations] = useState([])
   const [driverApp,   setDriverApp]   = useState(null)
   const [driverForm,  setDriverForm]  = useState({ vehicle_make:'', vehicle_model:'', vehicle_year:'', vehicle_color:'', license_plate:'' })
   const [driverApplying, setDriverApplying] = useState(false)
@@ -497,6 +502,14 @@ export default function UserDashboard() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  const fetchMapDrivers = useCallback(() => {
+    setMapLoading(true)
+    getAllDriverLocations()
+      .then(d => setMapDrivers(d.drivers || []))
+      .catch(() => {})
+      .finally(() => setMapLoading(false))
+  }, [])
+
   const handleSelectTab = useCallback((id) => {
     if (id === 'inbox') {
       navigate('/inbox')
@@ -506,6 +519,10 @@ export default function UserDashboard() {
       navigate('/profile')
       return
     }
+    if (id === 'requests') {
+      navigate('/requests')
+      return
+    }
     setTab(id)
     // Load data for specific tabs when first opened
     if (id === 'history') {
@@ -513,10 +530,16 @@ export default function UserDashboard() {
     }
     if (id === 'tracking') {
       setTrackingLoading(true)
-      getTrackedRides().then(d => setTrackedRides(d.rides || [])).catch(() => {}).finally(() => setTrackingLoading(false))
+      Promise.all([
+        getTrackedRides(),
+        getAllDriverLocations(),
+      ]).then(([td, ld]) => {
+        setTrackedRides(td.rides || [])
+        setTrackingDriverLocations(ld.drivers || [])
+      }).catch(() => {}).finally(() => setTrackingLoading(false))
     }
     if (id === 'map') {
-      // RideShareMap auto-loads driver locations
+      fetchMapDrivers()
     }
     if (id === 'notifications') {
       setUnreadNotifs(0)
@@ -531,7 +554,7 @@ export default function UserDashboard() {
     setTimeout(() => {
       tabPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     }, 100)
-  }, [navigate])
+  }, [navigate, fetchMapDrivers])
 
   const handleLogout = async () => {
     try { await userLogout() } catch {}
@@ -724,10 +747,47 @@ export default function UserDashboard() {
             {tab === 'map' && (
               <div className="card space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🗺️ Live Driver Map</h2>
-                  <button onClick={() => handleSelectTab('overview')} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">← Back</button>
+                  <div>
+                    <h2 className="text-lg font-bold text-white flex items-center gap-2">🗺 Rideshare Map</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">Live drivers within 10 km of your location.</p>
+                  </div>
+                  <button onClick={fetchMapDrivers} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                    {mapLoading ? '⏳' : '⟳ Refresh'}
+                  </button>
                 </div>
-                <RideShareMap driverLocations={mapDrivers} autoLoadDrivers={true} onRequestRide={() => {}} mapHeight={400} />
+                <RideShareMap
+                  rides={[]}
+                  driverLocations={mapDrivers}
+                  autoLoadDrivers={true}
+                  onRequestRide={() => navigate('/rides')}
+                  mapHeight={380}
+                />
+                {/* Driver list */}
+                <div className="space-y-2 mt-2">
+                  <p className="text-xs text-gray-400 font-semibold uppercase tracking-wide">
+                    🚗 Drivers nearby {mapDrivers.length > 0 && <span className="font-normal text-gray-500 ml-1">({mapDrivers.length} found)</span>}
+                  </p>
+                  {mapLoading ? (
+                    <p className="text-xs text-gray-500 py-4 text-center">Loading drivers…</p>
+                  ) : mapDrivers.length === 0 ? (
+                    <p className="text-xs text-gray-500 py-4 text-center">No active drivers found.</p>
+                  ) : mapDrivers.map((d, i) => (
+                    <div key={d.user_id || d.name || i}
+                      className="rounded-xl border border-gray-700 bg-gray-800/50 p-3 flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-blue-900 flex items-center justify-center text-lg shrink-0">🚗</div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-white truncate">{d.name || 'Driver'}</p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400 mt-0.5">
+                          {d.vehicle && <span>🚘 {d.vehicle}</span>}
+                          {d.seats != null && <span>💺 {d.seats} seat{d.seats !== 1 ? 's' : ''}</span>}
+                        </div>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${d.empty !== false ? 'bg-green-900/40 text-green-300' : 'bg-gray-700/60 text-gray-400'}`}>
+                        {d.empty !== false ? '🟢 Available' : '⚫ Occupied'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -737,30 +797,116 @@ export default function UserDashboard() {
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold text-white flex items-center gap-2">📡 Ride Tracking</h2>
                   <div className="flex gap-2">
-                    <button onClick={() => { setTrackingLoading(true); getTrackedRides().then(d => setTrackedRides(d.rides || [])).catch(() => {}).finally(() => setTrackingLoading(false)) }} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
-                    <button onClick={() => handleSelectTab('overview')} className="text-xs text-gray-400 hover:text-gray-200 transition-colors">← Back</button>
+                    <button onClick={() => {
+                      setTrackingLoading(true)
+                      Promise.all([getTrackedRides(), getAllDriverLocations()])
+                        .then(([td, ld]) => { setTrackedRides(td.rides || []); setTrackingDriverLocations(ld.drivers || []) })
+                        .catch(() => {}).finally(() => setTrackingLoading(false))
+                    }} className="text-xs text-blue-400 hover:text-blue-300 transition-colors">↺ Refresh</button>
                   </div>
                 </div>
-                <p className="text-xs text-gray-500">Rides you have confirmed via "Confirm Journey".</p>
+                <p className="text-xs text-gray-500">Rides you have confirmed via "Confirm Journey". See your driver's live status below.</p>
                 {trackingLoading ? (
                   <p className="text-sm text-gray-500 py-6 text-center">Loading…</p>
                 ) : trackedRides.length === 0 ? (
                   <p className="text-sm text-gray-500 py-6 text-center">No tracked rides yet. Confirm a journey to start tracking.</p>
                 ) : (
-                  <div className="space-y-3">
-                    {trackedRides.map(r => (
-                      <div key={r.ride_id} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4 space-y-1.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-white">{r.origin} → {r.destination}</p>
-                          <span className={`ride-status-tag ${r.status === 'open' ? 'ride-tag-open' : r.status === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'}`}>{r.status}</span>
+                  <div className="space-y-4">
+                    {trackedRides.map(r => {
+                      // Find driver's live location (driver user_id is r.user_id which is the ride poster)
+                      const liveDriver = trackingDriverLocations.find(d => d.user_id === r.user_id)
+                      const isOnline   = !!liveDriver
+                      const seats      = liveDriver?.seats ?? r.seats ?? null
+                      const seatsEmpty = liveDriver?.empty !== false
+
+                      const handleInboxDriver = async () => {
+                        if (!r.user_id) return
+                        try {
+                          await dmStartConversation(r.user_id)
+                          navigate('/inbox')
+                        } catch {}
+                      }
+
+                      return (
+                        <div key={r.ride_id} className="rounded-xl border border-gray-700 bg-gray-800/50 p-4 space-y-3">
+                          {/* Route + status */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-white">{r.origin} → {r.destination}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                🕐 {r.departure ? new Date(r.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                              </p>
+                            </div>
+                            <span className={`ride-status-tag shrink-0 ${r.status === 'open' ? 'ride-tag-open' : r.status === 'taken' ? 'ride-tag-taken' : 'ride-tag-cancelled'}`}>
+                              {r.status}
+                            </span>
+                          </div>
+
+                          {/* Driver info row */}
+                          <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-900/60 border border-gray-700/50">
+                            <div className="w-9 h-9 rounded-full bg-blue-900 flex items-center justify-center text-base shrink-0">🚗</div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-white truncate">{r.driver_name || 'Driver'}</p>
+                                {/* Online/Offline status */}
+                                <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                                  isOnline ? 'bg-green-900/50 text-green-300' : 'bg-gray-700/60 text-gray-400'
+                                }`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full inline-block ${isOnline ? 'bg-green-400 driver-online-pulse' : 'bg-gray-500'}`} />
+                                  {isOnline ? 'Online' : 'Offline'}
+                                </span>
+                              </div>
+                              {/* Seats available */}
+                              <div className="flex items-center gap-2 mt-0.5">
+                                {seats != null && (
+                                  <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${
+                                    seats === 0 ? 'bg-red-900/40 text-red-300'
+                                    : seatsEmpty ? 'bg-green-900/40 text-green-300 animate-pulse'
+                                    : 'bg-amber-900/40 text-amber-300'
+                                  }`}>
+                                    💺 {seats === 0 ? 'Fully booked' : `${seats} seat${seats !== 1 ? 's' : ''} available`}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Live location map (only when driver is online and has location) */}
+                          {isOnline && liveDriver.lat != null && liveDriver.lng != null && (
+                            <div className="rounded-xl overflow-hidden border border-gray-700" style={{ height: 160 }}>
+                              <iframe
+                                title="driver location"
+                                width="100%"
+                                height="160"
+                                src={`https://www.openstreetmap.org/export/embed.html?bbox=${liveDriver.lng - 0.015},${liveDriver.lat - 0.015},${liveDriver.lng + 0.015},${liveDriver.lat + 0.015}&layer=mapnik&marker=${liveDriver.lat},${liveDriver.lng}`}
+                                style={{ border: 'none', display: 'block' }}
+                              />
+                            </div>
+                          )}
+                          {isOnline && (liveDriver.lat == null || liveDriver.lng == null) && (
+                            <p className="text-xs text-green-400/70 bg-green-900/20 rounded-lg px-3 py-2">
+                              📍 Driver is online — location not yet shared.
+                            </p>
+                          )}
+
+                          {/* Confirmation details */}
+                          <div className="space-y-0.5">
+                            <p className="text-xs text-gray-500">Confirmed as: {r.real_name} · {r.contact}</p>
+                            <p className="text-xs text-gray-600">Confirmed on: {r.confirmed_at ? new Date(r.confirmed_at).toLocaleString() : ''}</p>
+                          </div>
+
+                          {/* Inbox driver button */}
+                          {r.user_id && (
+                            <button
+                              onClick={handleInboxDriver}
+                              className="w-full py-2 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-black transition-colors flex items-center justify-center gap-2"
+                            >
+                              💬 Message Driver
+                            </button>
+                          )}
                         </div>
-                        <p className="text-xs text-gray-400">
-                          🚗 {r.driver_name} · 🕐 {r.departure ? new Date(r.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
-                        </p>
-                        <p className="text-xs text-gray-500">Confirmed as: {r.real_name} · {r.contact}</p>
-                        <p className="text-xs text-gray-600">Confirmed on: {r.confirmed_at ? new Date(r.confirmed_at).toLocaleString() : ''}</p>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

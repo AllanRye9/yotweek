@@ -406,11 +406,21 @@ function FareEstimator() {
 // ── AI Assistant ──────────────────────────────────────────────────────────────
 
 const QUICK_SUGGESTIONS = [
+  '🔍 Search a ride for me',
+  '📝 Help me book a ride',
   'How is fare calculated?',
   'Is it safe to share rides?',
-  'How do I cancel a booking?',
-  'What vehicles are available?',
 ]
+
+// MCP (Model Context Protocol) booking flow state machine
+// States: idle → search → confirm_search → fill_details → confirm_book → booked
+const MCP_PROMPTS = {
+  search: [
+    { field: 'origin',      prompt: '📍 Where are you departing from? (e.g. Kampala)' },
+    { field: 'destination', prompt: '🏁 Where are you heading? (e.g. Jinja)' },
+    { field: 'date',        prompt: '📅 What date do you want to travel? (e.g. tomorrow, 2026-05-10)' },
+  ],
+}
 
 function TypingIndicator() {
   return (
@@ -428,17 +438,23 @@ function TypingIndicator() {
   )
 }
 
-function AIAssistant() {
+function AIAssistant({ rides = [], onBookRide }) {
   const [open, setOpen]       = useState(false)
   const [messages, setMessages] = useState([{
     role: 'bot',
-    text: 'Hi! I\'m YotBot 🤖, your AI ride assistant. Ask me about fares, bookings, safety tips, or anything rides-related!',
+    text: 'Hi! I\'m YotBot 🤖 — your AI ride assistant. I can help you search for rides, fill booking forms, and answer any questions! Try "Search a ride for me" or ask me anything.',
     ts: Date.now(),
   }])
   const [input, setInput]     = useState('')
   const [loading, setLoading] = useState(false)
   const bottomRef             = useRef(null)
   const inputRef              = useRef(null)
+
+  // MCP booking flow state
+  const [mcpFlow,    setMcpFlow]    = useState(null)   // null | 'search'
+  const [mcpStep,    setMcpStep]    = useState(0)
+  const [mcpData,    setMcpData]    = useState({})     // collected form data
+  const [mcpResults, setMcpResults] = useState([])     // matching rides
 
   useEffect(() => {
     if (open) {
@@ -447,18 +463,112 @@ function AIAssistant() {
     }
   }, [messages, open])
 
+  const pushBot = (text, extra = {}) => {
+    setMessages(prev => [...prev, { role: 'bot', text, ts: Date.now(), ...extra }])
+  }
+
+  const pushUser = (text) => {
+    setMessages(prev => [...prev, { role: 'user', text, ts: Date.now() }])
+  }
+
+  // Start the MCP search flow
+  const startSearchFlow = () => {
+    setMcpFlow('search')
+    setMcpStep(0)
+    setMcpData({})
+    setMcpResults([])
+    pushBot(MCP_PROMPTS.search[0].prompt)
+  }
+
+  // Process MCP flow input
+  const processMcpInput = (text) => {
+    const steps = MCP_PROMPTS.search
+    const field  = steps[mcpStep].field
+    const updated = { ...mcpData, [field]: text }
+    setMcpData(updated)
+
+    const nextStep = mcpStep + 1
+
+    if (nextStep < steps.length) {
+      setMcpStep(nextStep)
+      pushBot(steps[nextStep].prompt)
+    } else {
+      // All fields collected — search rides
+      setMcpFlow('searching')
+      const { origin, destination } = updated
+      const matching = rides.filter(r => {
+        const o = (r.origin || '').toLowerCase()
+        const d = (r.destination || '').toLowerCase()
+        const oq = (origin || '').toLowerCase()
+        const dq = (destination || '').toLowerCase()
+        return (oq && o.includes(oq)) || (dq && d.includes(dq)) ||
+               (oq && d.includes(oq)) || (dq && o.includes(dq))
+      })
+      setMcpResults(matching)
+      setMcpFlow('results')
+
+      if (matching.length === 0) {
+        pushBot(`I couldn't find rides from "${origin}" to "${destination}". 😔 You can raise a ride request so drivers see it! Try the 🙋 Requests tab.`, { type: 'no_results' })
+        setMcpFlow(null)
+      } else {
+        pushBot(
+          `✅ Found ${matching.length} ride${matching.length !== 1 ? 's' : ''} from ${origin} to ${destination}! Here are the options:`,
+          { type: 'results', rides: matching }
+        )
+      }
+    }
+  }
+
   const handleSend = async (text) => {
     const trimmed = (text || input).trim()
     if (!trimmed || loading) return
-    setMessages(prev => [...prev, { role: 'user', text: trimmed, ts: Date.now() }])
+    pushUser(trimmed)
     setInput('')
+
+    // Check for MCP flow triggers first
+    const lower = trimmed.toLowerCase()
+
+    if (mcpFlow === 'search' || mcpFlow === null && (
+      lower.includes('search') || lower.includes('find a ride') ||
+      lower.includes('look for') || lower.includes('book a ride') ||
+      lower.includes('help me book') || lower.includes('search a ride')
+    )) {
+      if (mcpFlow === 'search') {
+        processMcpInput(trimmed)
+        return
+      } else {
+        startSearchFlow()
+        return
+      }
+    }
+
+    if (mcpFlow === 'results' && lower.includes('book')) {
+      // User wants to book one of the results
+      if (mcpResults.length > 0) {
+        const ride = mcpResults[0]
+        pushBot(`Great! I'll open the booking chat for "${ride.origin} → ${ride.destination}" with ${ride.driver_name || 'the driver'} 🚗`)
+        setMcpFlow(null)
+        setMcpResults([])
+        setTimeout(() => onBookRide?.(ride), 500)
+        return
+      }
+    }
+
+    if (mcpFlow) {
+      processMcpInput(trimmed)
+      return
+    }
+
+    // Regular AI chat
     setLoading(true)
     try {
       const d = await aiChat(trimmed, 'rides')
-      setMessages(prev => [...prev, { role: 'bot', text: d.reply, ts: Date.now() }])
+      pushBot(d.reply)
     } catch {
-      setMessages(prev => [...prev, { role: 'bot', text: 'Sorry, I couldn\'t process that. Please try again!', ts: Date.now() }])
-    } finally { setLoading(false) }
+      pushBot('Sorry, I couldn\'t process that. Please try again!')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const inputSty = { background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }
@@ -472,11 +582,13 @@ function AIAssistant() {
               style={{ background: open ? 'linear-gradient(135deg, #f59e0b18, #d9770618)' : 'transparent' }}>
         <div className="relative shrink-0">
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-lg shadow-md">🤖</div>
-          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2" style={{ borderColor: 'var(--bg-card)' }} />
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 driver-online-pulse" style={{ borderColor: 'var(--bg-card)' }} />
         </div>
         <div className="flex-1 text-left">
           <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>YotBot AI Assistant</p>
-          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Ask me anything about rides</p>
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            {mcpFlow === 'search' ? `🔍 Collecting ride details… (step ${mcpStep + 1}/${MCP_PROMPTS.search.length})` : 'Search, book, and ask anything about rides'}
+          </p>
         </div>
         <span className="text-xs px-2 py-0.5 rounded-full font-medium mr-1" style={{ background: 'rgba(16,185,129,0.15)', color: '#6ee7b7' }}>
           Online
@@ -487,20 +599,41 @@ function AIAssistant() {
       {open && (
         <>
           {/* Chat messages */}
-          <div className="h-64 overflow-y-auto px-4 py-3 space-y-3"
+          <div className="h-72 overflow-y-auto px-4 py-3 space-y-3"
                style={{ background: 'var(--bg-page)', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)' }}>
             {messages.map((m, i) => (
               <div key={i} className={`flex gap-2 items-end ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
                 {m.role === 'bot' && (
                   <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-sm shrink-0">🤖</div>
                 )}
-                <div className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
-                  m.role === 'user'
-                    ? 'rounded-br-sm bg-amber-500 text-black'
-                    : 'rounded-bl-sm'
-                }`}
-                style={m.role !== 'user' ? { background: 'var(--bg-surface)', color: 'var(--text-primary)' } : {}}>
-                  {m.text}
+                <div className={`max-w-[85%] space-y-1 ${m.role === 'user' ? 'items-end flex flex-col' : ''}`}>
+                  <div className={`px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                    m.role === 'user'
+                      ? 'rounded-br-sm bg-amber-500 text-black'
+                      : 'rounded-bl-sm'
+                  }`}
+                  style={m.role !== 'user' ? { background: 'var(--bg-surface)', color: 'var(--text-primary)' } : {}}>
+                    {m.text}
+                  </div>
+                  {/* Inline ride results from MCP search */}
+                  {m.type === 'results' && m.rides && m.rides.length > 0 && (
+                    <div className="space-y-1 w-full">
+                      {m.rides.slice(0, 4).map(r => (
+                        <button key={r.ride_id}
+                          onClick={() => { pushUser(`Book ride: ${r.origin} → ${r.destination}`); onBookRide?.(r) }}
+                          className="w-full text-left p-2 rounded-xl text-xs transition-all hover:opacity-90"
+                          style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-primary)' }}>
+                          <div className="font-semibold truncate">🚗 {r.origin} → {r.destination}</div>
+                          <div className="flex gap-2 mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                            {r.fare ? <span>💰 ${r.fare}</span> : null}
+                            <span>💺 {r.seats} seat{r.seats !== 1 ? 's' : ''}</span>
+                            {r.driver_name && <span>👤 {r.driver_name}</span>}
+                          </div>
+                          <div className="mt-1 text-amber-400 font-semibold">Tap to book →</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -509,7 +642,7 @@ function AIAssistant() {
           </div>
 
           {/* Quick suggestions (only when few messages) */}
-          {messages.length <= 2 && !loading && (
+          {messages.length <= 2 && !loading && !mcpFlow && (
             <div className="px-4 py-2 flex gap-2 overflow-x-auto" style={{ borderBottom: '1px solid var(--border-color)' }}>
               {QUICK_SUGGESTIONS.map((s, i) => (
                 <button key={i} onClick={() => handleSend(s)}
@@ -521,11 +654,23 @@ function AIAssistant() {
             </div>
           )}
 
+          {/* MCP flow progress indicator */}
+          {mcpFlow === 'search' && (
+            <div className="px-4 py-2 flex gap-1" style={{ borderBottom: '1px solid var(--border-color)', background: 'rgba(245,158,11,0.06)' }}>
+              {MCP_PROMPTS.search.map((_, idx) => (
+                <div key={idx} className={`flex-1 h-1 rounded-full transition-colors ${
+                  idx < mcpStep ? 'bg-green-400' : idx === mcpStep ? 'bg-amber-400' : 'bg-gray-700'
+                }`} />
+              ))}
+            </div>
+          )}
+
           {/* Input bar */}
           <div className="flex gap-2 p-3">
             <input ref={inputRef} value={input} onChange={e => setInput(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-                   placeholder="Ask YotBot anything…" maxLength={300}
+                   placeholder={mcpFlow === 'search' ? `Type your answer…` : 'Ask YotBot anything…'}
+                   maxLength={300}
                    className="flex-1 rounded-xl px-3 py-2 text-sm outline-none"
                    style={inputSty} />
             <button onClick={() => handleSend()} disabled={!input.trim() || loading}
@@ -865,14 +1010,14 @@ export default function RidesPage() {
               ) : (
                 <FareEstimator />
               )}
-              <AIAssistant />
+              <AIAssistant rides={filteredRides} onBookRide={setSelectedRide} />
             </div>
           )}
 
           {rightTab === 'requests' && (
             <div className="space-y-3">
               <RaiseRequest user={appUser} />
-              <AIAssistant />
+              <AIAssistant rides={filteredRides} onBookRide={setSelectedRide} />
             </div>
           )}
         </aside>

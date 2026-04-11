@@ -192,8 +192,8 @@ export const adminDeleteRide = (rideId) => request('DELETE', `/api/admin/rides/$
 
 // ── Ride Requests ─────────────────────────────────────────────────────────────
 
-export const createRideRequest = (origin, destination, desired_date, passengers = 1, notes = '') =>
-  request('POST', '/api/ride_requests', { origin, destination, desired_date, passengers, notes })
+export const createRideRequest = (origin, destination, desired_date, passengers = 1, price_min = null, price_max = null, notes = '') =>
+  request('POST', '/api/ride_requests', { origin, destination, desired_date, passengers, price_min, price_max, notes })
 
 export const listRideRequests = (status = 'open') =>
   request('GET', `/api/ride_requests?status=${encodeURIComponent(status)}`)
@@ -204,7 +204,7 @@ export const acceptRideRequest = (requestId) =>
   request('POST', `/api/ride_requests/${encodeURIComponent(requestId)}/accept`)
 
 export const cancelRideRequest = (requestId) =>
-  request('POST', `/api/ride_requests/${encodeURIComponent(requestId)}/cancel`)
+  request('DELETE', `/api/ride_requests/${encodeURIComponent(requestId)}`)
 
 // ── Travel Companions ─────────────────────────────────────────────────────────
 

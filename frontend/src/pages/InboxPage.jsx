@@ -60,7 +60,7 @@ function DeliveryDot({ state }) {
 
 export default function InboxPage() {
   const [appUser, setAppUser]   = useState(null)
-  const [tab,     setTab]       = useState('dm')
+  const [tab,     setTab]       = useState('rides')
   const [dmConvs, setDmConvs]   = useState([])
   const [dmLoading, setDmLoad]  = useState(false)
   const [selectedConv, setSelectedConv] = useState(null)
@@ -108,6 +108,9 @@ export default function InboxPage() {
     if (tab !== 'rides') return
     loadRideInbox()
   }, [tab]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load rides on mount since it's the default tab
+  useEffect(() => { loadRideInbox() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Real-time DM: update conversation list preview + show arrival banner
   useEffect(() => {
@@ -165,8 +168,8 @@ export default function InboxPage() {
   const handleBack = () => { setSelectedConv(null); setSelectedRide(null); setShowSidebar(true) }
 
   const TABS = [
-    { id: 'dm',    label: '💬 Direct' },
     { id: 'rides', label: '🚗 Rides'  },
+    { id: 'dm',    label: '💬 Direct' },
   ]
 
   // Build date-grouped DM list
