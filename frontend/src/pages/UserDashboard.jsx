@@ -13,6 +13,7 @@ import {
   listRides, getConfirmedUsers, cancelRide,
   driverApply, getDriverApplication,
   getAllDriverLocations, dmStartConversation,
+  aiChat,
 } from '../api'
 import socket from '../socket'
 
@@ -39,6 +40,117 @@ function StatCard({ icon, value, label, color = 'text-white' }) {
       <span className="text-2xl">{icon}</span>
       <span className={`text-2xl font-bold tabular-nums ${color}`}>{value ?? '—'}</span>
       <span className="text-xs text-gray-400">{label}</span>
+    </div>
+  )
+}
+
+// ─── AI Assistant Widget ────────────────────────────────────────────────────────
+
+function DashboardAIAssistant() {
+  const [open, setOpen] = useState(false)
+  const [msgs, setMsgs] = useState([{
+    role: 'bot',
+    text: 'Hi! I\'m YotBot 🤖. I can help you find rides, check booking status, explain ride policies, and more. What can I do for you?',
+  }])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const bottomRef = useRef(null)
+
+  useEffect(() => {
+    if (open) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+  }, [msgs, open])
+
+  const send = async (text) => {
+    const t = (text || input).trim()
+    if (!t || loading) return
+    setMsgs(p => [...p, { role: 'user', text: t }])
+    setInput('')
+    setLoading(true)
+    try {
+      const d = await aiChat(t, 'dashboard')
+      setMsgs(p => [...p, { role: 'bot', text: d.reply || 'Sorry, no response.' }])
+    } catch {
+      setMsgs(p => [...p, { role: 'bot', text: 'Sorry, I couldn\'t process that right now.' }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const SUGGESTIONS = [
+    '🔍 Find a cheap ride',
+    '📋 Check my booking',
+    '💳 Payment policy',
+    '❓ How to book a ride',
+  ]
+
+  return (
+    <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card, #1f2937)', borderColor: 'var(--border-color, #374151)' }}>
+      <button onClick={() => setOpen(v => !v)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:opacity-90 transition-opacity">
+        <div className="relative shrink-0">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-lg">🤖</div>
+          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2" style={{ borderColor: 'var(--bg-card, #1f2937)' }} />
+        </div>
+        <div className="flex-1 text-left">
+          <p className="text-sm font-bold text-white">YotBot AI Assistant</p>
+          <p className="text-xs text-gray-400">Ask about rides, bookings, policies &amp; more</p>
+        </div>
+        <span className="text-xs px-2 py-0.5 rounded-full font-medium mr-1 bg-green-900/40 text-green-400">Online</span>
+        <span className="text-xs text-gray-500">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <>
+          <div className="h-64 overflow-y-auto px-4 py-3 space-y-3 bg-gray-900/50 border-t border-b border-gray-700">
+            {msgs.map((m, i) => (
+              <div key={i} className={`flex gap-2 items-end ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                {m.role === 'bot' && (
+                  <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xs shrink-0">🤖</div>
+                )}
+                <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                  m.role === 'user' ? 'rounded-br-sm bg-amber-500 text-black' : 'rounded-bl-sm bg-gray-800 text-gray-100'
+                }`}>
+                  {m.text}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-2 items-end">
+                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xs shrink-0">🤖</div>
+                <div className="px-3 py-2 rounded-2xl rounded-bl-sm bg-gray-800 text-gray-400 text-sm">
+                  <span className="inline-flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+                  </span>
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+          {msgs.length <= 1 && !loading && (
+            <div className="px-4 py-2 flex gap-2 overflow-x-auto border-b border-gray-700">
+              {SUGGESTIONS.map((s, i) => (
+                <button key={i} onClick={() => send(s)}
+                        className="shrink-0 text-xs px-3 py-1.5 rounded-full bg-gray-800 text-gray-300 border border-gray-700 hover:opacity-80 whitespace-nowrap">
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 p-3">
+            <input value={input} onChange={e => setInput(e.target.value)}
+                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                   placeholder="Ask YotBot anything…"
+                   maxLength={300}
+                   className="flex-1 rounded-xl px-3 py-2 text-sm outline-none bg-gray-800 text-white border border-gray-700" />
+            <button onClick={() => send()} disabled={!input.trim() || loading}
+                    className="w-10 h-10 rounded-xl flex items-center justify-center text-sm bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-40 shrink-0">
+              ➤
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -156,6 +268,8 @@ function OverviewPanel({ user, dashStats, onSelectTab, onNavigate }) {
           </div>
         </div>
       )}
+      {/* AI Assistant widget on dashboard */}
+      <DashboardAIAssistant />
     </div>
   )
 }

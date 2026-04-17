@@ -829,9 +829,16 @@ def init_db():
                         pass  # column already exists
                 for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL"), ("ride_type", "TEXT DEFAULT 'airport'"),
                                     ("vehicle_color", "TEXT DEFAULT ''"), ("vehicle_type", "TEXT DEFAULT ''"), ("plate_number", "TEXT DEFAULT ''"),
-                                    ("taken_at", "TEXT")]:
+                                    ("taken_at", "TEXT"), ("vehicle_model_custom", "TEXT DEFAULT ''")]:
                     try:
                         cur.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
+                for col, coldef in [("driver_confirmed", "INTEGER NOT NULL DEFAULT 0")]:
+                    try:
+                        cur.execute(f"ALTER TABLE ride_journey_confirmations ADD COLUMN {col} {coldef}")
                         conn.commit()
                     except Exception:
                         conn.rollback()
@@ -1096,9 +1103,14 @@ def init_db():
                         pass  # column already exists
                 for col, coldef in [("dest_lat", "REAL"), ("dest_lng", "REAL"), ("fare", "REAL"), ("ride_type", "TEXT DEFAULT 'airport'"),
                                     ("vehicle_color", "TEXT DEFAULT ''"), ("vehicle_type", "TEXT DEFAULT ''"), ("plate_number", "TEXT DEFAULT ''"),
-                                    ("taken_at", "TEXT")]:
+                                    ("taken_at", "TEXT"), ("vehicle_model_custom", "TEXT DEFAULT ''")]:
                     try:
                         conn.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass  # column already exists
+                for col, coldef in [("driver_confirmed", "INTEGER NOT NULL DEFAULT 0")]:
+                    try:
+                        conn.execute(f"ALTER TABLE ride_journey_confirmations ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
                 for col, coldef in [("subscription_type", "TEXT DEFAULT 'monthly'")]:
@@ -3180,20 +3192,21 @@ async def api_ride_tracking(request: Request):
 # =========================================================
 
 class _RidePostRequest(BaseModel):
-    origin:        str
-    destination:   str
-    departure:     str
-    seats:         int = 1
-    notes:         str = ""
-    origin_lat:    float | None = None
-    origin_lng:    float | None = None
-    dest_lat:      float | None = None
-    dest_lng:      float | None = None
-    fare:          float | None = None
-    ride_type:     str = "airport"
-    vehicle_color: str = ""
-    vehicle_type:  str = ""
-    plate_number:  str = ""
+    origin:               str
+    destination:          str
+    departure:            str
+    seats:                int = 1
+    notes:                str = ""
+    origin_lat:           float | None = None
+    origin_lng:           float | None = None
+    dest_lat:             float | None = None
+    dest_lng:             float | None = None
+    fare:                 float | None = None
+    ride_type:            str = "airport"
+    vehicle_color:        str = ""
+    vehicle_type:         str = ""
+    plate_number:         str = ""
+    vehicle_model_custom: str = ""
 
 
 class _RideJoinRequest(BaseModel):
@@ -3201,6 +3214,7 @@ class _RideJoinRequest(BaseModel):
 
 
 @fastapi_app.post("/api/rides/post")
+@fastapi_app.post("/api/rides")
 async def api_ride_post(request: Request, body: _RidePostRequest):
     """Post a new airport pickup ride offer. Only verified drivers may post rides."""
     user_id = request.session.get("app_user_id")
@@ -3234,10 +3248,11 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
         dist_km = _haversine_km(body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng)
         fare = round(dist_km * _FARE_PER_KM, 2)
 
-    ride_type     = body.ride_type if body.ride_type in ("airport", "standard") else "airport"
-    vehicle_color = body.vehicle_color.strip()
-    vehicle_type  = body.vehicle_type.strip()
-    plate_number  = body.plate_number.strip()
+    ride_type            = body.ride_type if body.ride_type in ("airport", "standard") else "airport"
+    vehicle_color        = body.vehicle_color.strip()
+    vehicle_type         = body.vehicle_type.strip()
+    plate_number         = body.plate_number.strip()
+    vehicle_model_custom = body.vehicle_model_custom.strip()
 
     ride_id    = str(uuid.uuid4())
     created_at = datetime.now(timezone.utc).isoformat()
@@ -3262,40 +3277,41 @@ async def api_ride_post(request: Request, body: _RidePostRequest):
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
-                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type,vehicle_color,vehicle_type,plate_number)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s)""",
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type,vehicle_color,vehicle_type,plate_number,vehicle_model_custom)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,%s,%s)""",
                     (ride_id, user_id, user["name"], origin, destination,
                      body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng, fare,
                      departure, body.seats, body.notes.strip(), created_at, ride_type,
-                     vehicle_color, vehicle_type, plate_number),
+                     vehicle_color, vehicle_type, plate_number, vehicle_model_custom),
                 )
             else:
                 conn.execute(
-                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type,vehicle_color,vehicle_type,plate_number)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?)""",
+                    """INSERT INTO rides (ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,ride_type,vehicle_color,vehicle_type,plate_number,vehicle_model_custom)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'open',?,?,?,?,?,?)""",
                     (ride_id, user_id, user["name"], origin, destination,
                      body.origin_lat, body.origin_lng, body.dest_lat, body.dest_lng, fare,
                      departure, body.seats, body.notes.strip(), created_at, ride_type,
-                     vehicle_color, vehicle_type, plate_number),
+                     vehicle_color, vehicle_type, plate_number, vehicle_model_custom),
                 )
             conn.commit()
         finally:
             conn.close()
 
     ride_data = {
-        "ride_id":       ride_id,
-        "driver_name":   user["name"],
-        "origin":        origin,
-        "destination":   destination,
-        "fare":          fare,
-        "departure":     departure,
-        "seats":         body.seats,
-        "notes":         body.notes.strip(),
-        "created_at":    created_at,
-        "ride_type":     ride_type,
-        "vehicle_color": vehicle_color,
-        "vehicle_type":  vehicle_type,
-        "plate_number":  plate_number,
+        "ride_id":               ride_id,
+        "driver_name":           user["name"],
+        "origin":                origin,
+        "destination":           destination,
+        "fare":                  fare,
+        "departure":             departure,
+        "seats":                 body.seats,
+        "notes":                 body.notes.strip(),
+        "created_at":            created_at,
+        "ride_type":             ride_type,
+        "vehicle_color":         vehicle_color,
+        "vehicle_type":          vehicle_type,
+        "plate_number":          plate_number,
+        "vehicle_model_custom":  vehicle_model_custom,
     }
 
     # Notify all connected users via Socket.IO
@@ -3325,6 +3341,9 @@ async def api_rides_list(request: Request = None, status: str | None = None):
     Taken rides that were marked taken more than 1 hour ago are hidden from
     non-poster users (the driver can always see their own rides via the
     driver dashboard query).
+
+    Completed rides are hidden from all search results; they are only visible
+    to the driver who posted them (via their personal ride history).
     """
     _VALID_RIDE_STATUSES = ("open", "taken", "cancelled")
     # Default: show open and taken rides so passengers can see status tags.
@@ -3351,33 +3370,39 @@ async def api_rides_list(request: Request = None, status: str | None = None):
             cols = ["ride_id", "user_id", "driver_name", "origin", "destination",
                     "origin_lat", "origin_lng", "dest_lat", "dest_lng", "fare",
                     "departure", "seats", "notes", "status", "created_at", "ride_type",
-                    "vehicle_color", "vehicle_type", "plate_number"]
+                    "vehicle_color", "vehicle_type", "plate_number", "vehicle_model_custom"]
             if USE_POSTGRES:
                 cur = conn.cursor()
                 cur.execute(
                     "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport'),"
-                    "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
-                    f" FROM rides WHERE status IN ({pg_placeholders})"
+                    "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,''),COALESCE(vehicle_model_custom,'')"
+                    f" FROM rides WHERE ("
+                    f"   status IN ({pg_placeholders})"
+                    f"   OR (status = 'completed' AND user_id = %s)"
+                    f" )"
                     " AND (status != 'taken' OR taken_at IS NULL OR taken_at > %s OR user_id = %s"
                     "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = %s))"
-                    " AND (seats > 0 OR user_id = %s"
+                    " AND (seats > 0 OR status = 'completed' OR user_id = %s"
                     "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = %s))"
                     " ORDER BY departure ASC LIMIT 200",
-                    status_filter + [cutoff_ts, requester_id or "", requester_id or "",
+                    status_filter + [requester_id or "", cutoff_ts, requester_id or "", requester_id or "",
                                      requester_id or "", requester_id or ""],
                 )
                 rows = cur.fetchall()
             else:
                 cur = conn.execute(
                     "SELECT ride_id,user_id,driver_name,origin,destination,origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,notes,status,created_at,COALESCE(ride_type,'airport'),"
-                    "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,'')"
-                    f" FROM rides WHERE status IN ({sql_placeholders})"
+                    "COALESCE(vehicle_color,''),COALESCE(vehicle_type,''),COALESCE(plate_number,''),COALESCE(vehicle_model_custom,'')"
+                    f" FROM rides WHERE ("
+                    f"   status IN ({sql_placeholders})"
+                    f"   OR (status = 'completed' AND user_id = ?)"
+                    f" )"
                     " AND (status != 'taken' OR taken_at IS NULL OR taken_at > ? OR user_id = ?"
                     "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = ?))"
-                    " AND (seats > 0 OR user_id = ?"
+                    " AND (seats > 0 OR status = 'completed' OR user_id = ?"
                     "      OR EXISTS (SELECT 1 FROM ride_journey_confirmations WHERE ride_id = rides.ride_id AND user_id = ?))"
                     " ORDER BY departure ASC LIMIT 200",
-                    status_filter + [cutoff_ts, requester_id or "", requester_id or "",
+                    status_filter + [requester_id or "", cutoff_ts, requester_id or "", requester_id or "",
                                      requester_id or "", requester_id or ""],
                 )
                 rows = cur.fetchall()
@@ -3658,6 +3683,7 @@ async def api_get_ride(request: Request, ride_id: str):
         "origin_lat", "origin_lng", "dest_lat", "dest_lng",
         "fare", "departure", "seats", "notes", "status",
         "ride_type", "vehicle_color", "vehicle_type", "plate_number", "created_at",
+        "vehicle_model_custom",
     ]
     with _db_lock:
         conn = _get_db()
@@ -3667,7 +3693,8 @@ async def api_get_ride(request: Request, ride_id: str):
                 cur.execute(
                     "SELECT ride_id,user_id,driver_name,origin,destination,"
                     "origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,"
-                    "notes,status,ride_type,vehicle_color,vehicle_type,plate_number,created_at "
+                    "notes,status,ride_type,vehicle_color,vehicle_type,plate_number,created_at,"
+                    "COALESCE(vehicle_model_custom,'') "
                     "FROM rides WHERE ride_id=%s",
                     (ride_id,),
                 )
@@ -3676,7 +3703,8 @@ async def api_get_ride(request: Request, ride_id: str):
                 cur = conn.execute(
                     "SELECT ride_id,user_id,driver_name,origin,destination,"
                     "origin_lat,origin_lng,dest_lat,dest_lng,fare,departure,seats,"
-                    "notes,status,ride_type,vehicle_color,vehicle_type,plate_number,created_at "
+                    "notes,status,ride_type,vehicle_color,vehicle_type,plate_number,created_at,"
+                    "COALESCE(vehicle_model_custom,'') "
                     "FROM rides WHERE ride_id=?",
                     (ride_id,),
                 )
@@ -3688,6 +3716,15 @@ async def api_get_ride(request: Request, ride_id: str):
         return JSONResponse({"error": "Ride not found."}, status_code=404)
 
     ride = dict(zip(cols, row))
+
+    # If ride is completed, inform the caller so the UI can show the appropriate message
+    if ride.get("status") == "completed":
+        requester_id = request.session.get("app_user_id") if request is not None else None
+        if requester_id != ride.get("user_id"):
+            return JSONResponse(
+                {"error": "Seat already full please try another booking.", "ride": ride, "status": "completed"},
+                status_code=409,
+            )
 
     # Allow access to the driver (poster) or any authenticated user viewing
     # a public ride listing.  For confirmed passengers only, restrict further
@@ -3879,6 +3916,148 @@ async def api_ride_repost(request: Request, ride_id: str):
     }
     asyncio.ensure_future(sio.emit("new_ride", ride_data))
     return JSONResponse({"ok": True, "ride_id": new_ride_id}, status_code=201)
+
+
+@fastapi_app.post("/api/rides/{ride_id}/repost_seat")
+async def api_ride_repost_seat(request: Request, ride_id: str):
+    """Driver increments available seat count by 1 and re-opens a completed or taken ride.
+
+    This is used when a passenger cancels or is a no-show — the driver reclaims
+    that seat so new passengers can book it.  Only the original driver may call
+    this endpoint.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, seats, status FROM rides WHERE ride_id=%s", (ride_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id, seats, status FROM rides WHERE ride_id=?", (ride_id,))
+                row = cur.fetchone()
+
+            if row is None:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+            if row[0] != user_id:
+                return JSONResponse({"error": "Not authorised — you can only repost seats on your own rides."}, status_code=403)
+            if row[2] == "cancelled":
+                return JSONResponse({"error": "Cannot repost a seat on a cancelled ride."}, status_code=409)
+
+            new_seats = row[1] + 1
+
+            if USE_POSTGRES:
+                cur.execute(
+                    "UPDATE rides SET seats = %s, status = 'open' WHERE ride_id = %s",
+                    (new_seats, ride_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE rides SET seats = ?, status = 'open' WHERE ride_id = ?",
+                    (new_seats, ride_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    asyncio.ensure_future(sio.emit("ride_seats_updated", {"ride_id": ride_id, "seats": new_seats, "status": "open"}))
+    return JSONResponse({"ok": True, "seats": new_seats})
+
+
+@fastapi_app.post("/api/rides/{ride_id}/driver_confirm_booking/{confirmation_id}")
+async def api_driver_confirm_booking(request: Request, ride_id: str, confirmation_id: str):
+    """Driver confirms a specific passenger's booking.
+
+    Sets ``driver_confirmed=1`` on the journey confirmation.  When the number
+    of driver-confirmed passengers equals the number of journey confirmations
+    for the ride, the ride is automatically marked as 'completed'.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if not user or user.get("role") != "driver":
+        return JSONResponse({"error": "Only drivers can confirm bookings."}, status_code=403)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            # Verify ride belongs to this driver
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, seats FROM rides WHERE ride_id=%s", (ride_id,))
+                ride_row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id, seats FROM rides WHERE ride_id=?", (ride_id,))
+                ride_row = cur.fetchone()
+
+            if ride_row is None:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+            if ride_row[0] != user_id:
+                return JSONResponse({"error": "Not authorised."}, status_code=403)
+
+            # Mark the specific confirmation as driver-confirmed
+            if USE_POSTGRES:
+                cur.execute(
+                    "UPDATE ride_journey_confirmations SET driver_confirmed = 1 WHERE confirmation_id = %s AND ride_id = %s",
+                    (confirmation_id, ride_id),
+                )
+                updated = cur.rowcount
+            else:
+                conn.execute(
+                    "UPDATE ride_journey_confirmations SET driver_confirmed = 1 WHERE confirmation_id = ? AND ride_id = ?",
+                    (confirmation_id, ride_id),
+                )
+                # SQLite doesn't easily expose rowcount in a meaningful way after execute
+                updated = 1
+
+            if not updated:
+                conn.commit()
+                return JSONResponse({"error": "Confirmation not found."}, status_code=404)
+
+            # Check if all confirmations are now driver-confirmed → auto-complete
+            if USE_POSTGRES:
+                cur.execute(
+                    "SELECT COUNT(*) FROM ride_journey_confirmations WHERE ride_id = %s",
+                    (ride_id,),
+                )
+                total_confs = (cur.fetchone() or [0])[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM ride_journey_confirmations WHERE ride_id = %s AND driver_confirmed = 1",
+                    (ride_id,),
+                )
+                confirmed_confs = (cur.fetchone() or [0])[0]
+            else:
+                total_confs = (conn.execute(
+                    "SELECT COUNT(*) FROM ride_journey_confirmations WHERE ride_id = ?", (ride_id,)
+                ).fetchone() or [0])[0]
+                confirmed_confs = (conn.execute(
+                    "SELECT COUNT(*) FROM ride_journey_confirmations WHERE ride_id = ? AND driver_confirmed = 1",
+                    (ride_id,),
+                ).fetchone() or [0])[0]
+
+            auto_completed = False
+            if total_confs > 0 and confirmed_confs >= total_confs:
+                ph = "%s" if USE_POSTGRES else "?"
+                if USE_POSTGRES:
+                    cur.execute(f"UPDATE rides SET status = 'completed' WHERE ride_id = {ph} AND status != 'cancelled'", (ride_id,))
+                else:
+                    conn.execute(f"UPDATE rides SET status = 'completed' WHERE ride_id = {ph} AND status != 'cancelled'", (ride_id,))
+                auto_completed = True
+
+            conn.commit()
+        finally:
+            conn.close()
+
+    if auto_completed:
+        asyncio.ensure_future(sio.emit("ride_completed", {"ride_id": ride_id}))
+
+    return JSONResponse({"ok": True, "auto_completed": auto_completed})
 
 
 @fastapi_app.post("/api/rides/{ride_id}/alert_clients")
@@ -4094,11 +4273,23 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
                         "UPDATE rides SET seats = %s WHERE ride_id = %s",
                         (new_seat_count, ride_id),
                     )
+                    # Auto-complete the ride when all seats are filled
+                    if new_seat_count == 0:
+                        cur.execute(
+                            "UPDATE rides SET status = 'completed' WHERE ride_id = %s AND status = 'open'",
+                            (ride_id,),
+                        )
                 else:
                     conn.execute(
                         "UPDATE rides SET seats = ? WHERE ride_id = ?",
                         (new_seat_count, ride_id),
                     )
+                    # Auto-complete the ride when all seats are filled
+                    if new_seat_count == 0:
+                        conn.execute(
+                            "UPDATE rides SET status = 'completed' WHERE ride_id = ? AND status = 'open'",
+                            (ride_id,),
+                        )
                 new_seats = new_seat_count
 
             conn.commit()

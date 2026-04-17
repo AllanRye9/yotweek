@@ -46,9 +46,9 @@ function fmtDep(dep) {
 
 function PostRideModal({ onClose, onPosted }) {
   const [form, setForm] = useState({
-    origin: '', destination: '', departure: '', seats: 1,
-    fare: '', vehicle_type: 'sedan', vehicle_color: '', notes: '',
-    share_ride: true,  // user preference: allow sharing
+    origin: '', destination: '', departure: '', passengers: 1,
+    fare: '', vehicle_type: 'sedan', vehicle_color: '', vehicle_model_custom: '', notes: '',
+    share_ride: true,
   })
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState('')
@@ -56,6 +56,11 @@ function PostRideModal({ onClose, onPosted }) {
   const [destCoords, setDestCoords]       = useState(null)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Total seats = driver + passengers
+  const totalSeats = (parseInt(form.passengers, 10) || 1) + 1
+  const fareVal    = form.fare ? parseFloat(form.fare) : null
+  const pricePerSeat = fareVal && totalSeats > 0 ? (fareVal / totalSeats).toFixed(2) : null
 
   const handleGeocode = async (field) => {
     const addr = field === 'origin' ? form.origin : form.destination
@@ -75,17 +80,27 @@ function PostRideModal({ onClose, onPosted }) {
       setError('Origin, destination, and departure are required.')
       return
     }
+    const passengerCount = parseInt(form.passengers, 10) || 1
+    if (passengerCount < 1 || passengerCount > 19) {
+      setError('Number of passengers must be between 1 and 19.')
+      return
+    }
     setSubmitting(true)
     try {
+      // seats sent to API = passenger seats (driver seat is implicit)
+      const vehicleModelCustom = form.vehicle_type === 'other' ? form.vehicle_model_custom.trim() : ''
       await postRide(
         form.origin, form.destination, form.departure,
-        parseInt(form.seats, 10),
+        passengerCount,
         form.notes,
         originCoords?.lat || null, originCoords?.lng || null,
         destCoords?.lat || null,   destCoords?.lng || null,
-        form.fare ? parseFloat(form.fare) : null,
+        fareVal,
         form.share_ride ? 'shared' : 'airport',
-        form.vehicle_color, form.vehicle_type, ''
+        form.vehicle_color,
+        form.vehicle_type,
+        '',
+        vehicleModelCustom,
       )
       onPosted()
       onClose()
@@ -137,13 +152,33 @@ function PostRideModal({ onClose, onPosted }) {
                  onChange={e => set('departure', e.target.value)}
                  className={inputCls} style={inputSty} />
           <div className="grid grid-cols-2 gap-3">
-            <input type="number" min="1" max="20" placeholder="Seats" value={form.seats}
-                   onChange={e => set('seats', e.target.value)}
-                   className={inputCls} style={inputSty} />
-            <input type="number" min="0" step="0.01" placeholder="Fare ($)" value={form.fare}
-                   onChange={e => set('fare', e.target.value)}
-                   className={inputCls} style={inputSty} />
+            <div>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                👥 Passengers (excl. driver)
+              </label>
+              <input type="number" min="1" max="19" placeholder="Passengers" value={form.passengers}
+                     onChange={e => set('passengers', e.target.value)}
+                     className={inputCls} style={inputSty} />
+            </div>
+            <div>
+              <label className="block text-xs mb-1" style={{ color: 'var(--text-muted)' }}>
+                💰 Total Fare ($)
+              </label>
+              <input type="number" min="0" step="0.01" placeholder="Total fare" value={form.fare}
+                     onChange={e => set('fare', e.target.value)}
+                     className={inputCls} style={inputSty} />
+            </div>
           </div>
+          {/* Dynamic price per seat display */}
+          {pricePerSeat && (
+            <div className="rounded-lg px-3 py-2 text-sm flex items-center justify-between"
+                 style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                💺 Price per seat <span className="opacity-60 text-xs">(÷ {totalSeats} incl. driver)</span>
+              </span>
+              <span className="font-bold text-amber-400">${pricePerSeat}</span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <select value={form.vehicle_type} onChange={e => set('vehicle_type', e.target.value)}
                     className={inputCls} style={inputSty}>
@@ -152,12 +187,18 @@ function PostRideModal({ onClose, onPosted }) {
               <option value="van">Van</option>
               <option value="truck">Truck</option>
               <option value="minibus">Minibus</option>
-              <option value="other">Other</option>
+              <option value="other">Others</option>
             </select>
             <input placeholder="Vehicle color" value={form.vehicle_color}
                    onChange={e => set('vehicle_color', e.target.value)}
                    className={inputCls} style={inputSty} />
           </div>
+          {/* Custom vehicle input when "Others" selected */}
+          {form.vehicle_type === 'other' && (
+            <input placeholder="Specify vehicle make & model (e.g. Toyota Hiace)" value={form.vehicle_model_custom}
+                   onChange={e => set('vehicle_model_custom', e.target.value)}
+                   className={inputCls} style={inputSty} />
+          )}
           <textarea placeholder="Notes (optional)" value={form.notes}
                     onChange={e => set('notes', e.target.value)}
                     rows={2} className={inputCls} style={inputSty} />
@@ -704,7 +745,7 @@ export default function RidesPage() {
   const [searchText, setSearchText] = useState('')
   const [dateFilter, setDateFilter] = useState('')
   const [seatsFilter, setSeatsFilter] = useState('')
-  const [priceSort, setPriceSort] = useState('')  // '' | 'asc' | 'desc'
+  const [priceTier, setPriceTier] = useState('')  // '' | 'low' | 'moderate' | 'high'
   const [districtFilter, setDistrictFilter] = useState('')  // Uganda district
 
   // Right panel
@@ -767,19 +808,30 @@ export default function RidesPage() {
     try { await markAllNotificationsRead(); setNotifs(prev => prev.map(n => ({ ...n, read: true }))) } catch {}
   }
 
-  // Filter rides
+  // Filter rides — only show to passengers (drivers see all their own rides via DriverDashboard)
   const filteredRides = rides.filter(r => {
+    // Completed rides should only be visible to the driver who posted them
+    if (r.status === 'completed' && r.user_id !== appUser?.user_id) return false
     const q = searchText.toLowerCase()
     const matchText = !q || r.origin?.toLowerCase().includes(q) || r.destination?.toLowerCase().includes(q)
     const matchDate = !dateFilter || (r.departure && r.departure.startsWith(dateFilter))
     const matchSeats = !seatsFilter || (r.seats >= parseInt(seatsFilter, 10))
     const matchDistrict = !districtFilter || r.origin?.toLowerCase().includes(districtFilter.toLowerCase()) || r.destination?.toLowerCase().includes(districtFilter.toLowerCase())
-    return matchText && matchDate && matchSeats && matchDistrict
-  }).sort((a, b) => {
-    if (!priceSort) return 0
-    const fa = a.fare ?? Infinity
-    const fb = b.fare ?? Infinity
-    return priceSort === 'asc' ? fa - fb : fb - fa
+
+    // Price tier filtering (uses fares from all displayed rides to compute thresholds)
+    let matchPrice = true
+    if (priceTier && rides.length > 0) {
+      const fares = rides.filter(x => x.fare != null).map(x => x.fare).sort((a, b) => a - b)
+      if (fares.length > 0) {
+        const lo = fares[Math.floor(fares.length * 0.33)]
+        const hi = fares[Math.floor(fares.length * 0.66)]
+        const fare = r.fare ?? Infinity
+        if (priceTier === 'low') matchPrice = fare <= lo
+        else if (priceTier === 'moderate') matchPrice = fare > lo && fare <= hi
+        else if (priceTier === 'high') matchPrice = fare > hi
+      }
+    }
+    return matchText && matchDate && matchSeats && matchDistrict && matchPrice
   })
 
   const inputCls = 'rounded-lg px-3 py-2 text-sm outline-none'
@@ -903,30 +955,33 @@ export default function RidesPage() {
             </button>
           </div>
 
-          {/* Filters */}
-          <div className="flex flex-wrap gap-2">
-            <input placeholder="Search origin / destination…" value={searchText}
-                   onChange={e => setSearchText(e.target.value)}
-                   className={`${inputCls} flex-1 min-w-40`} style={inputSty} />
-            <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
-                   className={inputCls} style={inputSty} />
-            <input type="number" min="1" max="20" placeholder="Min seats" value={seatsFilter}
-                   onChange={e => setSeatsFilter(e.target.value)}
-                   className={`${inputCls} w-28`} style={inputSty} />
-            <select value={priceSort} onChange={e => setPriceSort(e.target.value)}
-                    className={`${inputCls} w-36`} style={inputSty}>
-              <option value="">💰 Price: any</option>
-              <option value="asc">💰 Low → High</option>
-              <option value="desc">💰 High → Low</option>
-            </select>
-            <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}
-                    className={`${inputCls} w-40`} style={inputSty}>
-              <option value="">🇺🇬 All Districts</option>
-              {UGANDA_DISTRICTS.map(d => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
+          {/* Filters — only visible to passengers (Feature Area 2 role-based visibility) */}
+          {appUser?.role !== 'driver' && (
+            <div className="flex flex-wrap gap-2">
+              <input placeholder="Search origin / destination…" value={searchText}
+                     onChange={e => setSearchText(e.target.value)}
+                     className={`${inputCls} flex-1 min-w-40`} style={inputSty} />
+              <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
+                     className={inputCls} style={inputSty} />
+              <input type="number" min="1" max="20" placeholder="Min seats" value={seatsFilter}
+                     onChange={e => setSeatsFilter(e.target.value)}
+                     className={`${inputCls} w-28`} style={inputSty} />
+              <select value={priceTier} onChange={e => setPriceTier(e.target.value)}
+                      className={`${inputCls} w-40`} style={inputSty}>
+                <option value="">💰 Price: any</option>
+                <option value="low">💚 Low Price</option>
+                <option value="moderate">🟡 Moderate Price</option>
+                <option value="high">🔴 High Price</option>
+              </select>
+              <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}
+                      className={`${inputCls} w-40`} style={inputSty}>
+                <option value="">🇺🇬 All Districts</option>
+                {UGANDA_DISTRICTS.map(d => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Ride list */}
           {ridesLoading ? (
@@ -945,39 +1000,53 @@ export default function RidesPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredRides.map(ride => (
-                <div key={ride.ride_id}
-                     className="rounded-xl border p-4 flex items-start justify-between gap-3 hover:opacity-90 transition-opacity"
-                     style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
-                  <div className="flex-1 min-w-0 space-y-1">
-                    <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>
-                      {ride.origin} → {ride.destination}
-                    </p>
-                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
-                      <span>💰 {ride.fare ? '$' + ride.fare : 'Ask driver'}</span>
-                      <span>🪑 {ride.seats} seat(s)</span>
-                      {(ride.vehicle_color || ride.vehicle_type) && (
-                        <span>🚙 {[ride.vehicle_color, ride.vehicle_type].filter(Boolean).join(' ')}</span>
+              {filteredRides.map(ride => {
+                const isCompleted = ride.status === 'completed'
+                const isOwnRide   = appUser?.user_id === ride.user_id
+                return (
+                  <div key={ride.ride_id}
+                       className="rounded-xl border p-4 flex items-start justify-between gap-3 hover:opacity-90 transition-opacity"
+                       style={{ background: 'var(--bg-card)', borderColor: isCompleted ? 'rgba(239,68,68,0.4)' : 'var(--border-color)' }}>
+                    <div className="flex-1 min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <p className="font-semibold text-sm truncate" style={{ color: 'var(--text-primary)' }}>
+                          {ride.origin} → {ride.destination}
+                        </p>
+                        {isCompleted && (
+                          <span className="shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-400 font-medium">Full</span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs" style={{ color: 'var(--text-muted)' }}>
+                        <span>💰 {ride.fare ? '$' + ride.fare : 'Ask driver'}</span>
+                        <span>🪑 {ride.seats} seat(s)</span>
+                        {(ride.vehicle_color || ride.vehicle_type) && (
+                          <span>🚙 {[ride.vehicle_color, ride.vehicle_model_custom || ride.vehicle_type].filter(Boolean).join(' ')}</span>
+                        )}
+                        {ride.driver_name && <span>👤 {ride.driver_name}</span>}
+                        <span>🕐 {fmtDep(ride.departure)}</span>
+                      </div>
+                      {isCompleted && !isOwnRide && (
+                        <p className="text-xs text-red-400 font-medium mt-1">Seat already full please try another booking.</p>
                       )}
-                      {ride.driver_name && <span>👤 {ride.driver_name}</span>}
-                      <span>🕐 {fmtDep(ride.departure)}</span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {!isCompleted && (
+                        <button onClick={() => setSelectedRide(ride)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-colors">
+                          💬 Book
+                        </button>
+                      )}
+                      {isOwnRide && (
+                        <button onClick={(e) => handleCancelRide(ride.ride_id, e)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                                style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                          🗑️
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => setSelectedRide(ride)}
-                            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-colors">
-                      💬 Book
-                    </button>
-                    {appUser?.user_id === ride.user_id && (
-                      <button onClick={(e) => handleCancelRide(ride.ride_id, e)}
-                              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
-                              style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
-                        🗑️
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </section>

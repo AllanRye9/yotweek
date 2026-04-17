@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getUserProfile, userLogout, getDriverDashboard, getRideChatInbox } from '../api'
+import { getUserProfile, userLogout, getDriverDashboard, getRideChatInbox, getConfirmedUsers, driverConfirmBooking, repostSeat } from '../api'
 import NavBar from '../components/NavBar'
 import RideShare from '../components/RideShare'
 import RideChat from '../components/RideChat'
@@ -33,6 +33,11 @@ export default function DriverDashboard() {
   const [rideInbox, setRideInbox]   = useState([])
   const [inboxLoading, setInboxLoading] = useState(false)
 
+  // Bookings tab: confirmed passengers per ride
+  const [passengersMap, setPassengersMap] = useState({})
+  const [confirmingMap, setConfirmingMap] = useState({})  // confirmationId → loading
+  const [repostingMap, setRepostingMap] = useState({})    // rideId → loading
+
   useEffect(() => {
     getUserProfile()
       .then(u => {
@@ -54,7 +59,18 @@ export default function DriverDashboard() {
   const loadRideInbox = () => {
     setInboxLoading(true)
     getRideChatInbox()
-      .then(d => setRideInbox(d.conversations || d.inbox || []))
+      .then(d => {
+        const convs = d.conversations || d.inbox || []
+        // Sort inbox descending: most recent message at top
+        const sorted = [...convs].sort((a, b) => {
+          const ta = a.ts || a.timestamp || 0
+          const tb = b.ts || b.timestamp || 0
+          const na = typeof ta === 'number' ? ta : new Date(ta).getTime() / 1000
+          const nb = typeof tb === 'number' ? tb : new Date(tb).getTime() / 1000
+          return nb - na
+        })
+        setRideInbox(sorted)
+      })
       .catch(() => setRideInbox([]))
       .finally(() => setInboxLoading(false))
   }
@@ -62,6 +78,45 @@ export default function DriverDashboard() {
   useEffect(() => {
     if (tab === 'inbox') loadRideInbox()
   }, [tab])
+
+  const loadPassengers = async (rideId) => {
+    try {
+      const d = await getConfirmedUsers(rideId)
+      setPassengersMap(m => ({ ...m, [rideId]: d.confirmed_users || [] }))
+    } catch {
+      setPassengersMap(m => ({ ...m, [rideId]: [] }))
+    }
+  }
+
+  const handleDriverConfirm = async (rideId, confirmationId) => {
+    setConfirmingMap(m => ({ ...m, [confirmationId]: true }))
+    try {
+      await driverConfirmBooking(rideId, confirmationId)
+      // Mark locally as confirmed
+      setPassengersMap(m => ({
+        ...m,
+        [rideId]: (m[rideId] || []).map(p =>
+          p.confirmation_id === confirmationId ? { ...p, driver_confirmed: 1 } : p
+        ),
+      }))
+    } catch { /* ignore */ }
+    finally {
+      setConfirmingMap(m => ({ ...m, [confirmationId]: false }))
+    }
+  }
+
+  const handleRepostSeat = async (rideId) => {
+    setRepostingMap(m => ({ ...m, [rideId]: true }))
+    try {
+      await repostSeat(rideId)
+      // Refresh dashboard to update ride status
+      const d = await getDriverDashboard().catch(() => null)
+      if (d) setDashData(d)
+    } catch { /* ignore */ }
+    finally {
+      setRepostingMap(m => ({ ...m, [rideId]: false }))
+    }
+  }
 
   const handleLogout = async () => {
     await userLogout()
@@ -81,10 +136,11 @@ export default function DriverDashboard() {
   const stats = dashData?.stats || {}
 
   // Categorise recent rides by status
-  const allRecentRides = dashData?.posted_rides || []
-  const openRides      = allRecentRides.filter(r => r.status === 'open')
-  const cancelledRides = allRecentRides.filter(r => r.status === 'cancelled')
-  const otherRides     = allRecentRides.filter(r => r.status !== 'open' && r.status !== 'cancelled')
+  const allRecentRides  = dashData?.posted_rides || []
+  const openRides       = allRecentRides.filter(r => r.status === 'open')
+  const cancelledRides  = allRecentRides.filter(r => r.status === 'cancelled')
+  const completedRides  = allRecentRides.filter(r => r.status === 'completed')
+  const otherRides      = allRecentRides.filter(r => !['open', 'cancelled', 'completed'].includes(r.status))
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}>
@@ -95,11 +151,12 @@ export default function DriverDashboard() {
       <nav className="border-b flex px-4 gap-1 overflow-x-auto"
            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
         {[
-          ['overview', '📊 Overview'],
-          ['rides',    '🚘 My Rides'],
-          ['inbox',    '📬 Inbox'],
-          ['chat',     '💬 Ride Chat'],
-          ['map',      '🗺️ Map'],
+          ['overview',  '📊 Overview'],
+          ['rides',     '🚘 My Rides'],
+          ['bookings',  '👥 Bookings'],
+          ['inbox',     '📬 Inbox'],
+          ['chat',      '💬 Ride Chat'],
+          ['map',       '🗺️ Map'],
         ].map(([id, label]) => (
           <button
             key={id}
@@ -208,6 +265,34 @@ export default function DriverDashboard() {
                     </div>
                   </div>
                 )}
+
+                {/* Completed rides — seat sold out; Repost Seat available */}
+                {completedRides.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold mb-1.5 text-amber-400">🟠 Completed (Full)</p>
+                    <div className="space-y-2">
+                      {completedRides.slice(0, 5).map(ride => (
+                        <div
+                          key={ride.ride_id}
+                          className="flex items-center justify-between rounded-lg px-3 py-2 border border-amber-800/40"
+                          style={{ background: 'var(--bg-surface)' }}
+                        >
+                          <div>
+                            <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{ride.origin} → {ride.destination}</p>
+                            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{ride.departure}</p>
+                          </div>
+                          <button
+                            onClick={() => handleRepostSeat(ride.ride_id)}
+                            disabled={repostingMap[ride.ride_id]}
+                            className="text-xs px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-medium disabled:opacity-50 transition-colors shrink-0"
+                          >
+                            {repostingMap[ride.ride_id] ? '…' : '+ Repost Seat'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -220,6 +305,13 @@ export default function DriverDashboard() {
                   className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-medium rounded-lg transition-colors"
                 >
                   + Post New Ride
+                </button>
+                <button
+                  onClick={() => setTab('bookings')}
+                  className="px-3 py-1.5 text-xs rounded-lg transition-colors hover:opacity-80"
+                  style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+                >
+                  👥 Manage Bookings
                 </button>
                 <button
                   onClick={() => setTab('inbox')}
@@ -240,6 +332,80 @@ export default function DriverDashboard() {
             driverOnlyRides
             onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }}
           />
+        )}
+
+        {/* Bookings — confirmed passengers with Confirm Booking & Repost Seat actions */}
+        {tab === 'bookings' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-sm" style={{ color: 'var(--text-secondary)' }}>👥 Passenger Bookings</h2>
+            </div>
+            {!allRecentRides.length ? (
+              <p className="text-xs text-center py-6" style={{ color: 'var(--text-muted)' }}>No rides posted yet.</p>
+            ) : allRecentRides.map(ride => (
+              <div key={ride.ride_id} className="rounded-xl p-4 space-y-3"
+                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{ride.origin} → {ride.destination}</p>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {ride.departure ? new Date(ride.departure).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}
+                      {' · '}{ride.seats} seat(s) remaining
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                      ride.status === 'open' ? 'bg-green-900/50 text-green-400'
+                      : ride.status === 'completed' ? 'bg-red-900/50 text-red-400'
+                      : 'bg-gray-700 text-gray-400'
+                    }`}>{ride.status}</span>
+                    {(ride.status === 'completed' || ride.status === 'taken') && (
+                      <button
+                        onClick={() => handleRepostSeat(ride.ride_id)}
+                        disabled={repostingMap[ride.ride_id]}
+                        className="px-2 py-1 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 transition-colors"
+                        title="Increment seat count by 1 and re-open ride"
+                      >
+                        {repostingMap[ride.ride_id] ? '…' : '+ Repost Seat'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Passenger list with confirm buttons */}
+                {!passengersMap[ride.ride_id] ? (
+                  <button onClick={() => loadPassengers(ride.ride_id)}
+                          className="text-xs text-amber-500 hover:text-amber-400 underline">
+                    Load passengers →
+                  </button>
+                ) : passengersMap[ride.ride_id].length === 0 ? (
+                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>No confirmed passengers yet.</p>
+                ) : (
+                  <div className="divide-y" style={{ borderColor: 'var(--border-color)' }}>
+                    {passengersMap[ride.ride_id].map((p, i) => (
+                      <div key={i} className="py-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{p.real_name}</p>
+                          <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>{p.contact}</p>
+                        </div>
+                        {p.driver_confirmed ? (
+                          <span className="text-xs text-green-400 shrink-0">✅ Confirmed</span>
+                        ) : (
+                          <button
+                            onClick={() => handleDriverConfirm(ride.ride_id, p.confirmation_id)}
+                            disabled={confirmingMap[p.confirmation_id]}
+                            className="px-3 py-1 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 transition-colors shrink-0"
+                          >
+                            {confirmingMap[p.confirmation_id] ? '…' : 'Confirm Booking'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )}
 
         {/* Ride Chat Inbox (driver-only: shows passenger conversations per ride) */}

@@ -149,8 +149,8 @@ export const getTrackedRides = () => request('GET', '/api/rides/tracking')
 
 // ── Ride Booking ──────────────────────────────────────────────────────────────
 
-export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null, dest_lat = null, dest_lng = null, fare = null, ride_type = '', vehicle_color = '', vehicle_type = '', plate_number = '') =>
-  request('POST', '/api/rides', { origin, destination, departure, seats, notes, origin_lat, origin_lng, dest_lat, dest_lng, fare, ride_type, vehicle_color, vehicle_type, plate_number })
+export const postRide = (origin, destination, departure, seats, notes = '', origin_lat = null, origin_lng = null, dest_lat = null, dest_lng = null, fare = null, ride_type = '', vehicle_color = '', vehicle_type = '', plate_number = '', vehicle_model_custom = '') =>
+  request('POST', '/api/rides', { origin, destination, departure, seats, notes, origin_lat, origin_lng, dest_lat, dest_lng, fare, ride_type, vehicle_color, vehicle_type, plate_number, vehicle_model_custom })
 
 export const calculateFare = (origin_lat, origin_lng, dest_lat, dest_lng) =>
   request('GET', `/api/rides/fare?origin_lat=${origin_lat}&origin_lng=${origin_lng}&dest_lat=${dest_lat}&dest_lng=${dest_lng}`)
@@ -175,6 +175,11 @@ export const cancelRide = (rideId) => request('DELETE', `/api/rides/${encodeURIC
 export const takeRide = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/take`)
 
 export const repostRide = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/repost`)
+
+export const repostSeat = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/repost_seat`)
+
+export const driverConfirmBooking = (rideId, confirmationId) =>
+  request('POST', `/api/rides/${encodeURIComponent(rideId)}/driver_confirm_booking/${encodeURIComponent(confirmationId)}`)
 
 export const alertRideClients = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/alert`)
 
