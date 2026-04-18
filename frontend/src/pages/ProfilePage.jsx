@@ -276,6 +276,17 @@ function ProfileStats({ user }) {
   }, [])
 
   const memberSince = user.created_at ? new Date(user.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'long' }) : null
+
+  // XP: 10 pts per ride taken, 5 per ride offered, 8 per companion trip (capped at 1000 for max level)
+  const xp  = loading ? 0 : Math.min(
+    (stats?.total_rides     || 0) * 10 +
+    (stats?.open_rides      || 0) * 5  +
+    (stats?.total_passengers|| 0) * 8,
+    1000
+  )
+  const xpPct = Math.round((xp / 1000) * 100)
+  const level = Math.floor(xp / 100) + 1
+
   const tiles = [
     { label: 'Rides Taken',      value: loading ? '…' : stats?.total_rides      ?? '—', icon: '🚗' },
     { label: 'Rides Offered',    value: loading ? '…' : stats?.open_rides        ?? '—', icon: '📋' },
@@ -296,6 +307,25 @@ function ProfileStats({ user }) {
           </div>
         ))}
       </div>
+
+      {/* XP progress bar */}
+      {!loading && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)' }}>⚡ Level {level} · {xp} XP</span>
+            <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{xpPct}% to next</span>
+          </div>
+          <div style={{ height: 8, background: 'var(--bg-input)', borderRadius: 999, overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+            <div style={{
+              height: '100%',
+              width: `${xpPct}%`,
+              background: 'linear-gradient(90deg, #f59e0b, #d97706)',
+              borderRadius: 999,
+              transition: 'width 0.6s cubic-bezier(0.4,0,0.2,1)',
+            }} />
+          </div>
+        </div>
+      )}
     </section>
   )
 }

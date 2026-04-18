@@ -19,24 +19,46 @@ import {
   createTravelCompanion,
   deleteTravelCompanion,
   dmStartConversation,
+  aiChat,
 } from '../api'
 
 function compatibilityScore(companion, user) {
   if (!user) return 0
   let score = 0
-  // Same destination country
+  // Same destination country (+40)
   if (companion.destination_country && user.location_name) {
     if (companion.destination_country.toLowerCase().includes(user.location_name.toLowerCase()) ||
         user.location_name.toLowerCase().includes(companion.destination_country.toLowerCase())) score += 40
   }
-  return score
+  // Same origin city (+20)
+  if (companion.origin_city && user.location_name) {
+    if (companion.origin_city.toLowerCase().includes(user.location_name.toLowerCase()) ||
+        user.location_name.toLowerCase().includes(companion.origin_city.toLowerCase())) score += 20
+  }
+  // Travel date within 7 days of today (+30)
+  if (companion.travel_date) {
+    try {
+      const diff = Math.abs(new Date(companion.travel_date) - Date.now()) / (1000 * 60 * 60 * 24)
+      if (diff <= 7) score += 30
+    } catch {}
+  }
+  // Notes keyword overlap (+10) — simple shared-word check
+  if (companion.notes && user.bio) {
+    const cWords = new Set(companion.notes.toLowerCase().split(/\W+/).filter(w => w.length > 3))
+    const uWords = user.bio.toLowerCase().split(/\W+/).filter(w => w.length > 3)
+    if (uWords.some(w => cWords.has(w))) score += 10
+  }
+  return Math.min(score, 100)
 }
 
 function CompatBadge({ score }) {
   if (!score) return null
+  const color = score >= 70 ? '#6ee7b7' : score >= 40 ? '#fcd34d' : '#a78bfa'
+  const bg    = score >= 70 ? 'rgba(16,185,129,0.15)' : score >= 40 ? 'rgba(245,158,11,0.15)' : 'rgba(139,92,246,0.15)'
+  const border= score >= 70 ? 'rgba(16,185,129,0.35)' : score >= 40 ? 'rgba(245,158,11,0.35)' : 'rgba(139,92,246,0.35)'
   return (
-    <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(139,92,246,0.15)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}>
-      ✨ Route Match
+    <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: bg, color, border: `1px solid ${border}` }}>
+      ✨ {score}% match
     </span>
   )
 }
@@ -52,6 +74,7 @@ export default function TravelCompanionsPage() {
   const [posting,      setPosting]      = useState(false)
   const [postError,    setPostError]    = useState('')
   const [dmLoading,    setDmLoading]    = useState({})
+  const [aiStarter,    setAiStarter]    = useState({})   // { [companion_id]: { loading, text } }
 
   // Filter state
   const [fOrigin, setFOrigin] = useState('')
@@ -113,6 +136,18 @@ export default function TravelCompanionsPage() {
       navigate('/inbox')
     } catch (err) { alert(err.message || 'Failed to start conversation.') }
     finally { setDmLoading(p => ({ ...p, [toUserId]: false })) }
+  }
+
+  const handleAiStarter = async (companion) => {
+    const id = companion.companion_id
+    setAiStarter(p => ({ ...p, [id]: { loading: true, text: null } }))
+    try {
+      const prompt = `Suggest a friendly, concise opening message for someone wanting to travel with ${companion.poster_name} from ${companion.origin_country}${companion.origin_city ? ` (${companion.origin_city})` : ''} to ${companion.destination_country}${companion.destination_city ? ` (${companion.destination_city})` : ''} on ${companion.travel_date}${companion.notes ? `. They mention: "${companion.notes}"` : ''}. Keep it natural and under 2 sentences.`
+      const d = await aiChat(prompt, 'travel_companions')
+      setAiStarter(p => ({ ...p, [id]: { loading: false, text: d.reply } }))
+    } catch {
+      setAiStarter(p => ({ ...p, [id]: { loading: false, text: null } }))
+    }
   }
 
   const inputCls = 'rounded-lg px-3 py-2 text-sm outline-none w-full'
@@ -186,15 +221,15 @@ export default function TravelCompanionsPage() {
         )}
 
         {/* ── Persistent Filter Bar ── */}
-        <form onSubmit={handleSearch} className="flex flex-wrap gap-2 items-center p-3 rounded-xl sticky top-14 z-10" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-          <input type="text" placeholder="From country…" value={fOrigin} onChange={e => setFOrigin(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 outline-none w-32" style={inputSty} />
-          <input type="text" placeholder="To country…"   value={fDest}   onChange={e => setFDest(e.target.value)}   className="text-xs rounded-lg px-2 py-1.5 outline-none w-32" style={inputSty} />
+        <form onSubmit={handleSearch} className="flex flex-wrap gap-2 items-center p-3 rounded-xl sticky top-14 z-10 overflow-x-auto" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+          <input type="text" placeholder="From country…" value={fOrigin} onChange={e => setFOrigin(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 outline-none min-w-[120px]" style={inputSty} />
+          <input type="text" placeholder="To country…"   value={fDest}   onChange={e => setFDest(e.target.value)}   className="text-xs rounded-lg px-2 py-1.5 outline-none min-w-[120px]" style={inputSty} />
           <input type="date" value={fDate} onChange={e => setFDate(e.target.value)} className="text-xs rounded-lg px-2 py-1.5 outline-none" style={inputSty} />
-          <button type="submit" disabled={loading} className="text-xs px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold disabled:opacity-50">
+          <button type="submit" disabled={loading} className="text-xs px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-semibold disabled:opacity-50 shrink-0">
             🔍 Search
           </button>
           {(fOrigin || fDest || fDate) && (
-            <button type="button" onClick={() => { setFOrigin(''); setFDest(''); setFDate(''); setTimeout(loadCompanions, 0) }} className="text-xs text-amber-400 hover:text-amber-300">
+            <button type="button" onClick={() => { setFOrigin(''); setFDest(''); setFDate(''); setTimeout(loadCompanions, 0) }} className="text-xs text-amber-400 hover:text-amber-300 shrink-0">
               ✕ Clear
             </button>
           )}
@@ -219,8 +254,9 @@ export default function TravelCompanionsPage() {
           <div className="space-y-3">
             {companions.map(c => {
               const compat = compatibilityScore(c, user)
+              const starter = aiStarter[c.companion_id]
               return (
-                <div key={c.companion_id} className="rounded-xl p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                <div key={c.companion_id} className="rounded-xl p-4 fade-in-up transition-all duration-200" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
                   <div className="flex items-start gap-3">
                     {/* Avatar */}
                     <div className="w-10 h-10 rounded-full bg-purple-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
@@ -252,15 +288,37 @@ export default function TravelCompanionsPage() {
                         </span>
                         {c.notes && <p className="text-xs italic" style={{ color: 'var(--text-muted)' }}>"{c.notes}"</p>}
                       </div>
+
+                      {/* AI conversation starter */}
+                      {user && user.user_id !== c.user_id && (
+                        <div className="mt-2">
+                          {!starter?.text && (
+                            <button
+                              onClick={() => handleAiStarter(c)}
+                              disabled={starter?.loading}
+                              className="text-xs px-2 py-1 rounded-lg font-medium transition-colors hover:opacity-80 disabled:opacity-50"
+                              style={{ background: 'rgba(139,92,246,0.12)', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}
+                            >
+                              {starter?.loading ? '✨ Generating…' : '✨ AI Starter'}
+                            </button>
+                          )}
+                          {starter?.text && (
+                            <div className="mt-1 rounded-lg px-3 py-2 text-xs italic" style={{ background: 'rgba(139,92,246,0.1)', color: '#c4b5fd', border: '1px solid rgba(139,92,246,0.25)' }}>
+                              💡 "{starter.text}"
+                              <button onClick={() => setAiStarter(p => ({ ...p, [c.companion_id]: { ...p[c.companion_id], text: null } }))} className="ml-2 text-purple-400 hover:text-purple-200 text-xs">✕</button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Action buttons */}
+                    {/* Action buttons — stacked on mobile */}
                     <div className="flex flex-col gap-1.5 shrink-0">
                       {user && user.user_id !== c.user_id && (
                         <>
                           <button
                             onClick={() => navigate(`/profile?uid=${c.user_id}`)}
-                            className="text-xs px-3 py-1 rounded-lg font-semibold transition-colors hover:opacity-80"
+                            className="text-xs px-3 py-1 rounded-lg font-semibold transition-all duration-200 hover:opacity-80"
                             style={{ border: '1px solid var(--border-color)', color: 'var(--text-secondary)', background: 'var(--bg-surface)' }}
                           >
                             👤 Profile
@@ -268,7 +326,7 @@ export default function TravelCompanionsPage() {
                           <button
                             onClick={() => handleMessage(c.user_id)}
                             disabled={dmLoading[c.user_id]}
-                            className="text-xs px-3 py-1 rounded-lg font-semibold disabled:opacity-50 transition-colors bg-amber-500 hover:bg-amber-400 text-black"
+                            className="text-xs px-3 py-1 rounded-lg font-semibold disabled:opacity-50 transition-all duration-200 bg-amber-500 hover:bg-amber-400 text-black"
                           >
                             {dmLoading[c.user_id] ? '…' : '💬 Message'}
                           </button>
@@ -277,7 +335,7 @@ export default function TravelCompanionsPage() {
                       {user && user.user_id === c.user_id && (
                         <button
                           onClick={() => handleDelete(c.companion_id)}
-                          className="text-xs px-3 py-1 rounded-lg text-red-400 hover:text-red-300 transition-colors"
+                          className="text-xs px-3 py-1 rounded-lg text-red-400 hover:text-red-300 transition-all duration-200"
                           style={{ border: '1px solid rgba(248,113,113,0.4)' }}
                         >
                           🗑 Remove

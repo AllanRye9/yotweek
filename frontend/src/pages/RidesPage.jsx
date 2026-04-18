@@ -741,6 +741,12 @@ export default function RidesPage() {
   const [selectedRide, setSelectedRide] = useState(null)
   const [showPostForm, setShowPostForm] = useState(false)
 
+  // View mode: 'card' | 'list'
+  const [viewMode, setViewMode] = useState('card')
+
+  // Achievement toast
+  const [showAchievement, setShowAchievement] = useState(false)
+
   // Filters
   const [searchText, setSearchText] = useState('')
   const [dateFilter, setDateFilter] = useState('')
@@ -916,8 +922,16 @@ export default function RidesPage() {
             {appUser ? (
               <div className="relative" ref={profileRef}>
                 <button onClick={() => setProfileOpen(v => !v)}
-                        className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-sm font-bold text-black">
-                  {appUser.name?.charAt(0)?.toUpperCase() || '?'}
+                        className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-sm font-bold text-black overflow-hidden">
+                  {appUser.avatar_url ? (
+                    <img src={appUser.avatar_url} alt="" className="w-full h-full object-cover rounded-full" />
+                  ) : (
+                    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                      <circle cx="20" cy="20" r="20" fill="#b45309"/>
+                      <circle cx="20" cy="15" r="7" fill="#fef3c7"/>
+                      <ellipse cx="20" cy="34" rx="12" ry="8" fill="#fef3c7"/>
+                    </svg>
+                  )}
                 </button>
                 {profileOpen && (
                   <div className="absolute right-0 top-full mt-1 z-50">
@@ -944,15 +958,25 @@ export default function RidesPage() {
           <div className="flex flex-wrap items-center gap-2">
             {appUser?.role === 'driver' && (
               <button onClick={() => setShowPostForm(true)}
-                      className="px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-amber-500 hover:bg-amber-400 text-black">
+                      className="px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 bg-amber-500 hover:bg-amber-400 text-black">
                 + Post a Ride
               </button>
             )}
             <button onClick={loadRides}
-                    className="px-3 py-2 rounded-lg text-sm transition-colors hover:opacity-80"
+                    className="px-3 py-2 rounded-lg text-sm transition-all duration-200 hover:opacity-80"
                     style={{ background: 'var(--bg-card)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
               ↺ Refresh
             </button>
+            {/* Card / List view toggle */}
+            <div className="ml-auto flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-color)' }}>
+              {[['card', '⊞ Cards'], ['list', '☰ List']].map(([mode, label]) => (
+                <button key={mode} onClick={() => setViewMode(mode)}
+                        className={`px-3 py-1.5 text-xs font-medium transition-all duration-200 ${viewMode === mode ? 'bg-amber-500 text-black' : 'hover:opacity-80'}`}
+                        style={viewMode !== mode ? { background: 'var(--bg-card)', color: 'var(--text-secondary)' } : {}}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Filters — only visible to passengers (Feature Area 2 role-based visibility) */}
@@ -960,21 +984,21 @@ export default function RidesPage() {
             <div className="flex flex-wrap gap-2">
               <input placeholder="Search origin / destination…" value={searchText}
                      onChange={e => setSearchText(e.target.value)}
-                     className={`${inputCls} flex-1 min-w-40`} style={inputSty} />
+                     className={`${inputCls} flex-1 min-w-[160px]`} style={inputSty} />
               <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)}
                      className={inputCls} style={inputSty} />
               <input type="number" min="1" max="20" placeholder="Min seats" value={seatsFilter}
                      onChange={e => setSeatsFilter(e.target.value)}
-                     className={`${inputCls} w-28`} style={inputSty} />
+                     className={`${inputCls} w-24`} style={inputSty} />
               <select value={priceTier} onChange={e => setPriceTier(e.target.value)}
-                      className={`${inputCls} w-40`} style={inputSty}>
+                      className={`${inputCls} min-w-[130px]`} style={inputSty}>
                 <option value="">💰 Price: any</option>
                 <option value="low">💚 Low Price</option>
                 <option value="moderate">🟡 Moderate Price</option>
                 <option value="high">🔴 High Price</option>
               </select>
               <select value={districtFilter} onChange={e => setDistrictFilter(e.target.value)}
-                      className={`${inputCls} w-40`} style={inputSty}>
+                      className={`${inputCls} min-w-[130px]`} style={inputSty}>
                 <option value="">🇺🇬 All Districts</option>
                 {UGANDA_DISTRICTS.map(d => (
                   <option key={d} value={d}>{d}</option>
@@ -983,7 +1007,7 @@ export default function RidesPage() {
             </div>
           )}
 
-          {/* Ride list */}
+          {/* Ride list / cards */}
           {ridesLoading ? (
             <p className="text-sm py-8 text-center" style={{ color: 'var(--text-muted)' }}>Loading rides…</p>
           ) : ridesError ? (
@@ -998,14 +1022,22 @@ export default function RidesPage() {
                 Raise a request →
               </button>
             </div>
-          ) : (
+          ) : viewMode === 'card' ? (
             <div className="space-y-3">
               {filteredRides.map(ride => {
                 const isCompleted = ride.status === 'completed'
                 const isOwnRide   = appUser?.user_id === ride.user_id
+                const handleBook  = () => {
+                  setSelectedRide(ride)
+                  if (!localStorage.getItem('yot_first_booking')) {
+                    localStorage.setItem('yot_first_booking', '1')
+                    setShowAchievement(true)
+                    setTimeout(() => setShowAchievement(false), 4000)
+                  }
+                }
                 return (
                   <div key={ride.ride_id}
-                       className="rounded-xl border p-4 flex items-start justify-between gap-3 hover:opacity-90 transition-opacity"
+                       className="rounded-xl border p-4 flex items-start justify-between gap-3 hover:opacity-90 transition-all duration-200 fade-in-up"
                        style={{ background: 'var(--bg-card)', borderColor: isCompleted ? 'rgba(239,68,68,0.4)' : 'var(--border-color)' }}>
                     <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2">
@@ -1031,15 +1063,63 @@ export default function RidesPage() {
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       {!isCompleted && (
-                        <button onClick={() => setSelectedRide(ride)}
-                                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-colors">
+                        <button onClick={handleBook}
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-all duration-200">
                           💬 Book
                         </button>
                       )}
                       {isOwnRide && (
                         <button onClick={(e) => handleCancelRide(ride.ride_id, e)}
-                                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors hover:opacity-80"
+                                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 hover:opacity-80"
                                 style={{ background: 'var(--bg-surface)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}>
+                          🗑️
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            /* List view — dense single-line rows */
+            <div className="rounded-xl border overflow-hidden" style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
+              {filteredRides.map((ride, idx) => {
+                const isCompleted = ride.status === 'completed'
+                const isOwnRide   = appUser?.user_id === ride.user_id
+                const handleBook  = () => {
+                  setSelectedRide(ride)
+                  if (!localStorage.getItem('yot_first_booking')) {
+                    localStorage.setItem('yot_first_booking', '1')
+                    setShowAchievement(true)
+                    setTimeout(() => setShowAchievement(false), 4000)
+                  }
+                }
+                return (
+                  <div key={ride.ride_id}
+                       className={`flex items-center gap-3 px-3 py-2 hover:opacity-90 transition-all duration-200 fade-in-up ${idx !== 0 ? 'border-t' : ''}`}
+                       style={{ borderColor: 'var(--border-color)' }}>
+                    <div className="flex-1 min-w-0 flex items-center gap-2 overflow-hidden">
+                      <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+                        {ride.origin} → {ride.destination}
+                      </span>
+                      {isCompleted && <span className="shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-red-900/50 text-red-400">Full</span>}
+                    </div>
+                    <div className="flex items-center gap-3 text-xs shrink-0" style={{ color: 'var(--text-muted)' }}>
+                      <span className="hidden sm:inline">💰 {ride.fare ? '$' + ride.fare : '—'}</span>
+                      <span>🪑 {ride.seats}</span>
+                      <span className="hidden sm:inline">🕐 {fmtDep(ride.departure)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {!isCompleted && (
+                        <button onClick={handleBook}
+                                className="px-2 py-1 rounded text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black transition-all duration-200">
+                          Book
+                        </button>
+                      )}
+                      {isOwnRide && (
+                        <button onClick={(e) => handleCancelRide(ride.ride_id, e)}
+                                className="px-2 py-1 rounded text-xs transition-all duration-200 hover:opacity-80"
+                                style={{ color: 'var(--text-muted)' }}>
                           🗑️
                         </button>
                       )}
@@ -1091,6 +1171,18 @@ export default function RidesPage() {
           )}
         </aside>
       </main>
+
+      {/* Achievement toast */}
+      {showAchievement && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 fade-in-up"
+             style={{ background: 'var(--bg-surface)', border: '1px solid rgba(245,158,11,0.5)', color: 'var(--text-primary)' }}>
+          <span className="text-2xl">🎉</span>
+          <div>
+            <p className="text-sm font-bold text-amber-400">First Ride Booked!</p>
+            <p className="text-xs" style={{ color: 'var(--text-muted)' }}>You've earned the Explorer badge</p>
+          </div>
+        </div>
+      )}
 
       {/* Chat overlay */}
       {selectedRide && (

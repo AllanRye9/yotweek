@@ -5631,6 +5631,41 @@ async def api_dm_delete_conversation(request: Request, conv_id: str):
     return JSONResponse({"ok": True})
 
 
+@fastapi_app.delete("/api/dm/messages/{msg_id}")
+async def api_dm_delete_message(request: Request, msg_id: str):
+    """Delete a single DM message.  Only the original sender may delete it."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            cur = _execute(
+                conn,
+                "SELECT sender_id FROM dm_messages WHERE msg_id=?" if not USE_POSTGRES
+                else "SELECT sender_id FROM dm_messages WHERE msg_id=%s",
+                (msg_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                return JSONResponse({"error": "Message not found."}, status_code=404)
+            sender_id = row[0] if isinstance(row, (tuple, list)) else row["sender_id"]
+            if sender_id != user_id:
+                return JSONResponse({"error": "Not authorised to delete this message."}, status_code=403)
+            _execute(
+                conn,
+                "DELETE FROM dm_messages WHERE msg_id=?" if not USE_POSTGRES
+                else "DELETE FROM dm_messages WHERE msg_id=%s",
+                (msg_id,),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    return JSONResponse({"ok": True})
+
+
 @fastapi_app.get("/api/users/list")
 async def api_list_users(request: Request):
     """Return a list of all registered users (name + user_id) for starting new conversations."""

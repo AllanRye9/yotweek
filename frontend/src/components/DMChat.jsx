@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import socket from '../socket'
-import { dmMarkRead, getUserPublicKey, getUserPublicProfile } from '../api'
+import { dmMarkRead, dmDeleteMessage, getUserPublicKey, getUserPublicProfile } from '../api'
 import { getSharedSecret, encryptMessage, decryptMessage, isEncryptedPayload } from '../crypto'
 
 /**
@@ -137,6 +137,9 @@ export default function DMChat({ conv, currentUser, onClose, onBack }) {
   // otherUser starts from the conv prop but is refreshed from the backend below
   const [resolvedUser, setResolvedUser] = useState(conv?.other_user || null)
   const otherUser = resolvedUser || conv?.other_user
+
+  // Delete-message confirmation
+  const [deletingMsgId, setDeletingMsgId] = useState(null)
 
   // ── Query backend for the latest user profile of the chat target ─────────
   useEffect(() => {
@@ -293,6 +296,18 @@ export default function DMChat({ conv, currentUser, onClose, onBack }) {
 
     setReplyTo(null)
   }, [convId, myId, replyTo])
+
+  // ── Delete message ────────────────────────────────────────────────────────
+  const handleDeleteMessage = useCallback(async (msgId) => {
+    try {
+      await dmDeleteMessage(msgId)
+      setMessages(prev => prev.filter(m => m.msg_id !== msgId))
+    } catch (err) {
+      alert(err?.message || 'Failed to delete message.')
+    } finally {
+      setDeletingMsgId(null)
+    }
+  }, [])
 
   // ── Send text ────────────────────────────────────────────────────────────
   const handleSend = useCallback(async (e) => {
@@ -601,6 +616,15 @@ export default function DMChat({ conv, currentUser, onClose, onBack }) {
                     >
                       ↩
                     </button>
+                    {isMine && (
+                      <button
+                        onClick={() => setDeletingMsgId(msg.msg_id)}
+                        className="absolute -top-2 right-8 hidden group-hover:flex items-center justify-center w-6 h-6 rounded-full bg-gray-600 hover:bg-red-600 text-gray-300 text-xs transition-colors"
+                        title="Delete message"
+                      >
+                        🗑
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -832,6 +856,30 @@ export default function DMChat({ conv, currentUser, onClose, onBack }) {
           ➤
         </button>
       </form>
+
+      {/* Delete message confirmation modal */}
+      {deletingMsgId && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 rounded-xl">
+          <div className="bg-gray-800 border border-gray-600 rounded-xl p-5 w-72 shadow-2xl space-y-3">
+            <p className="text-sm font-semibold text-white">🗑 Delete message?</p>
+            <p className="text-xs text-gray-400">This message will be permanently removed. This cannot be undone.</p>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setDeletingMsgId(null)}
+                className="px-3 py-1.5 text-xs rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteMessage(deletingMsgId)}
+                className="px-3 py-1.5 text-xs rounded-lg bg-red-600 hover:bg-red-500 text-white font-semibold transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

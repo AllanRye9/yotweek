@@ -38,6 +38,18 @@ function _countdown(departure) {
   return { label, urgent: totalMin < 30 }
 }
 
+// ── Haversine distance (km) ─────────────────────────────────────────────────
+function _haversineKm(lat1, lng1, lat2, lng2) {
+  const R = 6371
+  const dLat = (lat2 - lat1) * Math.PI / 180
+  const dLng = (lng2 - lng1) * Math.PI / 180
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLng / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+const DRIVER_PROXIMITY_KM = 5
+
 /**
  * RideShareMap — OpenStreetMap (Leaflet) map showing available rides, driver
  * locations and the current user's position.
@@ -47,7 +59,7 @@ function _countdown(departure) {
  *  userLocation     - { lat, lng } of the current user (optional)
  *  onRequestRide(ride) - called when user clicks "Request Ride" on a marker
  *  driverLocations  - Array of { lat, lng, name, empty } driver positions
- *  autoLoadDrivers  - When true, polls /api/driver/locations every 15s
+ *  autoLoadDrivers  - When true, continuously fetches drivers every 5s
  *  onLocationUpdate - Called with {lat, lng} when the map auto-detects location
  */
 export default function RideShareMap({ rides = [], userLocation, onRequestRide, onOpenChat, driverLocations: propDriverLocations = [], autoLoadDrivers = true, onLocationUpdate, mapHeight = 300 }) {
@@ -88,7 +100,7 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
 
   useEffect(() => {
     refreshDriverLocations()
-    const id = setInterval(refreshDriverLocations, 15_000)
+    const id = setInterval(refreshDriverLocations, 5_000)
     return () => clearInterval(id)
   }, [refreshDriverLocations])
 
@@ -221,7 +233,15 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     driverMarkersRef.current.forEach(m => m.remove())
     driverMarkersRef.current = []
 
-    driverLocations.forEach(dl => {
+    // Filter to drivers within 5 km of user when location is known
+    const proximityFiltered = userLocation?.lat != null
+      ? driverLocations.filter(dl =>
+          dl.lat != null && dl.lng != null &&
+          _haversineKm(userLocation.lat, userLocation.lng, dl.lat, dl.lng) <= DRIVER_PROXIMITY_KM
+        )
+      : driverLocations
+
+    proximityFiltered.forEach(dl => {
       if (dl.lat == null || dl.lng == null) return
       // Animated pulsing icon for active (empty/available) drivers
       const isActive = dl.empty
@@ -264,7 +284,7 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
         )
       driverMarkersRef.current.push(m)
     })
-  }, [driverLocations])
+  }, [driverLocations, userLocation])
 
   // ── User location marker ────────────────────────────────────────────────────
   useEffect(() => {
@@ -456,11 +476,18 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
       )}
 
       {/* Driver count badge */}
-      {driverLocations.length > 0 && (
-        <div className="absolute bottom-10 right-2 z-[1000] bg-green-900/90 border border-green-700 rounded-full px-2.5 py-0.5 text-xs text-green-300 font-medium">
-          {driverLocations.filter(d => d.empty).length} verified driver{driverLocations.filter(d => d.empty).length !== 1 ? 's' : ''} available
-        </div>
-      )}
+      {driverLocations.length > 0 && (() => {
+        const proximityFiltered = userLocation?.lat != null
+          ? driverLocations.filter(dl => dl.lat != null && dl.lng != null &&
+              _haversineKm(userLocation.lat, userLocation.lng, dl.lat, dl.lng) <= DRIVER_PROXIMITY_KM)
+          : driverLocations
+        const availCount = proximityFiltered.filter(d => d.empty).length
+        return (
+          <div className="absolute bottom-10 right-2 z-[1000] bg-green-900/90 border border-green-700 rounded-full px-2.5 py-0.5 text-xs text-green-300 font-medium">
+            {availCount} driver{availCount !== 1 ? 's' : ''} available{userLocation?.lat != null ? ' · within 5 km' : ''}
+          </div>
+        )
+      })()}
 
       {/* Legend */}
       <div className="absolute bottom-2 left-2 z-[1000] flex gap-1.5 flex-wrap">
