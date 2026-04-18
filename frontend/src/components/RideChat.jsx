@@ -583,11 +583,13 @@ export default function RideChat({ ride, user, onClose }) {
           const showSender = !mine && (i === 0 || prevSender !== senderName)
           const msgId = msg.msg_id || msg.id
           const canDelete = mine || isDriver
+          // Apply entry animation only to the last few messages (newly arrived)
+          const isRecent = i >= messages.length - 3
           return (
             <div key={msgId || msg._localId || i}
                  className={`flex ${mine ? 'justify-end' : 'justify-start'} ${
                    i > 0 && prevSender === senderName ? 'mt-0.5' : 'mt-2'
-                 }`}
+                 } ${isRecent && msg._pending ? 'msg-entry' : ''}`}
                  onMouseEnter={() => setHoveredMsg(msgId || msg._localId || i)}
                  onMouseLeave={() => setHoveredMsg(null)}>
               {/* Avatar for incoming messages */}
