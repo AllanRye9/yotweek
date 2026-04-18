@@ -314,6 +314,9 @@ export const dmMarkRead = (convId) =>
 export const dmDeleteConversation = (convId) =>
   request('DELETE', `/api/dm/conversations/${encodeURIComponent(convId)}`)
 
+export const dmDeleteMessage = (msgId) =>
+  request('DELETE', `/api/dm/messages/${encodeURIComponent(msgId)}`)
+
 // ── Aliased DM helpers (used by InboxPage) ────────────────────────────────────
 
 export const getDmConversations = (search = '') =>

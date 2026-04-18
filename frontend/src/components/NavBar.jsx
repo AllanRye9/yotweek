@@ -32,6 +32,11 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
   const [connected, setConnected] = useState(socket.connected)
   const menuRef = useRef(null)
 
+  // Streak: days since account creation (capped at 30 for display purposes)
+  const streakDays = user?.created_at
+    ? Math.min(Math.floor((Date.now() - new Date(user.created_at).getTime()) / 86400000) + 1, 30)
+    : 0
+
   // Track socket connection state
   useEffect(() => {
     const onConnect    = () => {
@@ -172,26 +177,37 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
 
         {/* Auth / profile — top-right avatar always links directly to /profile */}
         {user ? (
-          <Link
-            to="/profile"
-            className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-sm font-bold text-black focus:outline-none focus:ring-2 focus:ring-amber-400 shrink-0 overflow-hidden"
-            aria-label="Profile"
-            title={user.name}
-          >
-            {user.avatar_url ? (
-              <img
-                src={user.avatar_url}
-                alt=""
-                className="w-full h-full rounded-full object-cover"
-              />
-            ) : (
-              <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-                <circle cx="20" cy="20" r="20" fill="#b45309"/>
-                <circle cx="20" cy="15" r="7" fill="#fef3c7"/>
-                <ellipse cx="20" cy="34" rx="12" ry="8" fill="#fef3c7"/>
-              </svg>
+          <>
+            {streakDays > 0 && (
+              <span
+                className="hidden sm:inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full shrink-0"
+                style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}
+                title={`${streakDays}-day streak`}
+              >
+                🔥 {streakDays}
+              </span>
             )}
-          </Link>
+            <Link
+              to="/profile"
+              className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-sm font-bold text-black focus:outline-none focus:ring-2 focus:ring-amber-400 shrink-0 overflow-hidden"
+              aria-label="Profile"
+              title={user.name}
+            >
+              {user.avatar_url ? (
+                <img
+                  src={user.avatar_url}
+                  alt=""
+                  className="w-full h-full rounded-full object-cover"
+                />
+              ) : (
+                <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
+                  <circle cx="20" cy="20" r="20" fill="#b45309"/>
+                  <circle cx="20" cy="15" r="7" fill="#fef3c7"/>
+                  <ellipse cx="20" cy="34" rx="12" ry="8" fill="#fef3c7"/>
+                </svg>
+              )}
+            </Link>
+          </>
         ) : user === false ? (
           <button
             onClick={onLogin}

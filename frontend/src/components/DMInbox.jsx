@@ -227,7 +227,7 @@ export default function DMInbox({ currentUser }) {
   const visibleConversations = showAllConvs ? filteredConversations : filteredConversations.slice(0, CONV_PAGE_SIZE)
 
   return (
-    <div className="flex h-[600px] rounded-xl overflow-hidden border border-gray-700 bg-gray-900">
+    <div className="flex h-[600px] rounded-xl overflow-x-hidden overflow-y-hidden border border-gray-700 bg-gray-900">
 
       {/* ── Left panel: Thread list (30% desktop / full mobile) ── */}
       <div className={`flex flex-col border-r border-gray-700 bg-gray-900/80
