@@ -14,6 +14,13 @@ import 'profile_screen.dart';
 /// - Mark-as-Taken / Cancel controls for the poster
 /// - Home button to navigate back to home tab
 /// - Profile picture that navigates to the profile page
+///
+/// Parameters:
+/// - [onGoHome]: callback invoked when the Home button is tapped.
+///   Typically switches the parent [HomeScreen] to tab 0.
+/// - [currentUser]: the currently logged-in user map (from `/api/auth/me`).
+///   Used to show the correct profile avatar and to distinguish drivers
+///   from passengers on each ride card.
 class RideShareScreen extends StatefulWidget {
   final VoidCallback? onGoHome;
   final Map<String, dynamic>? currentUser;
