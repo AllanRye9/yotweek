@@ -623,7 +623,7 @@ class ApiService {
     required String content,
     String? replyToId,
   }) async {
-    return _postJsonAuth('/api/dm/messages', {
+    return _postJsonAuth('/api/dm/send', {
       'conv_id': convId,
       'content': content,
       if (replyToId != null) 'reply_to_id': replyToId,
@@ -631,6 +631,7 @@ class ApiService {
   }
 
   /// Start or retrieve a DM conversation with another user.
+  /// Returns a map with keys `conv` (conversation data) and `other_user` (the other participant).
   Future<Map<String, dynamic>> startDmConversation(String otherUserId) async {
     return _postJsonAuth('/api/dm/conversations', {'other_user_id': otherUserId});
   }
@@ -638,9 +639,19 @@ class ApiService {
   /// Mark a DM conversation as read.
   Future<void> markDmRead(String convId) async {
     try {
-      await _postJsonAuth(
-          '/api/dm/conversations/${Uri.encodeComponent(convId)}/read', {});
+      await _postJsonAuth('/api/dm/read/${Uri.encodeComponent(convId)}', {});
     } catch (_) {}
+  }
+
+  /// Send a message to a ride's chat room via REST.
+  Future<Map<String, dynamic>> sendRideChatMessage({
+    required String rideId,
+    required String text,
+  }) async {
+    return _postJsonAuth(
+      '/api/rides/${Uri.encodeComponent(rideId)}/chat',
+      {'text': text},
+    );
   }
 
   /// Fetch users that the current user has previously chatted with (DM contacts).

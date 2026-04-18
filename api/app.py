@@ -2616,6 +2616,91 @@ async def api_get_ride_chat(request: Request, ride_id: str):
     return JSONResponse({"messages": messages})
 
 
+@fastapi_app.post("/api/rides/{ride_id}/chat")
+async def api_post_ride_chat_message(request: Request, ride_id: str):
+    """Send a text message to a ride's chat room via REST (no Socket.IO required)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Invalid JSON."}, status_code=400)
+
+    text = str(body.get("text", "")).strip()[:500]
+    if not text:
+        return JSONResponse({"error": "Message text is required."}, status_code=400)
+
+    user = _get_app_user(user_id)
+    sender_name = user["name"] if user else "User"
+
+    # Determine sender role (driver vs passenger)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM rides WHERE ride_id=%s", (ride_id,))
+                row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id FROM rides WHERE ride_id=?", (ride_id,))
+                row = cur.fetchone()
+        finally:
+            conn.close()
+
+    if row is None:
+        return JSONResponse({"error": "Ride not found."}, status_code=404)
+
+    ride_owner_id = row[0]
+    role = "driver" if user_id == ride_owner_id else "passenger"
+
+    msg_id = str(uuid.uuid4())
+    ts = time.time()
+    created = datetime.now(timezone.utc).isoformat()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute(
+                    "INSERT INTO ride_chat_messages"
+                    " (msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at)"
+                    " VALUES (%s,%s,%s,%s,%s,NULL,NULL,NULL,NULL,%s,%s)"
+                    " ON CONFLICT (msg_id) DO NOTHING",
+                    (msg_id, ride_id, sender_name, role, text, ts, created),
+                )
+            else:
+                conn.execute(
+                    "INSERT OR IGNORE INTO ride_chat_messages"
+                    " (msg_id,ride_id,sender_name,sender_role,text,media_type,media_data,lat,lng,ts,created_at)"
+                    " VALUES (?,?,?,?,?,NULL,NULL,NULL,NULL,?,?)",
+                    (msg_id, ride_id, sender_name, role, text, ts, created),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    msg = {
+        "msg_id":      msg_id,
+        "ride_id":     ride_id,
+        "sender_name": sender_name,
+        "sender_role": role,
+        "text":        text,
+        "ts":          ts,
+    }
+
+    # Broadcast via Socket.IO to anyone in the ride chat room
+    room = f"ride_{ride_id}"
+    try:
+        await sio.emit("ride_message", msg, room=room)
+    except Exception:
+        pass
+
+    return JSONResponse({"ok": True, "message": msg})
+
+
 @fastapi_app.get("/api/rides/chat/inbox")
 async def api_ride_chat_inbox(request: Request):
     """Return latest chat message per ride that involves the current user's rides.
@@ -5372,7 +5457,14 @@ async def api_dm_start_conversation(request: Request, body: _DMStartRequest):
     if not other:
         return JSONResponse({"error": "User not found."}, status_code=404)
     conv = _find_or_create_conversation(user_id, other_id)
-    return JSONResponse({"conv": conv})
+    # Attach other_user info so the mobile client can open DmChatScreen directly
+    other_user = {
+        "user_id":    other_id,
+        "name":       other.get("name", other_id),
+        "username":   other.get("username") or other.get("name", other_id),
+        "avatar_url": other.get("avatar_url") or "",
+    }
+    return JSONResponse({"conv": conv, "other_user": other_user})
 
 
 @fastapi_app.get("/api/dm/conversations/{conv_id}/messages")

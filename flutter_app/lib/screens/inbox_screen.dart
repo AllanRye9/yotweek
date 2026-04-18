@@ -72,7 +72,8 @@ class _InboxScreenState extends State<InboxScreen>
       if (mounted) {
         setState(() { _currentUser = user; _userLoading = false; });
         if (user != null) {
-          _loadRideInbox();
+          // Auto-open most recent ride chat when the screen first loads
+          _loadRideInbox(autoOpen: true);
         }
       }
     } catch (_) {
@@ -92,12 +93,20 @@ class _InboxScreenState extends State<InboxScreen>
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
-  Future<void> _loadRideInbox() async {
+  Future<void> _loadRideInbox({bool autoOpen = false}) async {
     if (_currentUser == null) return;
     setState(() { _rideLoading = true; _rideError = null; });
     try {
       final list = await ApiService.instance.getRideChatInbox();
-      if (mounted) setState(() { _rideInbox = list; _rideLoading = false; });
+      if (mounted) {
+        setState(() { _rideInbox = list; _rideLoading = false; });
+        // Auto-open the most recent ride conversation on first load
+        if (autoOpen && list.isNotEmpty && mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _openRideChat(list.first);
+          });
+        }
+      }
     } on ApiException catch (e) {
       if (mounted) setState(() { _rideError = e.message; _rideLoading = false; });
     } catch (e) {
@@ -122,9 +131,19 @@ class _InboxScreenState extends State<InboxScreen>
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 400), () {
-      _dmSearch = value.trim();
-      _loadDmConvs(search: _dmSearch);
+      if (!mounted) return;
+      setState(() => _dmSearch = value.trim());
+      _loadDmConvs(search: _dmSearch.isNotEmpty ? _dmSearch : null);
     });
+  }
+
+  void _openRideChat(Map<String, dynamic> item) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => RideChatScreen(ride: item, currentUser: _currentUser),
+      ),
+    ).then((_) { if (mounted) _loadRideInbox(); });
   }
 
   // ── Login ─────────────────────────────────────────────────────────────────
@@ -394,13 +413,7 @@ class _InboxScreenState extends State<InboxScreen>
             ),
         ],
       ),
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) =>
-              RideChatScreen(ride: item, currentUser: _currentUser),
-        ),
-      ).then((_) => _loadRideInbox()),
+      onTap: () => _openRideChat(item),
     );
   }
 

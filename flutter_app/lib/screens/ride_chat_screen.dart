@@ -156,22 +156,25 @@ class _RideChatScreenState extends State<RideChatScreen>
     _textCtrl.clear();
     _onTextChanged('');
     setState(() => _sending = true);
-    // NOTE: The backend ride-chat send endpoint is Socket.IO only (no REST
-    // equivalent).  We store the message optimistically for local display and
-    // inform the user to open the web interface to message the full group.
     _addLocalMessage(text);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            '⚠️ Ride chat requires the web interface for full messaging. '
-            'Your message is shown locally only.',
-          ),
-          duration: Duration(seconds: 4),
-        ),
+    try {
+      await ApiService.instance.sendRideChatMessage(
+        rideId: _rideId,
+        text: text,
       );
+      // Refresh messages to get the server-confirmed message
+      await _loadMessages(silent: true);
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red.shade700),
+        );
+      }
+    } catch (_) {
+      // Message stored locally; server sync will happen on next poll
+    } finally {
+      if (mounted) setState(() => _sending = false);
     }
-    setState(() => _sending = false);
   }
 
   Future<void> _shareLocation() async {
@@ -239,8 +242,11 @@ class _RideChatScreenState extends State<RideChatScreen>
   // ── Message display helpers ───────────────────────────────────────────────
 
   bool _isMe(Map<String, dynamic> msg) {
-    final sid = (msg['sender_id'] ?? '').toString();
-    return sid.isNotEmpty && sid == _myId;
+    final sid   = (msg['sender_id']   ?? '').toString();
+    final sname = (msg['sender_name'] ?? '').toString();
+    if (sid.isNotEmpty && sid == _myId) return true;
+    if (sname.isNotEmpty && sname == _myName) return true;
+    return false;
   }
 
   String _senderName(Map<String, dynamic> msg) {
