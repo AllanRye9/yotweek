@@ -279,9 +279,9 @@ function ProfileStats({ user }) {
 
   // XP: 10 pts per ride taken, 5 per ride offered, 8 per companion trip (capped at 1000 for max level)
   const xp  = loading ? 0 : Math.min(
-    (stats?.total_rides     || 0) * 10 +
-    (stats?.open_rides      || 0) * 5  +
-    (stats?.total_passengers|| 0) * 8,
+    (stats?.total_rides      || 0) * 10 +
+    (stats?.open_rides       || 0) * 5  +
+    (stats?.total_passengers || 0) * 8,
     1000
   )
   const xpPct = Math.round((xp / 1000) * 100)
