@@ -1,6 +1,9 @@
 import 'dart:async';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
+import 'dm_chat_screen.dart';
+import 'profile_screen.dart';
 
 /// Displays the ride-share board.
 ///
@@ -9,8 +12,13 @@ import '../services/api_service.dart';
 /// - Pull-to-refresh
 /// - Animated "Driver Nearby" banner with sound-like visual pulse
 /// - Mark-as-Taken / Cancel controls for the poster
+/// - Home button to navigate back to home tab
+/// - Profile picture that navigates to the profile page
 class RideShareScreen extends StatefulWidget {
-  const RideShareScreen({super.key});
+  final VoidCallback? onGoHome;
+  final Map<String, dynamic>? currentUser;
+
+  const RideShareScreen({super.key, this.onGoHome, this.currentUser});
 
   @override
   State<RideShareScreen> createState() => _RideShareScreenState();
@@ -142,17 +150,75 @@ class _RideShareScreenState extends State<RideShareScreen>
     );
   }
 
+  Widget _buildAvatar() {
+    final user = widget.currentUser;
+    if (user == null) {
+      return IconButton(
+        icon: const Icon(Icons.person_outline),
+        tooltip: 'Profile',
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+        ),
+      );
+    }
+    final name       = (user['name'] ?? 'U').toString();
+    final avatarPath = (user['avatar_url'] ?? '').toString();
+    Widget avatar;
+    if (avatarPath.isNotEmpty) {
+      final url = ApiService.instance.avatarUrl(avatarPath);
+      avatar = CachedNetworkImage(
+        imageUrl: url,
+        imageBuilder: (_, img) => CircleAvatar(radius: 16, backgroundImage: img),
+        errorWidget:  (_, __, ___) => _letterAvatar(name),
+        placeholder:  (_, __)      => _letterAvatar(name),
+      );
+    } else {
+      avatar = _letterAvatar(name);
+    }
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const ProfileScreen()),
+        ),
+        child: avatar,
+      ),
+    );
+  }
+
+  Widget _letterAvatar(String name) {
+    const palette = [
+      Color(0xFF1D4ED8),
+      Color(0xFF7C3AED),
+      Color(0xFF0F766E),
+      Color(0xFFC2410C),
+      Color(0xFF15803D),
+    ];
+    final idx = name.isEmpty ? 0 : name.codeUnitAt(0) % palette.length;
+    return CircleAvatar(
+      radius: 16,
+      backgroundColor: palette[idx],
+      child: Text(
+        name.isEmpty ? '?' : name[0].toUpperCase(),
+        style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('✈️ Airport Pickup Service'),
+        leading: IconButton(
+          icon: const Icon(Icons.home_outlined),
+          tooltip: 'Home',
+          onPressed: widget.onGoHome ?? () => Navigator.maybePop(context),
+        ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadRides,
-            tooltip: 'Refresh',
-          ),
+          _buildAvatar(),
         ],
       ),
       body: _loading
@@ -198,6 +264,7 @@ class _RideShareScreenState extends State<RideShareScreen>
                           separatorBuilder: (_, __) => const SizedBox(height: 8),
                           itemBuilder: (_, i) => _RideCard(
                             ride: _rides[i],
+                            currentUser: widget.currentUser,
                             onTake: _markTaken,
                             onCancel: _cancelRide,
                             statusChipBuilder: _statusChip,
@@ -212,6 +279,7 @@ class _RideShareScreenState extends State<RideShareScreen>
 
 class _RideCard extends StatelessWidget {
   final Map<String, dynamic> ride;
+  final Map<String, dynamic>? currentUser;
   final Future<void> Function(String) onTake;
   final Future<void> Function(String) onCancel;
   final Widget Function(String) statusChipBuilder;
@@ -221,6 +289,7 @@ class _RideCard extends StatelessWidget {
     required this.onTake,
     required this.onCancel,
     required this.statusChipBuilder,
+    this.currentUser,
   });
 
   Color _cardBorder(String status) {
@@ -264,6 +333,62 @@ class _RideCard extends StatelessWidget {
     return notes;
   }
 
+  // Returns true if the current user is the driver of this ride
+  bool _isDriver(Map<String, dynamic>? user) {
+    if (user == null) return false;
+    final myId = (user['user_id'] ?? '').toString();
+    final driverId = (ride['user_id'] ?? '').toString();
+    return myId.isNotEmpty && myId == driverId;
+  }
+
+  Future<void> _openBookingDm(BuildContext context) async {
+    final driverUserId = (ride['user_id'] ?? '').toString();
+    if (driverUserId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Driver info not available.')),
+      );
+      return;
+    }
+    try {
+      final result = await ApiService.instance.startDmConversation(driverUserId);
+      final conv = result['conv'] as Map<String, dynamic>? ?? {};
+      final otherUser = result['other_user'] as Map<String, dynamic>? ??
+          {
+            'user_id': driverUserId,
+            'name': (ride['driver_name'] ?? 'Driver').toString(),
+            'username': '',
+            'avatar_url': '',
+          };
+      final conversation = {
+        ...conv,
+        'other_user': otherUser,
+      };
+      if (context.mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DmChatScreen(
+              conversation: conversation,
+              currentUser: currentUser,
+            ),
+          ),
+        );
+      }
+    } on ApiException catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red.shade700),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red.shade700),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final status = (ride['status'] as String?) ?? 'open';
@@ -273,6 +398,7 @@ class _RideCard extends StatelessWidget {
     final noteText = _extractNotes(ride['notes'] as String?);
     final fare = ride['fare'];
     final fareText = fare != null ? '\$${(fare as num).toStringAsFixed(2)}' : null;
+    final isDriver = _isDriver(currentUser);
 
     return AnimatedOpacity(
       opacity: isCancelled ? 0.55 : 1.0,
@@ -334,35 +460,52 @@ class _RideCard extends StatelessWidget {
                 ],
               ),
             ],
-            // Action buttons (only for open rides — poster would need auth)
+            // Action buttons for open rides
             if (status == 'open') ...[
               const SizedBox(height: 10),
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  OutlinedButton.icon(
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFFBBF24),
-                      side: const BorderSide(color: Color(0xFFFBBF24), width: 0.8),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  // Passengers see a Book button; driver sees Mark Taken / Cancel
+                  if (!isDriver) ...[
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF3B82F6),
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        textStyle: const TextStyle(fontSize: 12),
+                      ),
+                      icon: const Icon(Icons.chat_bubble_outline, size: 14),
+                      label: const Text('Book'),
+                      onPressed: () => _openBookingDm(context),
                     ),
-                    icon: const Icon(Icons.check_circle_outline, size: 14),
-                    label: const Text('Mark Taken', style: TextStyle(fontSize: 12)),
-                    onPressed: () => onTake(rideId),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFF87171),
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ] else ...[
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFFBBF24),
+                        side: const BorderSide(color: Color(0xFFFBBF24), width: 0.8),
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      icon: const Icon(Icons.check_circle_outline, size: 14),
+                      label: const Text('Mark Taken', style: TextStyle(fontSize: 12)),
+                      onPressed: () => onTake(rideId),
                     ),
-                    onPressed: () => onCancel(rideId),
-                    child: const Text('Cancel', style: TextStyle(fontSize: 12)),
-                  ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFFF87171),
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      onPressed: () => onCancel(rideId),
+                      child: const Text('Cancel', style: TextStyle(fontSize: 12)),
+                    ),
+                  ],
                 ],
               ),
             ],

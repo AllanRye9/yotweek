@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import '../../../screens/dm_chat_screen.dart';
 import '../../../services/api_service.dart';
 import 'fare_calculator.dart';
-import 'auto_response_service.dart';
 
 /// Airport pickup booking screen.
 ///
@@ -18,9 +18,26 @@ class _BookingScreenState extends State<BookingScreen> {
   final _airportController = TextEditingController();
   final _destinationController = TextEditingController();
   bool _loading = false;
+  bool _bookingLoading = false;
   String? _error;
   double? _fare;
   List<Map<String, dynamic>> _drivers = [];
+  Map<String, dynamic>? _currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    await ApiService.instance.loadCookies();
+    if (!mounted) return;
+    try {
+      final user = await ApiService.instance.getCurrentUser();
+      if (mounted) setState(() => _currentUser = user);
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
@@ -60,32 +77,60 @@ class _BookingScreenState extends State<BookingScreen> {
   }
 
   Future<void> _book(Map<String, dynamic> driver) async {
-    final autoMsg = AutoResponseService.bookingPrompt(
-      driverName: driver['name'] as String? ?? 'Driver',
-    );
-    if (!mounted) return;
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: Text('Book ${driver['name'] ?? 'Driver'}'),
-        content: Text(autoMsg),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
+    final driverUserId = (driver['user_id'] ?? driver['driver_id'] ?? '').toString();
+    if (driverUserId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Driver contact info not available.')),
+      );
+      return;
+    }
+    if (_currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in to book a ride.')),
+      );
+      return;
+    }
+    setState(() => _bookingLoading = true);
+    try {
+      final result = await ApiService.instance.startDmConversation(driverUserId);
+      final conv = result['conv'] as Map<String, dynamic>? ?? {};
+      final otherUser = result['other_user'] as Map<String, dynamic>? ??
+          {
+            'user_id': driverUserId,
+            'name': (driver['name'] ?? 'Driver').toString(),
+            'username': '',
+            'avatar_url': '',
+          };
+      final conversation = {
+        ...conv,
+        'other_user': otherUser,
+      };
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => DmChatScreen(
+              conversation: conversation,
+              currentUser: _currentUser,
+            ),
           ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Booking request sent!')),
-              );
-            },
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red.shade700),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red.shade700),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bookingLoading = false);
+    }
   }
 
   @override
@@ -196,8 +241,14 @@ class _BookingScreenState extends State<BookingScreen> {
                                   : 'Distance unknown',
                             ),
                             trailing: ElevatedButton(
-                              onPressed: () => _book(driver),
-                              child: const Text('Book'),
+                              onPressed: _bookingLoading ? null : () => _book(driver),
+                              child: _bookingLoading
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Text('Book'),
                             ),
                           ),
                         );

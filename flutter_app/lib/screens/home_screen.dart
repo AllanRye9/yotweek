@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../config/app_config.dart';
 import '../providers/downloads_provider.dart';
+import '../services/api_service.dart';
 import '../widgets/active_downloads_bar.dart';
 import 'downloader_screen.dart';
 import 'files_screen.dart';
@@ -21,6 +22,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _tabIndex = 0;
+  Map<String, dynamic>? _currentUser;
 
   static const _tabs = [
     _TabInfo(icon: Icons.download, label: 'Download'),
@@ -32,6 +34,21 @@ class _HomeScreenState extends State<HomeScreen> {
     _TabInfo(icon: Icons.home_work_outlined, label: 'Properties'),
     _TabInfo(icon: Icons.star_outline, label: 'Reviews'),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentUser();
+  }
+
+  Future<void> _loadCurrentUser() async {
+    await ApiService.instance.loadCookies();
+    if (!mounted) return;
+    try {
+      final user = await ApiService.instance.getCurrentUser();
+      if (mounted) setState(() => _currentUser = user);
+    } catch (_) {}
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +156,10 @@ class _HomeScreenState extends State<HomeScreen> {
       case 3:
         return const DocConverterScreen();
       case 4:
-        return const RideShareScreen();
+        return RideShareScreen(
+          currentUser: _currentUser,
+          onGoHome: () => setState(() => _tabIndex = 0),
+        );
       case 5:
         return const InboxScreen();
       case 6:
