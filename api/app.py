@@ -87,6 +87,9 @@ DATA_DIR = os.path.join(ROOT_DIR, "data")
 # React frontend build output
 FRONTEND_DIST = os.path.join(ROOT_DIR, "frontend_dist")
 
+# Canonical public base URL (used in sitemap and robots.txt)
+SITE_BASE_URL = os.environ.get("SITE_BASE_URL", "https://yotweek.com")
+
 # Avatar upload directory (served as /static/avatars/)
 AVATARS_DIR = os.path.join(STATIC_DIR, "avatars")
 
@@ -1252,6 +1255,46 @@ async def ads_txt():
         return FileResponse(ads_txt_path, media_type="text/plain")
     logger.warning("ads.txt file not found at %s", ads_txt_path)
     return JSONResponse({"error": "ads.txt not found"}, status_code=404)
+
+@fastapi_app.get("/robots.txt")
+async def robots_txt():
+    """Serve robots.txt — allow all crawlers and point to the sitemap."""
+    content = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "\n"
+        f"Sitemap: {SITE_BASE_URL}/sitemap.xml\n"
+    )
+    return Response(content, media_type="text/plain")
+
+@fastapi_app.get("/sitemap.xml")
+async def sitemap_xml():
+    """Serve an XML sitemap of all public-facing pages for search engine indexing."""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    pages = [
+        # (path, changefreq, priority)
+        ("/",            "daily",   "1.0"),
+        ("/rides",       "hourly",  "0.9"),
+        ("/map",         "hourly",  "0.8"),
+        ("/login",       "monthly", "0.5"),
+        ("/register",    "monthly", "0.5"),
+    ]
+    urls = "\n".join(
+        f"  <url>\n"
+        f"    <loc>{SITE_BASE_URL}{path}</loc>\n"
+        f"    <lastmod>{today}</lastmod>\n"
+        f"    <changefreq>{changefreq}</changefreq>\n"
+        f"    <priority>{priority}</priority>\n"
+        f"  </url>"
+        for path, changefreq, priority in pages
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        f"{urls}\n"
+        "</urlset>"
+    )
+    return Response(xml, media_type="application/xml")
 
 @fastapi_app.get("/yotweek.png")
 async def yotweek_icon():
@@ -6486,7 +6529,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         api_prefixes = (
             "/admin/db/", "/admin/cookies", "/admin/auth_status", "/admin/has_admin",
             "/admin/api/", "/health", "/ads.txt", "/static/", "/assets/",
-            "/api/", "/yotweek.png",
+            "/api/", "/yotweek.png", "/sitemap.xml", "/robots.txt",
         )
         if not any(path.startswith(p) for p in api_prefixes):
             return _react_index()
