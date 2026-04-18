@@ -7,9 +7,9 @@
  * Filter/sort bar at the top.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { getUserProfile, getRideRequests, createRideRequest, cancelRideRequest, acceptRideRequest, dmStartConversation } from '../api'
-import NavBar from '../components/NavBar'
+import { getDashboardPath } from '../routing'
 import socket from '../socket'
 
 const SORT_OPTIONS = [
@@ -283,8 +283,30 @@ export default function RequestsPage() {
   )
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}>
-      <NavBar user={user || false} title="Ride Requests" />
+    <div className="min-h-screen flex flex-col page-transition" style={{ background: 'var(--bg-page)', color: 'var(--text-primary)' }}>
+
+      {/* ── Minimal header: Back + Home only ── */}
+      <header className="sticky top-0 z-50 minimal-nav-header">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center gap-3">
+          <Link
+            to="/"
+            className="flex items-center gap-2 shrink-0 font-bold text-base"
+            style={{ color: 'var(--text-primary)' }}
+          >
+            <img src="/yotweek.png" alt="" width={20} height={20} style={{ borderRadius: 4 }} aria-hidden="true" />
+            <span className="gradient-text hidden sm:inline">Home</span>
+            <span className="gradient-text sm:hidden">🏠</span>
+          </Link>
+          <span className="text-xs mx-1" style={{ color: 'var(--border-color)' }}>|</span>
+          <Link
+            to={user ? getDashboardPath(user) : '/user/dashboard'}
+            className="flex items-center gap-1 text-sm transition-colors hover:opacity-80"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            ← Back to Dashboard
+          </Link>
+        </div>
+      </header>
 
       <main className="flex-1 max-w-3xl mx-auto w-full p-4 space-y-4">
 

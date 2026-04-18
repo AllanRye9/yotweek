@@ -13,6 +13,7 @@ import {
   driverApply, getDriverApplication,
   getAllDriverLocations, dmStartConversation,
   aiChat,
+  createTravelCompanion, listTravelCompanions, deleteTravelCompanion,
 } from '../api'
 import socket from '../socket'
 
@@ -22,6 +23,7 @@ const TABS = [
   { id: 'overview',    label: '🏠 Overview',          icon: '🏠' },
   { id: 'rides',       label: '🚗 Rides',              icon: '🚗' },
   { id: 'requests',    label: '🙋 Requests',           icon: '🙋' },
+  { id: 'companions',  label: '🧳 Companions',         icon: '🧳' },
   { id: 'map',         label: '🗺️ Map',                icon: '🗺️' },
   { id: 'tracking',    label: '📡 Ride Tracking',      icon: '📡' },
   { id: 'inbox',       label: '💬 Inbox',              icon: '💬', badge: 'chat' },
@@ -49,10 +51,11 @@ function DashboardAIAssistant() {
   const [open, setOpen] = useState(false)
   const [msgs, setMsgs] = useState([{
     role: 'bot',
-    text: 'Hi! I\'m YotBot 🤖. I can help you find rides, check booking status, explain ride policies, and more. What can I do for you?',
+    text: 'Hi! I\'m YotBot 🤖. I can help you find rides, match travel companions, check bookings, explain policies, and more. What can I do for you?',
   }])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [panelKey, setPanelKey] = useState(0) // remount panel on open for animation
   const bottomRef = useRef(null)
 
   // Drag state
@@ -64,7 +67,12 @@ function DashboardAIAssistant() {
   useEffect(() => {
     const onMove = (e) => {
       if (!dragging.current) return
-      setPosition({ x: e.clientX - dragOffset.current.x, y: e.clientY - dragOffset.current.y })
+      const x = e.clientX - dragOffset.current.x
+      const y = e.clientY - dragOffset.current.y
+      setPosition({
+        x: Math.max(0, Math.min(x, window.innerWidth - (open ? 320 : 56))),
+        y: Math.max(0, Math.min(y, window.innerHeight - 56)),
+      })
     }
     const onUp = () => { dragging.current = false }
     document.addEventListener('mousemove', onMove)
@@ -73,7 +81,7 @@ function DashboardAIAssistant() {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
-  }, [])
+  }, [open])
 
   const handleDragStart = (e) => {
     if (e.button !== 0) return
@@ -86,6 +94,13 @@ function DashboardAIAssistant() {
   useEffect(() => {
     if (open) setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
   }, [msgs, open])
+
+  const handleToggle = () => {
+    setOpen(v => {
+      if (!v) setPanelKey(k => k + 1) // trigger open animation
+      return !v
+    })
+  }
 
   const send = async (text) => {
     const t = (text || input).trim()
@@ -108,6 +123,7 @@ function DashboardAIAssistant() {
     '📋 Check my booking',
     '💳 Payment policy',
     '❓ How to book a ride',
+    '🧳 Find a travel companion',
     '🚗 Available rides today',
     '📍 How does seat booking work?',
   ]
@@ -119,17 +135,20 @@ function DashboardAIAssistant() {
   return (
     <div
       ref={panelRef}
+      className={!open ? 'yotbot-ring-pulse' : ''}
       style={{
         ...posStyle,
         zIndex: 200,
-        width: open ? 320 : 56,
-        maxHeight: open ? 480 : 56,
-        borderRadius: open ? 16 : 28,
+        width: open ? 340 : 58,
+        maxHeight: open ? 520 : 58,
+        borderRadius: open ? 18 : 29,
         overflow: 'hidden',
-        boxShadow: '0 8px 32px rgba(0,0,0,0.45)',
-        background: '#111827',
-        border: '1px solid #374151',
-        transition: 'width 0.2s, max-height 0.2s, border-radius 0.2s',
+        boxShadow: open
+          ? '0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(245,158,11,0.2)'
+          : '0 8px 32px rgba(0,0,0,0.45)',
+        background: '#0d1117',
+        border: '1px solid rgba(245,158,11,0.25)',
+        transition: 'width 0.25s cubic-bezier(0.4,0,0.2,1), max-height 0.25s cubic-bezier(0.4,0,0.2,1), border-radius 0.25s, box-shadow 0.25s',
         display: 'flex',
         flexDirection: 'column',
       }}
@@ -140,78 +159,114 @@ function DashboardAIAssistant() {
         style={{ cursor: 'grab', userSelect: 'none', flexShrink: 0 }}
       >
         <button
-          onClick={() => setOpen(v => !v)}
+          onClick={handleToggle}
           className="w-full flex items-center gap-3 px-3 py-3 hover:opacity-90 transition-opacity"
           style={{ pointerEvents: 'auto' }}
           title={open ? 'Collapse YotBot' : 'Open YotBot AI Assistant'}
         >
           <div className="relative shrink-0">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-base">🤖</div>
-            <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-400 border-2 border-gray-900" />
+            {/* Animated shimmer avatar */}
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-base font-bold shrink-0 yotbot-avatar-shimmer"
+              style={{ background: 'linear-gradient(135deg, #f59e0b, #fb923c)' }}
+            >
+              🤖
+            </div>
+            {/* Online dot */}
+            <span
+              className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
+              style={{ background: '#4ade80', borderColor: '#0d1117', animation: 'driver-online-pulse 2s ease-in-out infinite' }}
+            />
           </div>
           {open && (
             <>
               <div className="flex-1 text-left overflow-hidden">
                 <p className="text-sm font-bold text-white truncate">YotBot AI</p>
-                <p className="text-xs text-gray-400 truncate">Rides · Bookings · Policies</p>
+                <p className="text-xs truncate" style={{ color: '#6ee7b7' }}>
+                  <span style={{ animation: 'connecting-blink 2s ease-in-out infinite', display: 'inline-block' }}>●</span>
+                  {' '}Rides · Companions · Policies
+                </p>
               </div>
-              <span className="text-xs text-gray-500 shrink-0">{open ? '▼' : '▲'}</span>
+              <span className="text-xs text-gray-500 shrink-0">▼</span>
             </>
           )}
         </button>
       </div>
 
       {open && (
-        <>
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3" style={{ background: 'rgba(17,24,39,0.9)', minHeight: 0 }}>
+        <div key={panelKey} className="yotbot-panel-open flex flex-col" style={{ flex: 1, minHeight: 0 }}>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3 scrollbar-thin" style={{ background: 'rgba(13,17,23,0.95)', minHeight: 0 }}>
             {msgs.map((m, i) => (
-              <div key={i} className={`flex gap-2 items-end ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+              <div key={i} className={`flex gap-2 items-end yotbot-msg-anim ${m.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}
+                   style={{ animationDelay: `${i * 0.02}s` }}>
                 {m.role === 'bot' && (
-                  <div className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xs shrink-0">🤖</div>
+                  <div
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0"
+                    style={{ background: 'linear-gradient(135deg, #f59e0b, #fb923c)' }}
+                  >🤖</div>
                 )}
                 <div className={`max-w-[85%] px-3 py-2 rounded-2xl text-xs leading-relaxed ${
-                  m.role === 'user' ? 'rounded-br-sm bg-amber-500 text-black' : 'rounded-bl-sm bg-gray-800 text-gray-100'
-                }`}>
+                  m.role === 'user'
+                    ? 'rounded-br-sm text-black'
+                    : 'rounded-bl-sm text-gray-100'
+                }`}
+                  style={m.role === 'user'
+                    ? { background: 'linear-gradient(135deg, #f59e0b, #f97316)' }
+                    : { background: 'rgba(31,41,55,0.9)', border: '1px solid rgba(55,65,81,0.8)' }
+                  }
+                >
                   {m.text}
                 </div>
               </div>
             ))}
             {loading && (
-              <div className="flex gap-2 items-end">
-                <div className="w-5 h-5 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-xs shrink-0">🤖</div>
-                <div className="px-3 py-2 rounded-2xl rounded-bl-sm bg-gray-800 text-gray-400 text-xs">
-                  <span className="inline-flex gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 rounded-full bg-gray-400 animate-bounce" style={{ animationDelay: '300ms' }} />
+              <div className="flex gap-2 items-end yotbot-msg-anim">
+                <div
+                  className="w-5 h-5 rounded-full flex items-center justify-center text-xs shrink-0"
+                  style={{ background: 'linear-gradient(135deg, #f59e0b, #fb923c)' }}
+                >🤖</div>
+                <div className="px-3 py-2 rounded-2xl rounded-bl-sm text-gray-400 text-xs"
+                     style={{ background: 'rgba(31,41,55,0.9)', border: '1px solid rgba(55,65,81,0.8)' }}>
+                  <span className="inline-flex gap-1 items-center">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '0ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: '300ms' }} />
                   </span>
                 </div>
               </div>
             )}
             <div ref={bottomRef} />
           </div>
+
+          {/* Suggestion chips (only shown before first user message) */}
           {msgs.length <= 1 && !loading && (
-            <div className="px-3 py-2 flex gap-1.5 overflow-x-auto border-t border-gray-700 scrollbar-none">
+            <div className="px-3 py-2 flex gap-1.5 overflow-x-auto border-t scrollbar-none" style={{ borderColor: 'rgba(55,65,81,0.6)' }}>
               {SUGGESTIONS.map((s, i) => (
                 <button key={i} onClick={() => send(s)}
-                        className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-gray-800 text-gray-300 border border-gray-700 hover:opacity-80 whitespace-nowrap">
+                        className="yotbot-chip shrink-0 text-xs px-2.5 py-1 rounded-full whitespace-nowrap"
+                        style={{ background: 'rgba(31,41,55,0.8)', color: '#d1d5db', border: '1px solid rgba(55,65,81,0.7)' }}>
                   {s}
                 </button>
               ))}
             </div>
           )}
-          <div className="flex gap-2 p-2.5 border-t border-gray-700 shrink-0">
+
+          {/* Input bar */}
+          <div className="flex gap-2 p-2.5 shrink-0" style={{ borderTop: '1px solid rgba(55,65,81,0.6)', background: 'rgba(13,17,23,0.98)' }}>
             <input value={input} onChange={e => setInput(e.target.value)}
                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
                    placeholder="Ask YotBot…"
                    maxLength={300}
-                   className="flex-1 rounded-xl px-3 py-1.5 text-xs outline-none bg-gray-800 text-white border border-gray-700" />
+                   className="flex-1 rounded-xl px-3 py-1.5 text-xs outline-none text-white"
+                   style={{ background: 'rgba(31,41,55,0.8)', border: '1px solid rgba(55,65,81,0.7)' }} />
             <button onClick={() => send()} disabled={!input.trim() || loading}
-                    className="w-8 h-8 rounded-xl flex items-center justify-center text-xs bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-40 shrink-0">
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-xs text-black disabled:opacity-40 shrink-0 transition-all hover:scale-105"
+                    style={{ background: input.trim() ? 'linear-gradient(135deg, #f59e0b, #f97316)' : '#374151' }}>
               ➤
             </button>
           </div>
-        </>
+        </div>
       )}
     </div>
   )
@@ -584,6 +639,269 @@ function RidesDashboardTab({ user }) {
   )
 }
 
+// ─── Travel Companion Tab ───────────────────────────────────────────────────────
+
+function TravelCompanionTab({ currentUser }) {
+  const [companions,    setCompanions]    = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [posting,       setPosting]       = useState(false)
+  const [showForm,      setShowForm]      = useState(false)
+  const [error,         setError]         = useState('')
+  const [aiMatches,     setAiMatches]     = useState(null)
+  const [aiLoading,     setAiLoading]     = useState(false)
+  const [search,        setSearch]        = useState({ origin: '', destination: '', date: '' })
+
+  const [form, setForm] = useState({
+    origin_country: '', destination_country: '', travel_date: '', preferences: '',
+  })
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const d = await listTravelCompanions(
+        search.origin   || null,
+        search.destination || null,
+        search.date     || null,
+      )
+      setCompanions(d.companions || [])
+    } catch {
+      setCompanions([])
+    } finally {
+      setLoading(false)
+    }
+  }, [search])
+
+  useEffect(() => { load() }, [load])
+
+  const handlePost = async (e) => {
+    e.preventDefault()
+    if (!form.origin_country.trim() || !form.destination_country.trim() || !form.travel_date) {
+      setError('Please fill in origin, destination, and travel date.')
+      return
+    }
+    setError('')
+    setPosting(true)
+    try {
+      await createTravelCompanion(
+        form.origin_country.trim(),
+        form.destination_country.trim(),
+        form.travel_date,
+        form.preferences.trim(),
+      )
+      setForm({ origin_country: '', destination_country: '', travel_date: '', preferences: '' })
+      setShowForm(false)
+      await load()
+    } catch (err) {
+      setError(err.message || 'Failed to post listing.')
+    } finally {
+      setPosting(false)
+    }
+  }
+
+  const handleDelete = async (id) => {
+    try {
+      await deleteTravelCompanion(id)
+      await load()
+    } catch {}
+  }
+
+  const handleAiMatch = async () => {
+    setAiLoading(true)
+    setAiMatches(null)
+    try {
+      const context = companions.length > 0
+        ? `Current listings:\n${companions.slice(0, 8).map(c =>
+            `- ${c.name || 'Traveler'}: ${c.origin_country} → ${c.destination_country} on ${c.travel_date}${c.preferences ? `, preferences: ${c.preferences}` : ''}`
+          ).join('\n')}`
+        : 'No listings yet.'
+      const userInfo = `My name is ${currentUser?.name || 'User'}. I am looking for a travel companion.`
+      const prompt = `${userInfo}\n\n${context}\n\nBased on the current listings above, who would be the best travel companion matches for me and why? Provide a short, friendly summary of top matches.`
+      const d = await aiChat(prompt, 'companions')
+      setAiMatches(d.reply || 'No suggestions available at the moment.')
+    } catch {
+      setAiMatches('Sorry, AI matching is unavailable right now. Please try again later.')
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  const inputSty = { background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }
+
+  return (
+    <div className="card space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-white flex items-center gap-2">🧳 Travel Companions</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Find fellow travelers going your way — AI-powered matching</p>
+        </div>
+        <button
+          onClick={() => { setShowForm(f => !f); setError('') }}
+          className="text-xs px-3 py-2 rounded-xl font-semibold transition-all"
+          style={{ background: showForm ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)', color: showForm ? '#f87171' : '#fbbf24', border: `1px solid ${showForm ? 'rgba(239,68,68,0.3)' : 'rgba(245,158,11,0.3)'}` }}
+        >
+          {showForm ? '✕ Cancel' : '＋ Post Listing'}
+        </button>
+      </div>
+
+      {/* Post form */}
+      {showForm && (
+        <form onSubmit={handlePost} className="rounded-xl p-4 space-y-3 companion-card"
+              style={{ background: 'rgba(245,158,11,0.06)', border: '1px solid rgba(245,158,11,0.2)' }}>
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-400">New Travel Companion Listing</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>✈️ From (Country/City)</label>
+              <input type="text" placeholder="e.g. London, UK" value={form.origin_country}
+                     onChange={e => setForm(f => ({ ...f, origin_country: e.target.value }))}
+                     required className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputSty} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>🏁 To (Country/City)</label>
+              <input type="text" placeholder="e.g. Lagos, Nigeria" value={form.destination_country}
+                     onChange={e => setForm(f => ({ ...f, destination_country: e.target.value }))}
+                     required className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputSty} />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>📅 Travel Date</label>
+              <input type="date" value={form.travel_date}
+                     onChange={e => setForm(f => ({ ...f, travel_date: e.target.value }))}
+                     required className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputSty} />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-secondary)' }}>✨ Preferences (optional)</label>
+              <input type="text" placeholder="e.g. non-smoker, female only…" value={form.preferences}
+                     onChange={e => setForm(f => ({ ...f, preferences: e.target.value }))}
+                     className="w-full rounded-xl px-3 py-2.5 text-sm outline-none" style={inputSty} />
+            </div>
+          </div>
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+          <button type="submit" disabled={posting}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all disabled:opacity-50"
+                  style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)', color: '#000' }}>
+            {posting ? '⏳ Posting…' : '🧳 Post Listing'}
+          </button>
+        </form>
+      )}
+
+      {/* Search & filter bar */}
+      <div className="flex flex-wrap gap-2 items-center p-3 rounded-xl" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+        <input type="text" placeholder="🛫 From…" value={search.origin}
+               onChange={e => setSearch(s => ({ ...s, origin: e.target.value }))}
+               className="text-xs rounded-lg px-2.5 py-1.5 outline-none flex-1 min-w-[90px]" style={inputSty} />
+        <input type="text" placeholder="🛬 To…" value={search.destination}
+               onChange={e => setSearch(s => ({ ...s, destination: e.target.value }))}
+               className="text-xs rounded-lg px-2.5 py-1.5 outline-none flex-1 min-w-[90px]" style={inputSty} />
+        <input type="date" value={search.date}
+               onChange={e => setSearch(s => ({ ...s, date: e.target.value }))}
+               className="text-xs rounded-lg px-2.5 py-1.5 outline-none" style={inputSty} />
+        {(search.origin || search.destination || search.date) && (
+          <button onClick={() => setSearch({ origin: '', destination: '', date: '' })}
+                  className="text-xs text-amber-400 hover:text-amber-300">✕ Clear</button>
+        )}
+      </div>
+
+      {/* AI Match button */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleAiMatch}
+          disabled={aiLoading}
+          className="flex items-center gap-2 text-xs px-4 py-2 rounded-xl font-semibold transition-all disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg, rgba(99,102,241,0.2), rgba(139,92,246,0.2))', color: '#a78bfa', border: '1px solid rgba(139,92,246,0.3)' }}
+        >
+          {aiLoading ? (
+            <>
+              <span className="w-3 h-3 border border-violet-400 border-t-transparent rounded-full animate-spin inline-block" />
+              Matching…
+            </>
+          ) : '🤖 AI Match Me'}
+        </button>
+        <p className="text-xs text-gray-500">Let YotBot suggest the best companion matches</p>
+      </div>
+
+      {/* AI match result */}
+      {aiMatches && (
+        <div className="rounded-xl p-4 space-y-2 companion-card"
+             style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(139,92,246,0.25)' }}>
+          <p className="text-xs font-semibold text-violet-300 flex items-center gap-1.5">🤖 YotBot Companion Matches</p>
+          <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap">{aiMatches}</p>
+        </div>
+      )}
+
+      {/* Companion listings */}
+      {loading ? (
+        <div className="text-center py-8">
+          <div className="spinner w-8 h-8 mx-auto" />
+        </div>
+      ) : companions.length === 0 ? (
+        <div className="rounded-xl p-8 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+          <p className="text-3xl mb-2">🧳</p>
+          <p className="text-sm text-gray-400">No travel companion listings yet.</p>
+          <button onClick={() => setShowForm(true)}
+                  className="mt-3 text-xs text-amber-400 hover:text-amber-300 transition-colors">
+            Be the first to post →
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-xs text-gray-500 font-semibold uppercase tracking-wide">
+            {companions.length} listing{companions.length !== 1 ? 's' : ''} found
+          </p>
+          {companions.map((c, idx) => {
+            const isOwn = currentUser && c.user_id === currentUser.user_id
+            return (
+              <div key={c.companion_id || idx}
+                   className="companion-card rounded-xl p-4 space-y-2"
+                   style={{ animationDelay: `${idx * 0.04}s`, background: 'var(--bg-card)', border: `1px solid ${isOwn ? 'rgba(245,158,11,0.35)' : 'var(--border-color)'}` }}>
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-black shrink-0"
+                       style={{ background: 'linear-gradient(135deg, #f59e0b, #f97316)' }}>
+                    {(c.name || '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+                        {c.name || 'Traveler'}
+                      </p>
+                      {isOwn && (
+                        <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">You</span>
+                      )}
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      ✈️ {c.origin_country} → {c.destination_country}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs font-semibold text-amber-400">📅 {c.travel_date}</p>
+                  </div>
+                </div>
+                {c.preferences && (
+                  <p className="text-xs pl-12" style={{ color: 'var(--text-secondary)' }}>
+                    ✨ {c.preferences}
+                  </p>
+                )}
+                {isOwn && (
+                  <div className="flex justify-end pt-1">
+                    <button
+                      onClick={() => handleDelete(c.companion_id)}
+                      className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                      style={{ border: '1px solid rgba(248,113,113,0.3)', borderRadius: 8, padding: '2px 10px' }}
+                    >
+                      Remove listing
+                    </button>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Dashboard component ───────────────────────────────────────────────────
 
 export default function UserDashboard() {
@@ -672,10 +990,6 @@ export default function UserDashboard() {
       navigate('/profile')
       return
     }
-    if (id === 'requests') {
-      navigate('/requests')
-      return
-    }
     setTab(id)
     // Load data for specific tabs when first opened
     if (id === 'history') {
@@ -727,7 +1041,7 @@ export default function UserDashboard() {
   if (!appUser) return null
 
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col">
+    <div className="min-h-screen bg-gray-950 flex flex-col page-transition">
 
       {/* ── Shared NavBar ── */}
       <NavBar user={appUser} onLogout={handleLogout} />
@@ -796,6 +1110,53 @@ export default function UserDashboard() {
 
             {tab === 'rides' && (
               <RidesDashboardTab user={appUser} />
+            )}
+
+            {/* ── Requests tab (inline) ── */}
+            {tab === 'requests' && (
+              <div className="card space-y-3">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-bold text-white flex items-center gap-2">🙋 Ride Requests</h2>
+                  <div className="flex-1" />
+                  <Link
+                    to="/requests"
+                    className="text-xs px-3 py-1.5 rounded-xl font-semibold transition-all hover:opacity-80"
+                    style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24', border: '1px solid rgba(245,158,11,0.3)' }}
+                  >
+                    Open Full View ↗
+                  </Link>
+                </div>
+                <p className="text-sm text-gray-400">Browse, post, or accept ride requests from all passengers.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <Link
+                    to="/requests"
+                    className="flex items-center gap-3 rounded-xl p-4 transition-all hover:opacity-80"
+                    style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}
+                  >
+                    <span className="text-2xl">🔍</span>
+                    <div>
+                      <p className="text-sm font-semibold text-green-300">Browse Requests</p>
+                      <p className="text-xs text-gray-500">Find passengers needing a ride</p>
+                    </div>
+                  </Link>
+                  <Link
+                    to="/requests"
+                    className="flex items-center gap-3 rounded-xl p-4 transition-all hover:opacity-80"
+                    style={{ background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)' }}
+                  >
+                    <span className="text-2xl">✏️</span>
+                    <div>
+                      <p className="text-sm font-semibold text-amber-300">Post a Request</p>
+                      <p className="text-xs text-gray-500">Let drivers find you</p>
+                    </div>
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* ── Travel Companions tab ── */}
+            {tab === 'companions' && (
+              <TravelCompanionTab currentUser={appUser} />
             )}
 
             {/* ── Map tab (left-nav only) ── */}

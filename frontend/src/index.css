@@ -1895,3 +1895,110 @@ html:not(.theme-dark) .bg-gradient-to-b {
     animation: none !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* PAGE TRANSITIONS — smooth fade-slide on every route mount                  */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.page-transition {
+  animation: page-fade-in 0.28s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Minimal header (used on /requests and similar stripped-down pages) */
+.minimal-nav-header {
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* YOTBOT AI — enhanced floating chat widget animations                       */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+/* Outer glow ring that pulses around the bot button when collapsed */
+@keyframes yotbot-outer-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0.4), 0 8px 32px rgba(0,0,0,0.45); }
+  50%       { box-shadow: 0 0 0 8px rgba(245,158,11,0),  0 8px 32px rgba(0,0,0,0.45); }
+}
+.yotbot-ring-pulse {
+  animation: yotbot-outer-ring 2.4s ease-in-out infinite;
+}
+
+/* Animated gradient shimmer on the bot avatar */
+@keyframes yotbot-avatar-shimmer {
+  0%   { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+.yotbot-avatar-shimmer {
+  background: linear-gradient(90deg, #f59e0b, #fb923c, #fbbf24, #f59e0b);
+  background-size: 200% auto;
+  animation: yotbot-avatar-shimmer 2s linear infinite;
+}
+
+/* Message bubble slide-in */
+@keyframes yotbot-msg-in {
+  from { opacity: 0; transform: scale(0.9) translateY(6px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0);   }
+}
+.yotbot-msg-anim {
+  animation: yotbot-msg-in 0.22s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Panel slide-up from bottom-right when opened */
+@keyframes yotbot-panel-open {
+  from { opacity: 0; transform: scale(0.88) translateY(16px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+.yotbot-panel-open {
+  animation: yotbot-panel-open 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Suggestion chip hover */
+.yotbot-chip {
+  transition: background-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.yotbot-chip:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(245,158,11,0.25);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────── */
+/* TRAVEL COMPANION — card enter animation & match badge                      */
+/* ─────────────────────────────────────────────────────────────────────────── */
+
+@keyframes companion-card-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+.companion-card {
+  animation: companion-card-in 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* AI match score shimmer badge */
+@keyframes match-score-glow {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.4); }
+  50%       { box-shadow: 0 0 0 4px rgba(34,197,94,0);  }
+}
+.match-score-badge {
+  animation: match-score-glow 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition,
+  .yotbot-ring-pulse,
+  .yotbot-avatar-shimmer,
+  .yotbot-msg-anim,
+  .yotbot-panel-open,
+  .yotbot-chip,
+  .companion-card,
+  .match-score-badge {
+    animation: none !important;
+    transition: none !important;
+  }
+}

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { deleteSession, getUserProfile } from './api'
 import { SESSION_ID } from './session'
@@ -100,6 +100,17 @@ function RequireAppAuth({ children }) {
 }
 
 // ─── App ───────────────────────────────────────────────────────────
+
+/** Wraps every real page in a fade-slide transition keyed to the pathname. */
+function PageWrapper({ children }) {
+  const location = useLocation()
+  return (
+    <div key={location.pathname} className="page-transition">
+      {children}
+    </div>
+  )
+}
+
 export default function App() {
   useEffect(() => {
     const prevSession = localStorage.getItem('yot_session_id')
@@ -113,45 +124,51 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          {/* Auth pages */}
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          {/* Rides — login required */}
-          <Route path="/rides" element={<RequireAppAuth><RidesPage /></RequireAppAuth>} />
-          <Route path="/rides/:rideId/chat" element={<RequireAppAuth><RideChatPage /></RequireAppAuth>} />
-          {/* Requests */}
-          <Route path="/requests" element={<RequireAppAuth><RequestsPage /></RequireAppAuth>} />
-          {/* Dashboards — each page handles its own auth + role checks */}
-          <Route path="/user/dashboard" element={<UserDashboard />} />
-          <Route path="/driver/dashboard" element={<DriverDashboard />} />
-          {/* Legacy /dashboard → /user/dashboard */}
-          <Route path="/dashboard" element={<Navigate to="/user/dashboard" replace />} />
-          {/* Profile, chat, notifications */}
-          <Route path="/profile" element={<ProfilePage />} />
-          <Route path="/inbox" element={<InboxPage />} />
-          <Route path="/notifications" element={<NotificationsPage />} />
-          {/* Map — live driver locations */}
-          <Route path="/map" element={<UnifiedMapPage />} />
-          {/* Admin panel */}
-          <Route path="/const" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
-          <Route path="/admin/login" element={<AdminLogin />} />
-          <Route path="/admin/register" element={<AdminLogin register />} />
-          {/* Legacy redirects */}
-          <Route path="/tourist-sites" element={<Navigate to="/" replace />} />
-          <Route path="/properties" element={<Navigate to="/" replace />} />
-          <Route path="/properties/:propertyId" element={<Navigate to="/" replace />} />
-          <Route path="/agents" element={<Navigate to="/" replace />} />
-          <Route path="/property-inbox" element={<Navigate to="/" replace />} />
-          <Route path="/companions" element={<Navigate to="/rides" replace />} />
-          <Route path="/admin/dashboard" element={<Navigate to="/const" replace />} />
-          {/* Catch-all → Home */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+          <RoutesWithTransition />
         </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
+  )
+}
+
+function RoutesWithTransition() {
+  return (
+    <Routes>
+      <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
+      {/* Auth pages */}
+      <Route path="/login" element={<PageWrapper><LoginPage /></PageWrapper>} />
+      <Route path="/register" element={<PageWrapper><RegisterPage /></PageWrapper>} />
+      <Route path="/reset-password" element={<PageWrapper><ResetPasswordPage /></PageWrapper>} />
+      {/* Rides — login required */}
+      <Route path="/rides" element={<PageWrapper><RequireAppAuth><RidesPage /></RequireAppAuth></PageWrapper>} />
+      <Route path="/rides/:rideId/chat" element={<PageWrapper><RequireAppAuth><RideChatPage /></RequireAppAuth></PageWrapper>} />
+      {/* Requests */}
+      <Route path="/requests" element={<PageWrapper><RequireAppAuth><RequestsPage /></RequireAppAuth></PageWrapper>} />
+      {/* Dashboards — each page handles its own auth + role checks */}
+      <Route path="/user/dashboard" element={<PageWrapper><UserDashboard /></PageWrapper>} />
+      <Route path="/driver/dashboard" element={<PageWrapper><DriverDashboard /></PageWrapper>} />
+      {/* Legacy /dashboard → /user/dashboard */}
+      <Route path="/dashboard" element={<Navigate to="/user/dashboard" replace />} />
+      {/* Profile, chat, notifications */}
+      <Route path="/profile" element={<PageWrapper><ProfilePage /></PageWrapper>} />
+      <Route path="/inbox" element={<PageWrapper><InboxPage /></PageWrapper>} />
+      <Route path="/notifications" element={<PageWrapper><NotificationsPage /></PageWrapper>} />
+      {/* Map — live driver locations */}
+      <Route path="/map" element={<PageWrapper><UnifiedMapPage /></PageWrapper>} />
+      {/* Admin panel */}
+      <Route path="/const" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+      <Route path="/admin/login" element={<AdminLogin />} />
+      <Route path="/admin/register" element={<AdminLogin register />} />
+      {/* Legacy redirects */}
+      <Route path="/tourist-sites" element={<Navigate to="/" replace />} />
+      <Route path="/properties" element={<Navigate to="/" replace />} />
+      <Route path="/properties/:propertyId" element={<Navigate to="/" replace />} />
+      <Route path="/agents" element={<Navigate to="/" replace />} />
+      <Route path="/property-inbox" element={<Navigate to="/" replace />} />
+      <Route path="/companions" element={<Navigate to="/user/dashboard" replace />} />
+      <Route path="/admin/dashboard" element={<Navigate to="/const" replace />} />
+      {/* Catch-all → Home */}
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
