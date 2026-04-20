@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getUserProfile, userLogout, getDriverDashboard, getRideChatInbox, getConfirmedUsers, driverConfirmBooking, repostSeat } from '../api'
+import { getUserProfile, userLogout, getDriverDashboard, getRideChatInbox, getConfirmedUsers, driverConfirmBooking, repostSeat, aiChat } from '../api'
 import NavBar from '../components/NavBar'
 import RideShare from '../components/RideShare'
 import RideChat from '../components/RideChat'
@@ -37,6 +37,11 @@ export default function DriverDashboard() {
   const [passengersMap, setPassengersMap] = useState({})
   const [confirmingMap, setConfirmingMap] = useState({})  // confirmationId → loading
   const [repostingMap, setRepostingMap] = useState({})    // rideId → loading
+
+  // AI Assistant tab
+  const [aiMessages, setAiMessages] = useState([{ role: 'bot', text: "Hi! I'm your AI driver assistant. Ask me anything about managing rides, earnings tips, handling passengers, or road safety!" }])
+  const [aiInput, setAiInput] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
 
   useEffect(() => {
     getUserProfile()
@@ -118,6 +123,29 @@ export default function DriverDashboard() {
     }
   }
 
+  const handleDeclineBooking = (rideId, confirmationId) => {
+    setPassengersMap(m => ({
+      ...m,
+      [rideId]: (m[rideId] || []).filter(p => p.confirmation_id !== confirmationId),
+    }))
+  }
+
+  const handleAiSend = async (text) => {
+    const msg = (text || aiInput).trim()
+    if (!msg || aiLoading) return
+    setAiInput('')
+    setAiMessages(prev => [...prev, { role: 'user', text: msg }])
+    setAiLoading(true)
+    try {
+      const res = await aiChat(msg, 'driver')
+      setAiMessages(prev => [...prev, { role: 'bot', text: res.reply || res.message || 'Sorry, I could not respond right now.' }])
+    } catch {
+      setAiMessages(prev => [...prev, { role: 'bot', text: 'Sorry, something went wrong. Please try again.' }])
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
   const handleLogout = async () => {
     await userLogout()
     navigate('/login', { replace: true })
@@ -157,11 +185,12 @@ export default function DriverDashboard() {
           ['inbox',     '📬 Inbox'],
           ['chat',      '💬 Ride Chat'],
           ['map',       '🗺️ Map'],
+          ['ai',        '🤖 AI Assistant'],
         ].map(([id, label]) => (
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${
+            className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${
               tab === id
                 ? 'border-amber-500 text-amber-400'
                 : 'border-transparent hover:opacity-80'
@@ -177,14 +206,20 @@ export default function DriverDashboard() {
         {/* Overview */}
         {tab === 'overview' && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Welcome banner */}
+            <div className="rounded-xl p-4 bg-gradient-to-r from-amber-600 to-orange-500 text-white font-semibold text-sm">
+              Welcome back, {driver.name}! 👋
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { icon: '🚘', value: stats.total_rides ?? '—', label: 'Total Rides Posted' },
-                { icon: '✅', value: stats.open_rides ?? '—', label: 'Open Rides' },
-                { icon: '👥', value: stats.total_passengers ?? '—', label: 'Confirmed Passengers' },
-              ].map(({ icon, value, label }) => (
-                <div key={label} className="rounded-xl p-4 text-center"
-                     style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                { icon: '🚘', value: stats.total_rides ?? '—', label: 'Total Rides Posted', bg: 'bg-blue-500/10' },
+                { icon: '✅', value: stats.open_rides ?? '—', label: 'Open Rides', bg: 'bg-green-500/10' },
+                { icon: '👥', value: stats.total_passengers ?? '—', label: 'Confirmed Passengers', bg: 'bg-purple-500/10' },
+                { icon: '⭐', value: stats.avg_rating ?? '—', label: 'Average Rating', bg: 'bg-amber-500/10' },
+              ].map(({ icon, value, label, bg }) => (
+                <div key={label} className={`rounded-xl p-4 text-center ${bg}`}
+                     style={{ border: '1px solid var(--border-color)' }}>
                   <div className="text-2xl mb-1">{icon}</div>
                   <div className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{value}</div>
                   <div className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{label}</div>
@@ -391,13 +426,21 @@ export default function DriverDashboard() {
                         {p.driver_confirmed ? (
                           <span className="text-xs text-green-400 shrink-0">✅ Confirmed</span>
                         ) : (
-                          <button
-                            onClick={() => handleDriverConfirm(ride.ride_id, p.confirmation_id)}
-                            disabled={confirmingMap[p.confirmation_id]}
-                            className="px-3 py-1 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 transition-colors shrink-0"
-                          >
-                            {confirmingMap[p.confirmation_id] ? '…' : 'Confirm Booking'}
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => handleDriverConfirm(ride.ride_id, p.confirmation_id)}
+                              disabled={confirmingMap[p.confirmation_id]}
+                              className="px-3 py-1 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 transition-colors"
+                            >
+                              {confirmingMap[p.confirmation_id] ? '…' : 'Confirm Booking'}
+                            </button>
+                            <button
+                              onClick={() => handleDeclineBooking(ride.ride_id, p.confirmation_id)}
+                              className="px-3 py-1 rounded-lg text-xs font-medium bg-red-700/60 hover:bg-red-700 text-red-200 transition-colors"
+                            >
+                              Decline
+                            </button>
+                          </div>
                         )}
                       </div>
                     ))}
@@ -497,6 +540,72 @@ export default function DriverDashboard() {
               mapHeight={420}
               onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }}
             />
+          </div>
+        )}
+
+        {/* AI Assistant */}
+        {tab === 'ai' && (
+          <div className="rounded-xl border flex flex-col"
+               style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)', height: 520 }}>
+            <div className="px-4 py-3 border-b text-sm font-semibold flex items-center gap-2"
+                 style={{ borderColor: 'var(--border-color)', color: 'var(--text-primary)' }}>
+              🤖 AI Driver Assistant
+            </div>
+
+            {/* Quick suggestions */}
+            <div className="px-4 pt-3 flex flex-wrap gap-1.5">
+              {['Tips for better ratings', 'How to handle cancellations', 'Safety tips for drivers', 'Boost my earnings'].map(s => (
+                <button key={s} onClick={() => handleAiSend(s)}
+                  className="text-xs px-2.5 py-1 rounded-full border transition-colors hover:opacity-80"
+                  style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)', background: 'var(--bg-surface)' }}>
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+              {aiMessages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-xs rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                    m.role === 'user'
+                      ? 'bg-amber-500 text-black rounded-br-none'
+                      : 'rounded-bl-none'
+                  }`}
+                  style={m.role !== 'user' ? { background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' } : {}}>
+                    {m.text}
+                  </div>
+                </div>
+              ))}
+              {aiLoading && (
+                <div className="flex justify-start">
+                  <div className="rounded-xl rounded-bl-none px-3 py-2 text-xs"
+                       style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)', border: '1px solid var(--border-color)' }}>
+                    Thinking…
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input */}
+            <div className="px-4 pb-4 pt-2 flex gap-2 border-t" style={{ borderColor: 'var(--border-color)' }}>
+              <input
+                type="text"
+                value={aiInput}
+                onChange={e => setAiInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleAiSend()}
+                placeholder="Ask your AI assistant…"
+                className="flex-1 rounded-lg px-3 py-2 text-xs outline-none"
+                style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              />
+              <button
+                onClick={() => handleAiSend()}
+                disabled={!aiInput.trim() || aiLoading}
+                className="px-4 py-2 rounded-lg text-xs font-medium bg-amber-500 hover:bg-amber-400 text-black disabled:opacity-50 transition-colors"
+              >
+                Send
+              </button>
+            </div>
           </div>
         )}
       </main>

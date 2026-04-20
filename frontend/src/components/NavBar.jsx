@@ -17,12 +17,7 @@ import { userLogout } from '../api'
 import { getDashboardPath } from '../routing'
 import socket from '../socket'
 
-const NAV_LINKS = [
-  { to: '/',       label: '🏠 Home'   },
-  { to: '/rides',  label: '🚗 Rides'  },
-  { to: '/map',    label: '📍 Map'    },
-  { to: '/inbox',  label: '💬 Inbox'  },
-]
+const NAV_LINKS = []
 
 export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
   const navigate  = useNavigate()
@@ -116,27 +111,6 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
           <span className="sm:hidden text-sm font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
             {title}
           </span>
-        )}
-
-        {/* Desktop nav links */}
-        {!backPath && (
-          <nav className="hidden md:flex items-center gap-1 ml-2">
-            {NAV_LINKS.map(({ to, label }) => {
-              const active = location.pathname === to
-              return (
-                <Link
-                  key={to}
-                  to={to}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    active ? 'bg-amber-500 text-black' : 'hover:opacity-80'
-                  }`}
-                  style={active ? {} : { color: 'var(--text-secondary)' }}
-                >
-                  {label}
-                </Link>
-              )
-            })}
-          </nav>
         )}
 
         <div className="flex-1" />
@@ -235,19 +209,8 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
                 style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}
               >
                 <nav className="py-2">
-                  {NAV_LINKS.map(({ to, label }) => (
-                    <Link
-                      key={to}
-                      to={to}
-                      className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
-                      {label}
-                    </Link>
-                  ))}
                   {user && (
                     <>
-                      <div className="border-t my-1" style={{ borderColor: 'var(--border-color)' }} />
                       <Link
                         to={dashPath}
                         className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
@@ -269,6 +232,7 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
                       >
                         🔔 Notifications
                       </Link>
+                      <div className="border-t my-1" style={{ borderColor: 'var(--border-color)' }} />
                       <button
                         onClick={handleLogout}
                         className="block w-full text-left px-4 py-2 text-sm text-red-400 hover:text-red-300 transition-colors"
