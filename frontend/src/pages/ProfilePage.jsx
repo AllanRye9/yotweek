@@ -88,12 +88,12 @@ function IdentityBanner({ user, onAvatarChange }) {
     : null
 
   return (
-    <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '20px 24px', marginBottom: 20, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+    <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '14px 20px', marginBottom: 16, display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
       {/* Avatar */}
       <div
         onClick={() => inputRef.current?.click()}
         title="Click to change avatar"
-        style={{ position: 'relative', width: 88, height: 88, borderRadius: '50%', overflow: 'hidden', border: '3px solid var(--accent)', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 12px rgba(0,0,0,0.25)' }}
+        style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', border: '3px solid var(--accent)', cursor: 'pointer', flexShrink: 0, boxShadow: '0 2px 10px rgba(0,0,0,0.2)' }}
       >
         {displayUrl
           ? <img src={displayUrl} alt={user.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -296,9 +296,9 @@ function ProfileStats({ user }) {
   ]
 
   return (
-    <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '20px 24px', marginBottom: 20 }}>
-      <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Stats</h2>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 12 }}>
+    <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '16px 20px', marginBottom: 16 }}>
+      <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Stats</h2>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
         {tiles.map(t => (
           <div key={t.label} style={{ background: 'var(--bg-surface)', borderRadius: 12, padding: '14px 16px', border: '1px solid var(--border-color)', textAlign: 'center' }}>
             <p style={{ fontSize: '1.5rem', marginBottom: 4 }}>{t.icon}</p>
@@ -537,11 +537,11 @@ export default function ProfilePage() {
           <UserAuth onSuccess={u => { writeCache(u); setAppUser(u); setShowAuth(false) }} onClose={() => setShowAuth(false)} />
         )}
         <NavBar user={appUser} onLogin={() => setShowAuth(true)} title="Profile" />
-        <main style={{ flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto', padding: '24px 20px 60px', boxSizing: 'border-box' }}>
+        <main style={{ flex: 1, maxWidth: 1100, width: '100%', margin: '0 auto', padding: '16px 16px 40px', boxSizing: 'border-box' }}>
           {/* Back button */}
           <button
             onClick={() => navigate(-1)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 18, padding: '7px 16px', borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', transition: 'opacity 0.15s' }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14, padding: '6px 14px', borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-surface)', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', transition: 'opacity 0.15s' }}
             onMouseEnter={e => e.currentTarget.style.opacity = '0.75'}
             onMouseLeave={e => e.currentTarget.style.opacity = '1'}
           >
@@ -572,18 +572,18 @@ export default function ProfilePage() {
               <IdentityBanner user={appUser} onAvatarChange={url => handleUpdate({ avatar_url: url })} />
 
               {/* User ID card */}
-              <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '14px 24px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontSize: '1.1rem' }}>🪪</span>
+              <section style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 14, padding: '10px 20px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: '1rem' }}>🪪</span>
                 <div>
-                  <p style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>User ID</p>
-                  <p style={{ fontSize: '0.88rem', fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{appUser.user_id}</p>
+                  <p style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>User ID</p>
+                  <p style={{ fontSize: '0.85rem', fontFamily: 'monospace', color: 'var(--text-primary)', wordBreak: 'break-all' }}>{appUser.user_id}</p>
                 </div>
               </section>
 
               <LocationSharing />
               <RidesHistory />
               <ProfileStats user={appUser} />
-              <div id="profile-details-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 20, marginBottom: 20 }}>
+              <div id="profile-details-form" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16, marginBottom: 16 }}>
                 <DetailsPanel user={appUser} onUpdate={handleUpdate} />
                 <AccountActions onLogout={handleLogout} navigate={navigate} />
               </div>

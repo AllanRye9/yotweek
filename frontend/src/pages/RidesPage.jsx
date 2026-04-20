@@ -34,6 +34,14 @@ const UGANDA_DISTRICTS = [
   'Tororo', 'Wakiso', 'Yumbe', 'Zombo',
 ]
 
+const UAE_PLACES = [
+  'Dubai International Airport', 'Abu Dhabi International Airport', 'Sharjah International Airport',
+  'Dubai Mall', 'Burj Khalifa', 'Dubai Marina', 'Downtown Dubai', 'Palm Jumeirah',
+  'Business Bay', 'DIFC', 'Jumeirah', 'Al Barsha', 'Deira', 'Bur Dubai',
+  'Abu Dhabi City Centre', 'Al Reem Island', 'Yas Island', 'Al Ain', 'Sharjah City',
+  'Ajman', 'Ras Al Khaimah', 'Fujairah', 'Jebel Ali', 'Dubai South', 'JBR',
+]
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDep(dep) {
@@ -132,6 +140,7 @@ function PostRideModal({ onClose, onPosted }) {
                    className={inputCls} style={inputSty} />
             <datalist id="origin-suggestions">
               {UGANDA_DISTRICTS.map(d => <option key={d} value={d} />)}
+              {UAE_PLACES.map(p => <option key={`uae-${p}`} value={p} />)}
               <option value="Entebbe International Airport" />
               <option value="Kampala City Centre" />
             </datalist>
@@ -144,6 +153,7 @@ function PostRideModal({ onClose, onPosted }) {
                    className={inputCls} style={inputSty} />
             <datalist id="dest-suggestions">
               {UGANDA_DISTRICTS.map(d => <option key={d} value={d} />)}
+              {UAE_PLACES.map(p => <option key={`uae-${p}`} value={p} />)}
               <option value="Entebbe International Airport" />
               <option value="Kampala City Centre" />
             </datalist>
@@ -765,8 +775,17 @@ export default function RidesPage() {
 
   // Load user
   useEffect(() => {
-    getUserProfile().then(u => setAppUser(u)).catch(() => setAppUser(null))
+    getUserProfile().then(u => {
+      setAppUser(u)
+    }).catch(() => setAppUser(null))
   }, [])
+
+  // Redirect drivers to their dashboard
+  useEffect(() => {
+    if (appUser?.role === 'driver') {
+      navigate('/driver/dashboard', { replace: true })
+    }
+  }, [appUser, navigate])
 
   // Load notifications
   useEffect(() => {

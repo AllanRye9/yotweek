@@ -30,6 +30,16 @@ const UGANDA_PLACES = [
   'Yumbe', 'Zombo',
 ]
 
+const UAE_PLACES = [
+  'Dubai International Airport', 'Abu Dhabi International Airport', 'Sharjah International Airport',
+  'Dubai Mall', 'Burj Khalifa', 'Dubai Marina', 'Downtown Dubai', 'Dubai Creek', 'Deira', 'Bur Dubai',
+  'Jumeirah', 'Palm Jumeirah', 'JBR', 'Business Bay', 'DIFC', 'Al Barsha', 'Mirdif',
+  'Al Quoz', 'Al Rashidiya', 'Dubai Silicon Oasis', 'Dubai Sports City', 'Al Nahda',
+  'Abu Dhabi City Centre', 'Al Reem Island', 'Yas Island', 'Saadiyat Island', 'Al Mushrif',
+  'Al Khalidiyah', 'Mohammed Bin Zayed City', 'Al Ain', 'Sharjah City', 'Ajman', 'Ras Al Khaimah',
+  'Fujairah', 'Umm Al Quwain', 'Khor Fakkan', 'Jebel Ali', 'Dubai South',
+]
+
 /** Haversine distance in km between two lat/lng points. */
 function _distKm(lat1, lng1, lat2, lng2) {
   const R = 6371
@@ -166,6 +176,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [contact, setContact] = useState('')
   const [vehicleColor, setVehicleColor] = useState('')
   const [vehicleType, setVehicleType] = useState('')
+  const [vehicleModelCustom, setVehicleModelCustom] = useState('')
   const [plateNumber, setPlateNumber] = useState('')
   const [geoLoading, setGeoLoading] = useState(false)
   const [originLat, setOriginLat] = useState(null)
@@ -453,10 +464,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     try {
       const notesTrimmed = notes.trim()
       const notesWithContact = contact.trim() ? `${notesTrimmed}${notesTrimmed ? ' | ' : ''}Contact: ${contact.trim()}` : notesTrimmed
-      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare, postRideType, vehicleColor, vehicleType, plateNumber)
+      const data = await postRide(origin, destination, departure, seats, notesWithContact, originLat, originLng, destLat, destLng, fare, postRideType, vehicleColor, vehicleType, plateNumber, vehicleModelCustom)
       setPostOk(`Ride posted! ID: ${data.ride_id.slice(0, 8)}…`)
       setOrigin(''); setDest(''); setDeparture(''); setSeats(1); setNotes(''); setContact('')
-      setVehicleColor(''); setVehicleType(''); setPlateNumber('')
+      setVehicleColor(''); setVehicleType(''); setPlateNumber(''); setVehicleModelCustom('')
       setOriginLat(null); setOriginLng(null); setDestLat(null); setDestLng(null); setFare(null)
     } catch (err) { setPostError(err.message || 'Failed to post ride.') }
     finally { setPosting(false) }
@@ -780,6 +791,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                   required className={`${inputCls('origin')} flex-1 min-w-0`} />
                 <datalist id="rs-origin-list">
                   {UGANDA_PLACES.map(p => <option key={p} value={p} />)}
+                  {UAE_PLACES.map(p => <option key={`uae-${p}`} value={p} />)}
                 </datalist>
                 <button type="button" title="My location" onClick={handleGeoOrigin} disabled={geoLoading}
                   className="px-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors disabled:opacity-50">
@@ -792,6 +804,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                   required className={`${inputCls('dest')} flex-1 min-w-0`} />
                 <datalist id="rs-dest-list">
                   {UGANDA_PLACES.map(p => <option key={p} value={p} />)}
+                  {UAE_PLACES.map(p => <option key={`uae-${p}`} value={p} />)}
                 </datalist>
                 <button type="button" title="My location" onClick={handleGeoDest} disabled={geoDestLoading}
                   className="px-2 rounded-lg bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs transition-colors disabled:opacity-50">
@@ -854,6 +867,13 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
                 onChange={e => setPlateNumber(e.target.value)}
                 className={inputCls('plateNumber')} />
             </div>
+
+            {/* Custom vehicle model when 'Other' is selected */}
+            {vehicleType === 'Other' && (
+              <input type="text" placeholder="✏️ Specify vehicle make & model" value={vehicleModelCustom}
+                onChange={e => setVehicleModelCustom(e.target.value)}
+                className={inputCls('vehicleModelCustom')} />
+            )}
 
             {postError && <p className="text-red-400 text-xs bg-red-900/30 border border-red-800 rounded-lg px-2.5 py-1.5">{postError}</p>}
             {postOk    && <p className="text-green-400 text-xs bg-green-900/30 border border-green-800 rounded-lg px-2.5 py-1.5">✅ {postOk}</p>}
