@@ -8,7 +8,7 @@ import { getUserProfile, aiChat } from '../api'
 import { getDashboardPath } from '../routing'
 
 const NAV_INTENTS = [
-  { patterns: [/\bride[s]?\b.*\bmine\b|\bmy ride[s]?\b|\bmy booking[s]?\b/i], path: null, dashTab: 'rides', label: 'My Rides' },
+  { patterns: [/\bmy ride[s]?\b|\bmy booking[s]?\b|\bmine\b.*\bride[s]?\b/i], path: null, dashTab: 'rides', label: 'My Rides' },
   { patterns: [/\brides?\b/i], path: '/rides', label: 'Rides' },
   { patterns: [/\brequest[s]?\b/i], path: '/requests', label: 'Ride Requests' },
   { patterns: [/\bpost\b.*\brequest\b|\bnew request\b/i], path: '/requests', label: 'Post a Request' },
@@ -54,7 +54,7 @@ export default function AIPage() {
   const inputRef = useRef(null)
 
   useEffect(() => {
-    getUserProfile().then(setUser).catch(() => {})
+    getUserProfile().then(setUser).catch(() => setUser(null))
   }, [])
 
   useEffect(() => {
