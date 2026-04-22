@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { listRides, postRide, cancelRide, takeRide, repostRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare, alertRideClients } from '../api'
+import { listRides, postRide, cancelRide, takeRide, repostRide, updateDriverLocation, getNearbyDrivers, calculateFare, calculateSharedFare, estimateFare, alertRideClients, getConfirmedLocations } from '../api'
 import { playDriverAlertSound, playRideTakenSound, playNewRideSound } from '../sounds'
 import socket from '../socket'
 import RideChat from './RideChat'
@@ -155,7 +155,7 @@ function FareCalculator({ ride }) {
   )
 }
 
-export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections, openChatRideId, onChatOpened, driverOnlyRides = false }) {
+export default function RideShare({ user, onRidesChange, requestedRide, onRequestedRideHandled, showSections, openChatRideId, onChatOpened, driverOnlyRides = false, onConfirmedLocationsChange }) {
   const sections = { ...DEFAULT_SECTIONS, ...(showSections || {}) }
   const isDriver = user?.role === 'driver'
   const PAGE_SIZE = 12
@@ -193,6 +193,7 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [nearbyDrivers, setNearbyDrivers] = useState([])
   const [chatRide, setChatRide] = useState(null)
   const [chatDefaultMsg, setChatDefaultMsg] = useState('')
+  const [confirmedLocations, setConfirmedLocations] = useState([])
   // Private client alert (driver arrival)
   const [alertingClients, setAlertingClients] = useState(false)
   const [alertClientMsg, setAlertClientMsg] = useState('')
@@ -203,6 +204,8 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
   const [locationAlert, setLocationAlert] = useState(null)
   const [locationAlertVisible, setLocationAlertVisible] = useState(false)
   const locationAlertTimerRef = useRef(null)
+  // Alert reach summary (shown to driver after broadcasting)
+  const [alertSummary, setAlertSummary] = useState(null)
   // Location search filter
   const [locationFilter, setLocationFilter] = useState('')
   const [userLat, setUserLat] = useState(user?.lat ?? null)
@@ -419,12 +422,17 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         setTimeout(() => setLocationAlert(null), 500)
       }, 20000)
     }
+    const onDriverAlertSummary = (data) => {
+      setAlertSummary(data)
+      setTimeout(() => setAlertSummary(null), 20000)
+    }
     socket.on('new_ride', onNewRide)
     socket.on('ride_cancelled', onCancelled)
     socket.on('ride_taken', onTaken)
     socket.on('driver_nearby', onDriverNearby)
     socket.on('driver_arrived', onDriverArrived)
     socket.on('driver_location_alert', onDriverLocationAlert)
+    socket.on('driver_alert_summary', onDriverAlertSummary)
     return () => {
       socket.off('new_ride', onNewRide)
       socket.off('ride_cancelled', onCancelled)
@@ -432,8 +440,25 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
       socket.off('driver_nearby', onDriverNearby)
       socket.off('driver_arrived', onDriverArrived)
       socket.off('driver_location_alert', onDriverLocationAlert)
+      socket.off('driver_alert_summary', onDriverAlertSummary)
     }
   }, [userLat, userLng])
+
+  // Fetch confirmed passenger locations when a chat ride is opened
+  useEffect(() => {
+    if (!chatRide?.ride_id) {
+      setConfirmedLocations([])
+      onConfirmedLocationsChange?.([])
+      return
+    }
+    getConfirmedLocations(chatRide.ride_id)
+      .then(d => {
+        const locs = d.confirmed_locations || []
+        setConfirmedLocations(locs)
+        onConfirmedLocationsChange?.(locs)
+      })
+      .catch(() => { setConfirmedLocations([]); onConfirmedLocationsChange?.([]) })
+  }, [chatRide?.ride_id])
 
   useEffect(() => { if (user?.user_id) socket.emit('identify', { user_id: user.user_id }) }, [user])
 
@@ -520,8 +545,12 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          await updateDriverLocation(pos.coords.latitude, pos.coords.longitude, true, emptySeatCount, true)
+          const data = await updateDriverLocation(pos.coords.latitude, pos.coords.longitude, true, emptySeatCount, true)
           setBroadcastMsg('🚨 Location alert sent to passengers within 5km!')
+          if (data?.reached_summary) {
+            setAlertSummary({ type: 'location_alert', reached: data.reached_summary.length, summary: data.reached_summary })
+            setTimeout(() => setAlertSummary(null), 20000)
+          }
         } catch (err) { setBroadcastMsg(err.message || 'Alert failed.') }
         finally { setAlertingLocation(false); setTimeout(() => setBroadcastMsg(''), 8000) }
       },
@@ -541,6 +570,10 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
         setAlertClientMsg('✅ Your client has been notified that you have arrived!')
       } else {
         setAlertClientMsg(`✅ ${data.alerted} clients have been notified that you have arrived!`)
+      }
+      if (data.reached_summary?.length) {
+        setAlertSummary({ type: 'arrived', reached: data.alerted, total: data.total_passengers, summary: data.reached_summary })
+        setTimeout(() => setAlertSummary(null), 20000)
       }
     } catch (err) {
       setAlertClientMsg(err.message || 'Failed to send arrival alert.')
@@ -738,6 +771,35 @@ export default function RideShare({ user, onRidesChange, requestedRide, onReques
           {broadcastMsg && <p className={`text-xs ${broadcastMsg.startsWith('📡') || broadcastMsg.startsWith('✅') || broadcastMsg.startsWith('🚨') ? 'text-green-300' : 'text-red-300'}`}>{broadcastMsg}</p>}
           {alertClientMsg && <p className={`text-xs ${alertClientMsg.startsWith('✅') ? 'text-green-300' : alertClientMsg.startsWith('ℹ') ? 'text-blue-300' : 'text-red-300'}`}>{alertClientMsg}</p>}
           {nearbyDrivers.length > 0 && <div className="text-xs text-yellow-200/60">{nearbyDrivers.length} other driver(s) nearby.</div>}
+
+          {/* Alert reach summary panel */}
+          {alertSummary && (
+            <div className="rounded-xl border border-teal-600/60 bg-teal-900/30 p-3 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-teal-300">
+                  {alertSummary.type === 'arrived' ? '📍 I\'ve Arrived — Reach Summary' : '🚨 Location Alert — Reach Summary'}
+                </p>
+                <button onClick={() => setAlertSummary(null)} className="text-xs text-teal-500 hover:text-teal-300">✕</button>
+              </div>
+              <p className="text-xs text-teal-200">
+                {alertSummary.reached} user{alertSummary.reached !== 1 ? 's' : ''} notified
+                {alertSummary.total != null ? ` (${alertSummary.total} total clients)` : ''}
+              </p>
+              {alertSummary.summary?.length > 0 && (
+                <ul className="space-y-0.5 max-h-28 overflow-y-auto">
+                  {alertSummary.summary.map((p, i) => (
+                    <li key={i} className="text-xs text-teal-100 flex items-center gap-2">
+                      <span className="w-4 h-4 rounded-full bg-teal-700 flex items-center justify-center text-[9px] shrink-0">👤</span>
+                      <span>{p.name}</span>
+                      {p.dist_km != null && (
+                        <span className="text-teal-400">{p.dist_km < 1 ? `${(p.dist_km * 1000).toFixed(0)}m` : `${p.dist_km.toFixed(1)}km`} away</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       )}
 

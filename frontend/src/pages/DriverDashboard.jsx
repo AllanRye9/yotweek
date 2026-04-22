@@ -28,6 +28,8 @@ export default function DriverDashboard() {
   const [dashData, setDashData]     = useState(null)
   const [tab, setTab]               = useState('overview')
   const [selectedRide, setSelectedRide] = useState(null)
+  // Confirmed passenger locations (synced from RideShare chat, passed to map)
+  const [rideShareConfirmedLocs, setRideShareConfirmedLocs] = useState([])
 
   // Ride-chat inbox for drivers
   const [rideInbox, setRideInbox]   = useState([])
@@ -371,6 +373,7 @@ export default function DriverDashboard() {
             user={driver}
             driverOnlyRides
             onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }}
+            onConfirmedLocationsChange={setRideShareConfirmedLocs}
           />
         )}
 
@@ -557,6 +560,7 @@ export default function DriverDashboard() {
               autoLoadDrivers={false}
               mapHeight={420}
               onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }}
+              confirmedLocations={rideShareConfirmedLocs}
             />
           </div>
         )}

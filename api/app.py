@@ -836,7 +836,8 @@ def init_db():
                     except Exception:
                         conn.rollback()
                         pass  # column already exists
-                for col, coldef in [("driver_confirmed", "INTEGER NOT NULL DEFAULT 0")]:
+                for col, coldef in [("driver_confirmed", "INTEGER NOT NULL DEFAULT 0"),
+                                    ("lat", "REAL"), ("lng", "REAL")]:
                     try:
                         cur.execute(f"ALTER TABLE ride_journey_confirmations ADD COLUMN {col} {coldef}")
                         conn.commit()
@@ -1108,7 +1109,8 @@ def init_db():
                         conn.execute(f"ALTER TABLE rides ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
-                for col, coldef in [("driver_confirmed", "INTEGER NOT NULL DEFAULT 0")]:
+                for col, coldef in [("driver_confirmed", "INTEGER NOT NULL DEFAULT 0"),
+                                    ("lat", "REAL"), ("lng", "REAL")]:
                     try:
                         conn.execute(f"ALTER TABLE ride_journey_confirmations ADD COLUMN {col} {coldef}")
                     except Exception:
@@ -4249,6 +4251,7 @@ async def api_ride_alert_clients(request: Request, ride_id: str):
             conn.close()
 
     alerted_count = 0
+    reached_summary = []
     payload = {
         "ride_id": ride_id,
         "driver_name": driver_name,
@@ -4272,10 +4275,22 @@ async def api_ride_alert_clients(request: Request, ride_id: str):
             if psid:
                 asyncio.ensure_future(sio.emit("driver_arrived", payload, room=psid))
             alerted_count += 1
+            reached_summary.append({"name": passenger_name})
         except Exception as exc:
             logger.warning("Failed to alert passenger %s: %s", passenger_id, exc)
 
-    return JSONResponse({"ok": True, "alerted": alerted_count, "total_passengers": len(passenger_rows)})
+    # Notify the driver with a summary of how many passengers were reached
+    with _socket_user_lock:
+        driver_sid = _user_to_sid.get(user_id)
+    if driver_sid and reached_summary:
+        asyncio.ensure_future(sio.emit("driver_alert_summary", {
+            "type":    "arrived",
+            "reached": alerted_count,
+            "total":   len(passenger_rows),
+            "summary": reached_summary,
+        }, room=driver_sid))
+
+    return JSONResponse({"ok": True, "alerted": alerted_count, "total_passengers": len(passenger_rows), "reached_summary": reached_summary})
 
 
 # =========================================================
@@ -4285,6 +4300,8 @@ async def api_ride_alert_clients(request: Request, ride_id: str):
 class _JourneyConfirmRequest(BaseModel):
     real_name: str
     contact:   str
+    lat:       float | None = None
+    lng:       float | None = None
 
 
 @fastapi_app.post("/api/rides/{ride_id}/confirm_journey")
@@ -4320,6 +4337,10 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             destination    = ride_row[3]
             current_seats  = ride_row[4]
 
+            # Driver cannot confirm their own ride (bypass seat check)
+            if user_id == driver_user_id:
+                return JSONResponse({"ok": True, "message": "You are the driver of this ride.", "seats": current_seats})
+
             # Check if this user has already confirmed (to avoid double seat decrement)
             if USE_POSTGRES:
                 cur.execute(
@@ -4338,16 +4359,16 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
 
             if USE_POSTGRES:
                 cur.execute(
-                    """INSERT INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s)
-                       ON CONFLICT (ride_id, user_id) DO UPDATE SET real_name=EXCLUDED.real_name, contact=EXCLUDED.contact""",
-                    (confirmation_id, ride_id, user_id, real_name, contact, created_at),
+                    """INSERT INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, lat, lng, created_at)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                       ON CONFLICT (ride_id, user_id) DO UPDATE SET real_name=EXCLUDED.real_name, contact=EXCLUDED.contact, lat=EXCLUDED.lat, lng=EXCLUDED.lng""",
+                    (confirmation_id, ride_id, user_id, real_name, contact, body.lat, body.lng, created_at),
                 )
             else:
                 conn.execute(
-                    """INSERT OR REPLACE INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, created_at)
-                       VALUES (?,?,?,?,?,?)""",
-                    (confirmation_id, ride_id, user_id, real_name, contact, created_at),
+                    """INSERT OR REPLACE INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, lat, lng, created_at)
+                       VALUES (?,?,?,?,?,?,?,?)""",
+                    (confirmation_id, ride_id, user_id, real_name, contact, body.lat, body.lng, created_at),
                 )
 
             # Decrement available seats only for a first-time confirmation
@@ -4399,6 +4420,8 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             "ride_id":   ride_id,
             "real_name": real_name,
             "contact":   contact,
+            "lat":       body.lat,
+            "lng":       body.lng,
         }, room=dsid))
 
     # Broadcast seat update to all clients in the ride room for real-time UI update
@@ -4438,16 +4461,16 @@ async def api_ride_confirmed_users(request: Request, ride_id: str):
             if ride_row[0] != user_id and user.get("role") != "admin":
                 return JSONResponse({"error": "Not authorised."}, status_code=403)
 
-            cols = ["confirmation_id", "ride_id", "user_id", "real_name", "contact", "created_at"]
+            cols = ["confirmation_id", "ride_id", "user_id", "real_name", "contact", "lat", "lng", "created_at"]
             if USE_POSTGRES:
                 cur.execute(
-                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,created_at FROM ride_journey_confirmations WHERE ride_id=%s ORDER BY created_at ASC",
+                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,lat,lng,created_at FROM ride_journey_confirmations WHERE ride_id=%s ORDER BY created_at ASC",
                     (ride_id,),
                 )
                 rows = cur.fetchall()
             else:
                 cur2 = conn.execute(
-                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,created_at FROM ride_journey_confirmations WHERE ride_id=? ORDER BY created_at ASC",
+                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,lat,lng,created_at FROM ride_journey_confirmations WHERE ride_id=? ORDER BY created_at ASC",
                     (ride_id,),
                 )
                 rows = cur2.fetchall()
@@ -4456,6 +4479,64 @@ async def api_ride_confirmed_users(request: Request, ride_id: str):
 
     confirmed = [dict(zip(cols, r)) for r in rows]
     return JSONResponse({"confirmed_users": confirmed})
+
+
+@fastapi_app.get("/api/rides/{ride_id}/confirmed_locations")
+async def api_ride_confirmed_locations(request: Request, ride_id: str):
+    """Return lat/lng of users who confirmed their journey (driver or confirmed passenger only)."""
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM rides WHERE ride_id=%s", (ride_id,))
+                ride_row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id FROM rides WHERE ride_id=?", (ride_id,))
+                ride_row = cur.fetchone()
+            if not ride_row:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+
+            driver_user_id = ride_row[0]
+            # Only driver or confirmed passengers may retrieve locations
+            if user_id != driver_user_id:
+                if USE_POSTGRES:
+                    cur.execute(
+                        "SELECT 1 FROM ride_journey_confirmations WHERE ride_id=%s AND user_id=%s",
+                        (ride_id, user_id),
+                    )
+                    authorized = cur.fetchone() is not None
+                else:
+                    authorized = conn.execute(
+                        "SELECT 1 FROM ride_journey_confirmations WHERE ride_id=? AND user_id=?",
+                        (ride_id, user_id),
+                    ).fetchone() is not None
+                if not authorized:
+                    return JSONResponse({"error": "Not authorised."}, status_code=403)
+
+            if USE_POSTGRES:
+                cur.execute(
+                    "SELECT user_id, real_name, lat, lng FROM ride_journey_confirmations"
+                    " WHERE ride_id=%s AND lat IS NOT NULL AND lng IS NOT NULL",
+                    (ride_id,),
+                )
+                rows = cur.fetchall()
+            else:
+                cur2 = conn.execute(
+                    "SELECT user_id, real_name, lat, lng FROM ride_journey_confirmations"
+                    " WHERE ride_id=? AND lat IS NOT NULL AND lng IS NOT NULL",
+                    (ride_id,),
+                )
+                rows = cur2.fetchall()
+        finally:
+            conn.close()
+
+    locations = [{"user_id": r[0], "name": r[1], "lat": r[2], "lng": r[3]} for r in rows]
+    return JSONResponse({"confirmed_locations": locations})
 
 
 class _ProximityNotifyRequest(BaseModel):
@@ -5103,9 +5184,11 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
     targets_sent = False
     with _socket_user_lock:
         identified_sids = list(_sid_to_user.items())
+        driver_sid = _user_to_sid.get(user_id)
 
     async def _notify():
         nonlocal targets_sent
+        alert_reached = []  # tracks users reached by the location_alert
         for sid, uid in identified_sids:
             u = _get_app_user(uid)
             # Only notify passengers — skip all drivers (including the
@@ -5120,10 +5203,12 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
                     # If within alert radius and driver posted explicit alert, send rich alert
                     if body.location_alert and dist <= _DRIVER_ALERT_PROXIMITY_KM:
                         await sio.emit("driver_location_alert", alert_notification, room=sid)
+                        alert_reached.append({"name": u["name"], "dist_km": round(dist, 2)})
             elif body.location_alert:
                 # No stored location for this user — send alert regardless (no distance filter)
                 await sio.emit("driver_location_alert", alert_notification, room=sid)
                 targets_sent = True
+                alert_reached.append({"name": u["name"], "dist_km": None})
         if not targets_sent:
             # No location-aware passengers connected — broadcast to all identified
             # passengers (those without a stored location), skipping all drivers.
@@ -5134,12 +5219,20 @@ async def api_driver_location(request: Request, body: _DriverLocationUpdate):
                 await sio.emit("driver_nearby", notification, room=sid)
                 if body.location_alert:
                     await sio.emit("driver_location_alert", alert_notification, room=sid)
+                    alert_reached.append({"name": u["name"], "dist_km": None})
                 targets_sent = True
         if not targets_sent:
             # Absolutely no identified passengers — broadcast to all anonymous sockets
             await sio.emit("driver_nearby", notification)
             if body.location_alert:
                 await sio.emit("driver_location_alert", alert_notification)
+        # Send summary back to the driver so they know how many users were reached
+        if body.location_alert and driver_sid:
+            await sio.emit("driver_alert_summary", {
+                "type":    "location_alert",
+                "reached": len(alert_reached),
+                "summary": alert_reached,
+            }, room=driver_sid)
 
     asyncio.ensure_future(_notify())
 

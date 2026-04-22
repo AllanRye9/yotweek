@@ -62,12 +62,13 @@ const DRIVER_PROXIMITY_KM = 5
  *  autoLoadDrivers  - When true, continuously fetches drivers every 5s
  *  onLocationUpdate - Called with {lat, lng} when the map auto-detects location
  */
-export default function RideShareMap({ rides = [], userLocation, onRequestRide, onOpenChat, driverLocations: propDriverLocations = [], autoLoadDrivers = true, onLocationUpdate, mapHeight = 300 }) {
+export default function RideShareMap({ rides = [], userLocation, onRequestRide, onOpenChat, driverLocations: propDriverLocations = [], autoLoadDrivers = true, onLocationUpdate, mapHeight = 300, confirmedLocations = [] }) {
   const mapRef      = useRef(null)
   const instanceRef = useRef(null)
   const tileLayerRef = useRef(null)
   const markersRef  = useRef([])
   const driverMarkersRef = useRef([])
+  const confirmedMarkersRef = useRef([])
   const userMarkerRef    = useRef(null)
   const accuracyCircleRef = useRef(null)
   const [selectedRide, setSelectedRide] = useState(null)
@@ -286,7 +287,34 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
     })
   }, [driverLocations, userLocation])
 
-  // ── User location marker ────────────────────────────────────────────────────
+  // ── Confirmed passenger location markers ───────────────────────────────────
+  useEffect(() => {
+    const map = instanceRef.current
+    if (!map) return
+
+    confirmedMarkersRef.current.forEach(m => m.remove())
+    confirmedMarkersRef.current = []
+
+    confirmedLocations.forEach(p => {
+      if (p.lat == null || p.lng == null) return
+      const icon = L.divIcon({
+        className: '',
+        html: `<div style="
+          background:#7c3aed;color:#fff;border-radius:50%;
+          width:26px;height:26px;display:flex;align-items:center;
+          justify-content:center;font-size:13px;
+          box-shadow:0 2px 8px rgba(0,0,0,0.4);
+          border:2px solid #fff;
+        ">📍</div>`,
+        iconSize:   [26, 26],
+        iconAnchor: [13, 13],
+      })
+      const m = L.marker([p.lat, p.lng], { icon })
+        .addTo(map)
+        .bindTooltip(`<strong>${p.name || 'Passenger'}</strong><br>Confirmed pickup`, { direction: 'top' })
+      confirmedMarkersRef.current.push(m)
+    })
+  }, [confirmedLocations])
   useEffect(() => {
     const map = instanceRef.current
     if (!map) return

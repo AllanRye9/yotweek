@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import socket from '../socket'
 import {
   dmListConversations, dmStartConversation, dmSendMessage, dmGetContacts, dmDeleteConversation,
-  searchUsers, getRideChatInbox,
+  dmDeleteMessage, searchUsers, getRideChatInbox,
 } from '../api'
 import DMChat from './DMChat'
 import { playMessageChime } from '../sounds'
@@ -47,6 +47,7 @@ export default function DMInbox({ currentUser }) {
   const [totalUnread,    setTotalUnread]     = useState(0)
   const [clickedConv,    setClickedConv]    = useState(null)  // for click animation
   const [showAllConvs,   setShowAllConvs]   = useState(false) // show more than 6
+  const [showAllRideChats, setShowAllRideChats] = useState(false) // show more ride chats
   const prevUnreadRef    = useRef(0)
   const searchTimerRef   = useRef(null)
 
@@ -177,6 +178,19 @@ export default function DMInbox({ currentUser }) {
     try {
       await dmDeleteConversation(convId)
       setConversations(prev => prev.filter(c => c.conv_id !== convId))
+    } catch { /* ignore */ }
+  }
+
+  // ── Delete last message in a conversation ─────────────────────────────────
+
+  const handleDeleteLastMessage = async (conv, e) => {
+    e.stopPropagation()
+    const msgId = conv.last_message?.msg_id
+    if (!msgId) return
+    if (!window.confirm('Delete this message?')) return
+    try {
+      await dmDeleteMessage(msgId)
+      loadConversations()
     } catch { /* ignore */ }
   }
 
@@ -334,46 +348,73 @@ export default function DMInbox({ currentUser }) {
         {/* Thread list — scrollable */}
         <div className="flex-1 overflow-y-auto">
           {/* Ride share threads */}
-          {!rideChatsLoading && rideChats.length > 0 && (
-            <>
-              <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide px-3 pt-2 pb-1">🚗 Ride Share</p>
-              {rideChats.map((conv, i) => (
-                <div
-                  key={conv.msg_id || i}
-                  className="flex items-start gap-2 px-3 py-2.5 border-b border-gray-800/60 hover:bg-amber-900/10 transition-colors cursor-pointer"
-                  style={{
-                    transform: clickedConv === `ride-${i}` ? 'scale(0.97)' : '',
-                    transition: `transform ${CLICK_ANIMATION_DURATION}ms ease`,
-                  }}
-                  onClick={() => {
-                    setClickedConv(`ride-${i}`)
-                    setTimeout(() => setClickedConv(null), CLICK_ANIMATION_DURATION)
-                    navigate('/rides')
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => e.key === 'Enter' && navigate('/rides')}
-                  aria-label={`Ride chat: ${conv.ride_info?.origin || 'Ride'} to ${conv.ride_info?.destination || '…'}`}
-                >
-                  <div className="w-8 h-8 rounded-full bg-amber-800 flex items-center justify-center text-xs shrink-0 mt-0.5">🚗</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-amber-200 truncate">
-                      {conv.ride_info?.origin || 'Ride'} → {conv.ride_info?.destination || '…'}
-                    </p>
-                    <p className="text-xs text-gray-400 truncate">
-                      {conv.is_mine ? 'You: ' : `${conv.sender_name || 'Driver'}: `}{conv.text || '[message]'}
-                    </p>
+          {!rideChatsLoading && rideChats.length > 0 && (() => {
+            const sortedRideChats = [...rideChats].sort((a, b) => (b.ts || 0) - (a.ts || 0))
+            const visibleRideChats = showAllRideChats ? sortedRideChats : sortedRideChats.slice(0, 6)
+            return (
+              <>
+                <p className="text-xs font-semibold text-amber-400 uppercase tracking-wide px-3 pt-2 pb-1">🚗 Ride Share</p>
+                {visibleRideChats.map((conv, i) => (
+                  <div
+                    key={conv.msg_id || i}
+                    className="flex items-start gap-2 px-3 py-2.5 border-b border-gray-800/60 hover:bg-amber-900/10 transition-colors cursor-pointer"
+                    style={{
+                      transform: clickedConv === `ride-${i}` ? 'scale(0.97)' : '',
+                      transition: `transform ${CLICK_ANIMATION_DURATION}ms ease`,
+                    }}
+                    onClick={() => {
+                      setClickedConv(`ride-${i}`)
+                      setTimeout(() => setClickedConv(null), CLICK_ANIMATION_DURATION)
+                      navigate('/rides')
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => e.key === 'Enter' && navigate('/rides')}
+                    aria-label={`Ride chat: ${conv.ride_info?.origin || 'Ride'} to ${conv.ride_info?.destination || '…'}`}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-amber-800 flex items-center justify-center text-xs shrink-0 mt-0.5">🚗</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-amber-200 truncate">
+                        {conv.ride_info?.origin || 'Ride'} → {conv.ride_info?.destination || '…'}
+                      </p>
+                      <p className="text-xs text-gray-400 truncate">
+                        {conv.is_mine ? 'You: ' : `${conv.sender_name || 'Driver'}: `}{conv.text || '[message]'}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                      <span className="text-xs text-gray-600">
+                        {conv.ts ? new Date(conv.ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
+                      </span>
+                      {conv.msg_id && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            // Ride chat message deletion not available from inbox — navigate to ride
+                            navigate('/rides')
+                          }}
+                          className="text-xs text-gray-600 hover:text-amber-400 transition-colors p-0.5 rounded"
+                          title="Open ride chat to manage messages"
+                        >
+                          💬
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-xs text-gray-600 shrink-0 mt-0.5">
-                    {conv.ts ? new Date(conv.ts * 1000).toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''}
-                  </span>
-                </div>
-              ))}
-              {conversations.length > 0 && (
-                <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide px-3 pt-2 pb-1">💬 Direct Messages</p>
-              )}
-            </>
-          )}
+                ))}
+                {sortedRideChats.length > 6 && (
+                  <button
+                    onClick={() => setShowAllRideChats(v => !v)}
+                    className="w-full text-xs text-amber-400 hover:text-amber-300 py-2 border-t border-gray-800/60 transition-colors"
+                  >
+                    {showAllRideChats ? 'Show less ▲' : `Show more (${sortedRideChats.length - 6} more) ▼`}
+                  </button>
+                )}
+                {conversations.length > 0 && (
+                  <p className="text-xs font-semibold text-blue-400 uppercase tracking-wide px-3 pt-2 pb-1">💬 Direct Messages</p>
+                )}
+              </>
+            )
+          })()}
 
           {/* DM threads */}
           {loading ? (
@@ -469,10 +510,19 @@ export default function DMInbox({ currentUser }) {
                       >
                         ↩
                       </button>
+                      {conv.last_message?.msg_id && (
+                        <button
+                          onClick={(e) => handleDeleteLastMessage(conv, e)}
+                          className="text-xs text-gray-600 hover:text-orange-400 transition-colors p-1 rounded"
+                          title="Delete last message"
+                        >
+                          🗑✉
+                        </button>
+                      )}
                       <button
                         onClick={() => handleDeleteConversation(conv.conv_id)}
                         className="text-xs text-gray-600 hover:text-red-400 transition-colors p-1 rounded"
-                        title="Delete"
+                        title="Delete conversation"
                       >
                         🗑
                       </button>

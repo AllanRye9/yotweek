@@ -183,11 +183,14 @@ export const driverConfirmBooking = (rideId, confirmationId) =>
 
 export const alertRideClients = (rideId) => request('POST', `/api/rides/${encodeURIComponent(rideId)}/alert`)
 
-export const confirmJourney = (rideId, real_name, contact) =>
-  request('POST', `/api/rides/${encodeURIComponent(rideId)}/confirm_journey`, { real_name, contact })
+export const confirmJourney = (rideId, real_name, contact, lat = null, lng = null) =>
+  request('POST', `/api/rides/${encodeURIComponent(rideId)}/confirm_journey`, { real_name, contact, lat, lng })
 
 export const getConfirmedUsers = (rideId) =>
   request('GET', `/api/rides/${encodeURIComponent(rideId)}/confirmed_users`)
+
+export const getConfirmedLocations = (rideId) =>
+  request('GET', `/api/rides/${encodeURIComponent(rideId)}/confirmed_locations`)
 
 export const proximityNotify = (rideId, distance_km, unit = 'km') =>
   request('POST', `/api/rides/${encodeURIComponent(rideId)}/proximity_notify`, { distance_km, unit })

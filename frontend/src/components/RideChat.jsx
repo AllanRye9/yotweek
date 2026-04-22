@@ -106,15 +106,21 @@ export default function RideChat({ ride, user, onClose }) {
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState('')
 
-  // Journey confirmation (passengers)
+  // Journey confirmation / Share Pickup Location (passengers)
   const [showConfirm, setShowConfirm] = useState(false)
   const [realName, setRealName]       = useState('')
   const [contact, setContact]         = useState('')
   const [confirmMsg, setConfirmMsg]   = useState('')
   const [locationLabel, setLocationLabel] = useState('')
+  const [locationLat, setLocationLat] = useState(null)   // geo lat for confirm + map
+  const [locationLng, setLocationLng] = useState(null)   // geo lng for confirm + map
+  const [manualAddress, setManualAddress] = useState('')  // free-text override
+  const [notifyDriver, setNotifyDriver] = useState(true)  // alert-driver toggle
+  const [mediaFile, setMediaFile]     = useState(null)    // File for media attachment
   const [confirmSuccess, setConfirmSuccess] = useState(false)  // animation flag
   const [currentSeats, setCurrentSeats] = useState(ride?.seats ?? null)  // real-time seat count
   const [wantToShare, setWantToShare] = useState(true)  // passenger share preference
+  const fileInputRef = useRef(null)
 
   // Confirmed passengers (drivers)
   const [showPassengers, setShowPassengers]   = useState(false)
@@ -143,11 +149,11 @@ export default function RideChat({ ride, user, onClose }) {
 
   const bottomRef = useRef(null)
   const rideId    = ride?.ride_id
-  const isDriver  = user?.user_id === ride?.user_id
+  const isDriver  = user?.user_id === ride?.user_id || user?.user_id === ride?.driver_id
   const myId      = user?.user_id
   const myName    = user?.name || user?.display_name || 'Guest'
 
-  // Auto-fill user location when "Confirm Journey" is opened
+  // Open "Share Pickup Location" panel and auto-detect geo location
   const handleOpenConfirm = () => {
     setShowConfirm(true)
     setRealName(user?.name || '')
@@ -156,16 +162,16 @@ export default function RideChat({ ride, user, onClose }) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           const { latitude, longitude } = pos.coords
+          setLocationLat(latitude)
+          setLocationLng(longitude)
           const label = `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`
           setLocationLabel(label)
-          if (!contact) setContact(user?.phone || user?.email || '')
         },
         () => setLocationLabel(''),
         { timeout: 5000 }
       )
     }
   }
-
   // Load history + join socket room
   useEffect(() => {
     if (!rideId) return
@@ -295,26 +301,72 @@ export default function RideChat({ ride, user, onClose }) {
     const nameToSend = realName || myName
     const contactToSend = contact || locationLabel
     try {
-      const result = await confirmJourney(rideId, nameToSend, contactToSend)
-      setConfirmMsg('✅ Journey confirmed!')
+      const result = await confirmJourney(rideId, nameToSend, contactToSend, locationLat, locationLng)
+      setConfirmMsg('✅ Booking confirmed!')
       setConfirmSuccess(true)
       // Update seat count if backend returned new seat total
       if (result?.seats != null) setCurrentSeats(result.seats)
       setTimeout(() => setConfirmSuccess(false), 2000)
-      // Send a chat message to notify the driver
-      const noteText = wantToShare
-        ? `📍 I've confirmed my journey. ${locationLabel ? `My location: ${locationLabel}` : ''} I'm happy to share the ride.`
-        : `📍 I've confirmed my journey. ${locationLabel ? `My location: ${locationLabel}` : ''} I prefer a private ride.`
-      socket.emit('ride_chat_message', {
-        ride_id:     rideId,
-        text:        noteText.trim(),
-        name:        myName,
-        sender_name: myName,
-        sender_id:   myId,
-      })
+
+      // Send Google Maps link if geo available
+      if (locationLat != null && locationLng != null) {
+        const mapsLink = `https://maps.google.com/?q=${locationLat},${locationLng}`
+        socket.emit('ride_chat_message', {
+          ride_id:     rideId,
+          text:        `📍 My pickup location: ${mapsLink}`,
+          name:        myName,
+          sender_name: myName,
+          sender_id:   myId,
+        })
+      }
+
+      // Send manual address text if provided
+      if (manualAddress.trim()) {
+        socket.emit('ride_chat_message', {
+          ride_id:     rideId,
+          text:        `📍 Pickup address: ${manualAddress.trim()}`,
+          name:        myName,
+          sender_name: myName,
+          sender_id:   myId,
+        })
+      }
+
+      // Send media attachment if selected
+      if (mediaFile) {
+        const reader = new FileReader()
+        reader.onload = (ev) => {
+          socket.emit('ride_chat_message', {
+            ride_id:     rideId,
+            name:        myName,
+            sender_name: myName,
+            sender_id:   myId,
+            media_type:  'image',
+            media_data:  ev.target.result,
+            text:        '',
+          })
+        }
+        reader.readAsDataURL(mediaFile)
+      }
+
+      // Notify driver via socket if toggle is on (no geo / no manual = send text note)
+      if (notifyDriver && !locationLat && !manualAddress.trim()) {
+        socket.emit('ride_chat_message', {
+          ride_id:     rideId,
+          text:        `📍 I've confirmed my pickup. Please let me know when you're on your way!`,
+          name:        myName,
+          sender_name: myName,
+          sender_id:   myId,
+        })
+      }
+
       setShowConfirm(false)
       setRealName('')
       setContact('')
+      setManualAddress('')
+      setMediaFile(null)
+      setLocationLat(null)
+      setLocationLng(null)
+      setLocationLabel('')
     } catch (e) {
       setConfirmMsg('❌ ' + (e?.message || 'Failed'))
     }
@@ -495,7 +547,7 @@ export default function RideChat({ ride, user, onClose }) {
         </div>
       )}
 
-      {/* Passenger — Journey confirmation */}
+      {/* Passenger — Share Pickup Location */}
       {!isDriver && (
         <div className="px-4 py-3 border-b"
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
@@ -507,10 +559,10 @@ export default function RideChat({ ride, user, onClose }) {
           {confirmSuccess && (
             <div className="mb-2 rounded-xl px-4 py-2 text-sm font-semibold text-center text-white animate-bounce"
                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-              🎉 Journey Confirmed!
+              🎉 Booking Confirmed!
             </div>
           )}
-          {currentSeats === 0 ? (
+          {currentSeats === 0 && !showConfirm ? (
             <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-red-300"
                  style={{ background: 'rgba(127,29,29,0.4)', border: '1px solid rgba(248,113,113,0.3)' }}>
               🚫 Fully Booked — No seats available
@@ -524,8 +576,8 @@ export default function RideChat({ ride, user, onClose }) {
                 boxShadow: '0 4px 15px rgba(245,158,11,0.35)',
               }}
             >
-              <span className="text-base">✅</span>
-              <span>Confirm Journey</span>
+              <span className="text-base">📍</span>
+              <span>Share Pickup Location & Confirm</span>
               <span className="absolute inset-0 rounded-xl border border-amber-300/30 pointer-events-none" />
             </button>
           ) : (
@@ -538,13 +590,60 @@ export default function RideChat({ ride, user, onClose }) {
                        className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
                        style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }} />
               </div>
-              {locationLabel && (
-                <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>📍 Location: {locationLabel}</p>
+
+              {/* Google Maps link (auto-detected) */}
+              {locationLat != null ? (
+                <div className="flex items-center gap-2 text-xs rounded-lg px-3 py-1.5"
+                     style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+                  <span>🗺️</span>
+                  <a href={`https://maps.google.com/?q=${locationLat},${locationLng}`}
+                     target="_blank" rel="noopener noreferrer"
+                     className="text-blue-400 hover:text-blue-300 underline flex-1 truncate">
+                    {`https://maps.google.com/?q=${locationLat.toFixed(5)},${locationLng.toFixed(5)}`}
+                  </a>
+                  <span className="text-green-400">✓ Auto-detected</span>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: 'var(--text-muted)' }}>📍 Detecting your location…</p>
               )}
+
+              {/* Manual address override */}
+              <input
+                placeholder="Or type your pickup address manually (optional)"
+                value={manualAddress}
+                onChange={e => setManualAddress(e.target.value)}
+                className="rounded-lg px-3 py-2 text-sm outline-none w-full"
+                style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              />
+
+              {/* Media attachment */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-700 hover:bg-gray-600 text-white flex items-center gap-1"
+                >
+                  📎 {mediaFile ? mediaFile.name.slice(0, 18) + (mediaFile.name.length > 18 ? '…' : '') : 'Attach photo'}
+                </button>
+                {mediaFile && (
+                  <button type="button" onClick={() => setMediaFile(null)}
+                          className="text-xs text-red-400 hover:text-red-300">✕</button>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={e => setMediaFile(e.target.files?.[0] || null)}
+                />
+              </div>
+
+              {/* Notify driver toggle */}
               <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: 'var(--text-secondary)' }}>
-                <input type="checkbox" checked={wantToShare} onChange={e => setWantToShare(e.target.checked)} className="w-3.5 h-3.5 rounded" />
-                <span>I'm happy to share this ride with others</span>
+                <input type="checkbox" checked={notifyDriver} onChange={e => setNotifyDriver(e.target.checked)} className="w-3.5 h-3.5 rounded" />
+                <span>Send alert notification to driver</span>
               </label>
+
               <div className="flex gap-2">
                 <button
                   onClick={handleConfirm}
@@ -554,9 +653,9 @@ export default function RideChat({ ride, user, onClose }) {
                     boxShadow: '0 4px 12px rgba(245,158,11,0.35)',
                   }}
                 >
-                  <span>✅</span> Submit
+                  <span>📍</span> Confirm & Share
                 </button>
-                <button onClick={() => setShowConfirm(false)}
+                <button onClick={() => { setShowConfirm(false); setManualAddress(''); setMediaFile(null) }}
                         className="px-4 py-2 rounded-lg text-sm hover:opacity-80 transition-opacity"
                         style={{ color: 'var(--text-muted)' }}>
                   Cancel
@@ -619,7 +718,11 @@ export default function RideChat({ ride, user, onClose }) {
                       : 'rounded-tl-sm'
                   }`}
                        style={mine ? {} : { background: 'var(--bg-surface)', color: 'var(--text-primary)' }}>
-                    <p className="break-words leading-snug">{msg.text || msg.content}</p>
+                    {msg.media_type === 'image' && msg.media_data ? (
+                      <img src={msg.media_data} alt="Shared photo" className="max-w-[180px] rounded-lg" style={{ maxHeight: 160, objectFit: 'cover' }} />
+                    ) : (
+                      <p className="break-words leading-snug">{msg.text || msg.content}</p>
+                    )}
                     <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${mine ? 'opacity-70' : 'opacity-50'}`}>
                       <span className="text-xs">{fmtTime(msg.ts || msg.timestamp)}</span>
                       {mine && <MessageTicks msg={msg} />}
