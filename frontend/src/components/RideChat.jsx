@@ -119,7 +119,6 @@ export default function RideChat({ ride, user, onClose }) {
   const [mediaFile, setMediaFile]     = useState(null)    // File for media attachment
   const [confirmSuccess, setConfirmSuccess] = useState(false)  // animation flag
   const [currentSeats, setCurrentSeats] = useState(ride?.seats ?? null)  // real-time seat count
-  const [wantToShare, setWantToShare] = useState(true)  // passenger share preference
   const fileInputRef = useRef(null)
 
   // Confirmed passengers (drivers)

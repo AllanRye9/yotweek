@@ -4337,7 +4337,10 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             destination    = ride_row[3]
             current_seats  = ride_row[4]
 
-            # Driver cannot confirm their own ride (bypass seat check)
+            # Driver cannot confirm their own ride.
+            # Their presence is implicit; skip seat decrement and return success.
+            # The client side already hides the confirm panel for drivers via the
+            # isDriver flag, so this is a safety net for direct API calls.
             if user_id == driver_user_id:
                 return JSONResponse({"ok": True, "message": "You are the driver of this ride.", "seats": current_seats})
 
