@@ -19,6 +19,10 @@ import UnifiedMapPage from './pages/others/UnifiedMapPage'
 import AdminDashboard from './pages/others/AdminDashboard'
 import AdminLogin from './pages/others/AdminLogin'
 import AIPage from './pages/AIPage'
+import AboutPage from './pages/AboutPage'
+import FAQPage from './pages/FAQPage'
+import TermsPage from './pages/TermsPage'
+import PrivacyPage from './pages/PrivacyPage'
 import { createContext, useContext } from 'react'
 
 // ─── Theme Context ────────────────────────────────────────────────────────
@@ -170,6 +174,11 @@ function RoutesWithTransition() {
       <Route path="/admin/dashboard" element={<Navigate to="/const" replace />} />
       {/* AI Assistant */}
       <Route path="/ai" element={<PageWrapper><AIPage /></PageWrapper>} />
+      {/* Info pages */}
+      <Route path="/about" element={<PageWrapper><AboutPage /></PageWrapper>} />
+      <Route path="/faq" element={<PageWrapper><FAQPage /></PageWrapper>} />
+      <Route path="/terms" element={<PageWrapper><TermsPage /></PageWrapper>} />
+      <Route path="/privacy" element={<PageWrapper><PrivacyPage /></PageWrapper>} />
       {/* Catch-all → Home */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

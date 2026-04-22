@@ -578,6 +578,30 @@ export default function Home() {
         <div className="mt-[27px]">
           <Reviews />
         </div>
+
+        {/* ── Features & About teaser (always visible, helps AdSense content crawl) ── */}
+        <div className="mt-10 space-y-6">
+          <h2 className="text-base font-bold text-white">Why yotweek?</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            {[
+              { icon: '🚗', title: 'Free Ride Sharing', desc: 'Post or find rides with auto-calculated fares — no subscription, no commission.' },
+              { icon: '📍', title: 'Live Driver Map', desc: 'See verified drivers near you on a real-time interactive map, updated every 15 seconds.' },
+              { icon: '💬', title: 'End-to-End Encrypted Chat', desc: 'Message drivers and passengers through a private, encrypted inbox with image and audio sharing.' },
+              { icon: '✅', title: 'Journey Confirmation', desc: 'Confirm your seat directly in the ride chat. Drivers receive instant notifications.' },
+              { icon: '🔔', title: 'Proximity Alerts', desc: 'Get notified the moment your driver is nearby — no more checking your phone every minute.' },
+              { icon: '📱', title: 'Mobile App', desc: 'Available as a Flutter app for iOS and Android with full platform functionality.' },
+            ].map(f => (
+              <div key={f.title} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div className="text-2xl mb-2">{f.icon}</div>
+                <div className="font-semibold text-white mb-1">{f.title}</div>
+                <div className="text-gray-400 text-xs leading-relaxed">{f.desc}</div>
+              </div>
+            ))}
+          </div>
+          <p className="text-gray-500 text-xs text-center pt-2">
+            <a href="/about" className="hover:text-gray-300 transition-colors underline">Learn more about yotweek →</a>
+          </p>
+        </div>
       </main>
 
       {/* ── Footer ── */}
@@ -595,6 +619,13 @@ export default function Home() {
             <a href="/map" className="hover:text-gray-300 transition-colors">🗺️ Live Map</a>
             <a href="/inbox" className="hover:text-gray-300 transition-colors">💬 Messages</a>
             <a href="/profile" className="hover:text-gray-300 transition-colors">👤 Profile</a>
+          </div>
+          {/* Info pages */}
+          <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1 text-gray-600">
+            <a href="/about" className="hover:text-gray-300 transition-colors">About</a>
+            <a href="/faq" className="hover:text-gray-300 transition-colors">FAQ</a>
+            <a href="/terms" className="hover:text-gray-300 transition-colors">Terms of Service</a>
+            <a href="/privacy" className="hover:text-gray-300 transition-colors">Privacy Policy</a>
           </div>
           {/* Legal */}
           <div className="border-t border-gray-800 pt-4 space-y-1">
@@ -669,36 +700,44 @@ export default function Home() {
 
             {/* Modal body */}
             <div style={{ padding: '16px 20px 20px', fontSize: '0.82rem', color: '#9ca3af', lineHeight: 1.7 }}>
-              <HelpSection icon="⬇" title="Single Video Download">
+              <HelpSection icon="🚗" title="Finding a Ride">
                 <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Paste a video URL (YouTube, TikTok, Instagram, Twitter/X, Facebook and 1,000+ sites) into the URL box.</li>
-                  <li>Click <strong>Get Info</strong> to fetch the title, duration, and thumbnail.</li>
-                  <li>Choose your <strong>Quality</strong> and <strong>Format</strong> then click <strong>Download</strong>.</li>
-                  <li>The file is prepared on the server and a download link appears automatically.</li>
+                  <li>Create a free account or sign in.</li>
+                  <li>Go to <strong>Browse Rides</strong> to see all available rides, or open the <strong>Live Driver Map</strong> to find drivers near you.</li>
+                  <li>Click a ride card to open the ride chat and message the driver.</li>
+                  <li>Agree on pickup details, then click <strong>Confirm Journey</strong> to send the driver your name and contact.</li>
                 </ol>
               </HelpSection>
               <HelpDivider />
-              <HelpSection icon="📄" title="CV Generator">
+              <HelpSection icon="📍" title="Live Driver Map">
                 <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Switch to the <strong>CV Generator</strong> tab.</li>
-                  <li>Step through the wizard — Personal Info, Summary, Experience, Education, Skills, Extras, and Theme.</li>
-                  <li>Watch the <strong>live preview</strong> update on the right as you type.</li>
-                  <li>Choose from 8 professional themes, optionally add a logo, then click <strong>Generate PDF CV</strong>.</li>
-                  <li>Use <strong>← Previous</strong> to go back and edit any earlier step.</li>
+                  <li>Open the <strong>Live Map</strong> from the navigation bar or home page.</li>
+                  <li>Allow location access or enter your location manually to set your search radius.</li>
+                  <li>Verified drivers broadcasting their location appear as pins on the map.</li>
+                  <li>Tap a driver pin to view their details and start a chat.</li>
                 </ol>
               </HelpSection>
               <HelpDivider />
-              <HelpSection icon="🔄" title="Doc Converter">
+              <HelpSection icon="🏎️" title="Posting a Ride (Drivers)">
                 <ol style={{ paddingLeft: 18, margin: 0 }}>
-                  <li>Switch to the <strong>Doc Converter</strong> tab.</li>
-                  <li>Upload a PDF, Word (.docx), Excel (.xlsx), JPEG, or PNG file.</li>
-                  <li>Choose the target format (e.g. PDF → Word, JPEG → PDF).</li>
-                  <li>Click <strong>Convert &amp; Download</strong> to receive the converted file.</li>
+                  <li>Register as a driver from your <strong>Profile</strong> page.</li>
+                  <li>Go to the <strong>Rides</strong> page and click <strong>Post a Ride</strong>.</li>
+                  <li>Enter origin, destination, departure time, seats, and vehicle details — the fare is calculated automatically.</li>
+                  <li>Enable <strong>Broadcast Location</strong> from your dashboard so passengers can find you on the map.</li>
+                  <li>Send a <strong>Proximity Alert</strong> when you are approaching the pickup point.</li>
                 </ol>
               </HelpSection>
               <HelpDivider />
-              <HelpSection icon="📁" title="File Manager">
-                All processed files are listed here. Preview in the built-in player, download, or delete files to free up server space.
+              <HelpSection icon="💬" title="Messaging &amp; Inbox">
+                <ol style={{ paddingLeft: 18, margin: 0 }}>
+                  <li>Open <strong>Messages</strong> (inbox) to see all your ride chats and direct messages.</li>
+                  <li>You can send text, images, audio recordings, files, and live location pins.</li>
+                  <li>All messages are end-to-end encrypted — only you and the other participant can read them.</li>
+                </ol>
+              </HelpSection>
+              <HelpDivider />
+              <HelpSection icon="🔔" title="Notifications">
+                Real-time notifications arrive for new messages, ride updates, journey confirmations, and driver proximity alerts — no page reload needed.
               </HelpSection>
               <HelpDivider />
               <HelpSection icon="↕" title="Moving the Help Button">
