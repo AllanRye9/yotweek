@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { getUserProfile, userLogout, getDriverDashboard, getRideChatInbox, getConfirmedUsers, driverConfirmBooking, repostSeat, aiChat } from '../api'
+import { getUserProfile, userLogout, getDriverDashboard, getRideChatInbox, getConfirmedUsers, getConfirmedLocations, driverConfirmBooking, repostSeat, aiChat } from '../api'
 import NavBar from '../components/NavBar'
 import RideShare from '../components/RideShare'
-import RideChat from '../components/RideChat'
 import RideShareMap from '../components/RideShareMap'
 import { getDashboardPath } from '../routing'
 
@@ -27,9 +26,10 @@ export default function DriverDashboard() {
   const [loading, setLoading]       = useState(true)
   const [dashData, setDashData]     = useState(null)
   const [tab, setTab]               = useState('overview')
-  const [selectedRide, setSelectedRide] = useState(null)
   // Confirmed passenger locations (synced from RideShare chat, passed to map)
   const [rideShareConfirmedLocs, setRideShareConfirmedLocs] = useState([])
+  // All confirmed passenger locations across all driver's rides (for map tab)
+  const [mapConfirmedLocs, setMapConfirmedLocs] = useState([])
 
   // Ride-chat inbox for drivers
   const [rideInbox, setRideInbox]   = useState([])
@@ -185,7 +185,6 @@ export default function DriverDashboard() {
           ['rides',     '🚘 My Rides'],
           ['bookings',  '👥 Bookings'],
           ['inbox',     '📬 Inbox'],
-          ['chat',      '💬 Ride Chat'],
           ['map',       '🗺️ Map'],
           ['ai',        '🤖 AI Assistant'],
         ].map(([id, label]) => (
@@ -193,8 +192,22 @@ export default function DriverDashboard() {
             key={id}
             onClick={() => {
               setTab(id)
-              if (id === 'map' && navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(() => {}, () => {})
+              if (id === 'map') {
+                // Load confirmed passenger locations for the map
+                if (navigator.geolocation) {
+                  navigator.geolocation.getCurrentPosition(() => {}, () => {})
+                }
+                const openRideIds = (dashData?.posted_rides || [])
+                  .filter(r => r.status === 'open')
+                  .map(r => r.ride_id)
+                if (openRideIds.length > 0) {
+                  Promise.all(openRideIds.map(rid => getConfirmedLocations(rid).catch(() => ({ locations: [] }))))
+                    .then(results => {
+                      const all = results.flatMap(r => r.locations || [])
+                      setMapConfirmedLocs(all)
+                    })
+                    .catch(() => {})
+                }
               }
             }}
             className={`px-3 py-2 text-xs font-medium whitespace-nowrap transition-colors border-b-2 ${
@@ -250,7 +263,7 @@ export default function DriverDashboard() {
                           key={ride.ride_id}
                           className="flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors hover:opacity-80 border border-green-800/40"
                           style={{ background: 'var(--bg-surface)' }}
-                          onClick={() => { setSelectedRide(ride); setTab('chat') }}
+                          onClick={() => setTab('bookings')}
                         >
                           <div>
                             <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{ride.origin} → {ride.destination}</p>
@@ -295,7 +308,7 @@ export default function DriverDashboard() {
                           key={ride.ride_id}
                           className="flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer transition-colors hover:opacity-80"
                           style={{ background: 'var(--bg-surface)' }}
-                          onClick={() => { setSelectedRide(ride); setTab('chat') }}
+                          onClick={() => setTab('bookings')}
                         >
                           <div>
                             <p className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>{ride.origin} → {ride.destination}</p>
@@ -372,7 +385,7 @@ export default function DriverDashboard() {
           <RideShare
             user={driver}
             driverOnlyRides
-            onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }}
+            onOpenChat={() => setTab('bookings')}
             onConfirmedLocationsChange={setRideShareConfirmedLocs}
           />
         )}
@@ -482,7 +495,7 @@ export default function DriverDashboard() {
                 {rideInbox.slice(0, 6).map((item, i) => (
                   <button
                     key={item.ride_id || i}
-                    onClick={() => { setSelectedRide(item); setTab('chat') }}
+                    onClick={() => navigate('/inbox')}
                     className="w-full text-left flex items-center justify-between rounded-lg px-3 py-2.5 transition-colors hover:opacity-80"
                     style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-color)' }}
                   >
@@ -518,49 +531,23 @@ export default function DriverDashboard() {
           </div>
         )}
 
-        {/* Ride Chat */}
-        {tab === 'chat' && (
-          <div className="space-y-3">
-            {selectedRide ? (
-              <>
-                <button
-                  onClick={() => setSelectedRide(null)}
-                  className="text-xs hover:opacity-70 transition-opacity"
-                  style={{ color: 'var(--text-secondary)' }}
-                >
-                  ← Back to ride list
-                </button>
-                <RideChat ride={selectedRide} user={driver} onClose={() => setSelectedRide(null)} />
-              </>
-            ) : (
-              <div className="rounded-xl p-6 text-center text-sm"
-                   style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', color: 'var(--text-muted)' }}>
-                Select a ride to view its chat thread.
-                <button
-                  onClick={() => setTab('inbox')}
-                  className="block mx-auto mt-3 text-xs text-amber-500 hover:text-amber-400"
-                >
-                  Go to Inbox →
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Map — shows driver's rides and their pickup locations */}
+        {/* Map — shows driver's rides and confirmed passenger pickup locations */}
         {tab === 'map' && (
           <div className="rounded-xl overflow-hidden"
                style={{ border: '1px solid var(--border-color)' }}>
-            <div className="px-4 py-2 border-b text-xs font-semibold"
+            <div className="px-4 py-2 border-b text-xs font-semibold flex items-center justify-between"
                  style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>
-              🗺️ Pickup Map — your active ride locations
+              <span>🗺️ Pickup Map — confirmed passenger locations</span>
+              {mapConfirmedLocs.length > 0 && (
+                <span className="text-amber-400 font-medium">{mapConfirmedLocs.length} location{mapConfirmedLocs.length !== 1 ? 's' : ''} shown</span>
+              )}
             </div>
             <RideShareMap
               rides={(dashData?.posted_rides || []).filter(r => r.status === 'open')}
               autoLoadDrivers={false}
               mapHeight={420}
-              onOpenChat={(ride) => { setSelectedRide(ride); setTab('chat') }}
-              confirmedLocations={rideShareConfirmedLocs}
+              onOpenChat={() => setTab('bookings')}
+              confirmedLocations={[...rideShareConfirmedLocs, ...mapConfirmedLocs]}
             />
           </div>
         )}
