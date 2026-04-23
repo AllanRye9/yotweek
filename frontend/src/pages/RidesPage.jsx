@@ -8,6 +8,7 @@ import UserProfile from '../components/UserProfile'
 import {
   getUserProfile, getNotifications, markAllNotificationsRead,
   listRides, estimateFare, geocodeAddress, postRide, cancelRide, aiChat,
+  updateUserLocation,
 } from '../api'
 import socket from '../socket'
 
@@ -803,6 +804,37 @@ export default function RidesPage() {
     }
   }, [])
 
+  // Driver proximity notifications — toast for users on this page when a nearby driver broadcasts
+  const [driverNearbyAlert, setDriverNearbyAlert] = useState(null)
+  useEffect(() => {
+    const onDriverNearby = (data) => {
+      setDriverNearbyAlert(data)
+      setTimeout(() => setDriverNearbyAlert(null), 10000)
+    }
+    socket.on('driver_nearby', onDriverNearby)
+    return () => socket.off('driver_nearby', onDriverNearby)
+  }, [])
+
+  // Auto-share user location with server when on this page (enables proximity notifications from drivers)
+  useEffect(() => {
+    if (!navigator.geolocation) return
+    let watchId = null
+    const updateLoc = (pos) => {
+      updateUserLocation(pos.coords.latitude, pos.coords.longitude).catch(() => {})
+    }
+    // Request position once on page load; use watchPosition for live tracking
+    navigator.geolocation.getCurrentPosition(updateLoc, () => {}, { timeout: 8000 })
+    // Also keep location updated while user stays on the page
+    watchId = navigator.geolocation.watchPosition(updateLoc, () => {}, {
+      enableHighAccuracy: false,
+      maximumAge: 30000,
+      timeout: 15000,
+    })
+    return () => {
+      if (watchId != null) navigator.geolocation.clearWatch(watchId)
+    }
+  }, [])
+
   // Load rides
   const loadRides = () => {
     setRidesLoading(true)
@@ -1191,7 +1223,27 @@ export default function RidesPage() {
         </aside>
       </main>
 
-      {/* Achievement toast */}
+      {/* Driver nearby proximity alert toast */}
+      {driverNearbyAlert && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 fade-in-up max-w-sm w-full mx-4"
+             style={{ background: 'var(--bg-surface)', border: '1px solid rgba(34,197,94,0.5)', color: 'var(--text-primary)' }}>
+          <span className="text-2xl shrink-0">🚗</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-green-400">Driver Nearby!</p>
+            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+              {driverNearbyAlert.driver_name || driverNearbyAlert.name || 'A driver'} is near your area
+              {driverNearbyAlert.dist_km != null ? ` — ${driverNearbyAlert.dist_km.toFixed(1)} km away` : ''}
+            </p>
+          </div>
+          <button
+            onClick={() => setDriverNearbyAlert(null)}
+            className="text-xs opacity-60 hover:opacity-100 shrink-0"
+            style={{ color: 'var(--text-muted)' }}
+          >✕</button>
+        </div>
+      )}
+
+
       {showAchievement && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 fade-in-up"
              style={{ background: 'var(--bg-surface)', border: '1px solid rgba(245,158,11,0.5)', color: 'var(--text-primary)' }}>

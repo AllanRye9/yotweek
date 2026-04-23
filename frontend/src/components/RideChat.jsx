@@ -2,14 +2,23 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import socket from '../socket'
 import { getRideChatMessages, confirmJourney, cancelJourneyConfirmation, getConfirmedUsers, proximityNotify, deleteRideChatMessage, driverConfirmBooking, driverCancelPassengerConfirmation, getDriverReviews, submitDriverReview } from '../api'
 
-// Quick-reply templates shown above the message input
-const QUICK_REPLIES = [
+// Quick-reply templates — driver-specific (status updates)
+const DRIVER_QUICK_REPLIES = [
   'On my way 🚶',
   'Running late ⏳',
   'I\'m here! 📍',
   'Got it ✅',
   'Be there in 5 min 🚗',
   'Please share your location 📌',
+]
+
+// Quick-reply templates — passenger-specific (booking related)
+const USER_QUICK_REPLIES = [
+  'Confirming my trip ✅',
+  'I\'ll be at pickup on time 📍',
+  'Can you confirm the pickup address? 📌',
+  'What time will you arrive? 🕐',
+  'I\'m ready for pickup 🙋',
 ]
 
 // Cancel reasons for booking cancellation
@@ -161,6 +170,13 @@ export default function RideChat({ ride, user, onClose }) {
   const [distUnit, setDistUnit]   = useState('km')
   const [notifyMsg, setNotifyMsg] = useState('')
   const [notifySummary, setNotifySummary] = useState(null) // { total_reached, users }
+
+  // Driver pickup location sharing panel
+  const [showDriverPickup, setShowDriverPickup] = useState(false)
+  const [driverPickupAddress, setDriverPickupAddress] = useState('')
+  const [driverPickupLat, setDriverPickupLat] = useState(null)
+  const [driverPickupLng, setDriverPickupLng] = useState(null)
+  const [driverPickupMsg, setDriverPickupMsg] = useState('')
 
   // Driver live-location sharing
   const [locShareMsg, setLocShareMsg] = useState('')
@@ -536,17 +552,27 @@ export default function RideChat({ ride, user, onClose }) {
     }
   }
 
-  const handleShareLiveLocation = () => {
+  const handleShareLiveLocation = async () => {
     setLocShareMsg('')
     if (!navigator.geolocation) {
       setLocShareMsg('❌ Geolocation not supported by your browser')
       return
     }
+    // Check if location permission is granted before attempting
+    if (navigator.permissions) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'geolocation' })
+        if (perm.state === 'denied') {
+          setLocShareMsg('❌ Location access is denied. Please enable location services in your browser settings first.')
+          return
+        }
+      } catch { /* permissions API not available; fall through */ }
+    }
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const { latitude, longitude } = pos.coords
         const mapsLink = `https://maps.google.com/?q=${latitude},${longitude}`
-        const locationText = `📍 Driver live location: ${mapsLink}`
+        const locationText = `📍 Driver pickup location: ${mapsLink}`
         socket.emit('ride_chat_message', {
           ride_id:     rideId,
           text:        locationText,
@@ -555,13 +581,101 @@ export default function RideChat({ ride, user, onClose }) {
           sender_id:   myId,
           role:        'driver',
         })
-        setLocShareMsg('✅ Location shared!')
+        setLocShareMsg('✅ Pickup location shared!')
         setTimeout(() => setLocShareMsg(''), 3000)
       },
-      () => setLocShareMsg('❌ Could not get your location'),
+      (err) => {
+        if (err.code === 1) {
+          setLocShareMsg('❌ Location access denied. Please enable location services first.')
+        } else {
+          setLocShareMsg('❌ Could not get your location. Ensure location services are turned on.')
+        }
+      },
       { timeout: 8000 }
     )
   }
+
+  const handleDriverSharePickup = () => {
+    setDriverPickupMsg('')
+    const hasAddress = driverPickupAddress.trim()
+    const hasGPS = driverPickupLat != null && driverPickupLng != null
+
+    if (!hasAddress && !hasGPS) {
+      setDriverPickupMsg('Please enter a pickup address or share your GPS location.')
+      return
+    }
+
+    if (hasGPS) {
+      const mapsLink = `https://maps.google.com/?q=${driverPickupLat},${driverPickupLng}`
+      socket.emit('ride_chat_message', {
+        ride_id:     rideId,
+        text:        `📍 Pickup location (GPS): ${mapsLink}`,
+        name:        myName,
+        sender_name: myName,
+        sender_id:   myId,
+        role:        'driver',
+      })
+    }
+    if (hasAddress) {
+      socket.emit('ride_chat_message', {
+        ride_id:     rideId,
+        text:        `📍 Pickup address: ${driverPickupAddress.trim()}`,
+        name:        myName,
+        sender_name: myName,
+        sender_id:   myId,
+        role:        'driver',
+      })
+    }
+    socket.emit('ride_chat_message', {
+      ride_id:     rideId,
+      text:        `✅ Booking acknowledged — I'll be picking you up. Please be ready!`,
+      name:        myName,
+      sender_name: myName,
+      sender_id:   myId,
+      role:        'driver',
+    })
+    setDriverPickupMsg('✅ Booking acknowledged and pickup location shared!')
+    setTimeout(() => {
+      setShowDriverPickup(false)
+      setDriverPickupAddress('')
+      setDriverPickupLat(null)
+      setDriverPickupLng(null)
+      setDriverPickupMsg('')
+    }, 2000)
+  }
+
+  const handleDriverGetGPS = async () => {
+    if (!navigator.geolocation) {
+      setDriverPickupMsg('❌ Geolocation not supported by your browser')
+      return
+    }
+    if (navigator.permissions) {
+      try {
+        const perm = await navigator.permissions.query({ name: 'geolocation' })
+        if (perm.state === 'denied') {
+          setDriverPickupMsg('❌ Location access denied. Enable location services first.')
+          return
+        }
+      } catch { /* fall through */ }
+    }
+    setDriverPickupMsg('📍 Detecting your location…')
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setDriverPickupLat(pos.coords.latitude)
+        setDriverPickupLng(pos.coords.longitude)
+        setDriverPickupMsg('✅ GPS location captured')
+      },
+      (err) => {
+        if (err.code === 1) {
+          setDriverPickupMsg('❌ Location access denied. Enable location services first.')
+        } else {
+          setDriverPickupMsg('❌ Could not get your location. Ensure location services are on.')
+        }
+      },
+      { timeout: 8000 }
+    )
+  }
+
 
   const handleConfirmPickup = () => {
     const pickupText = `✅ Driver confirmed pick-up. I'm on my way to collect you!`
@@ -665,21 +779,102 @@ export default function RideChat({ ride, user, onClose }) {
                 style={{ color: 'var(--text-muted)' }}>✕</button>
       </div>
 
-      {/* Driver tools */}
+      {/* ── Driver Tools ── */}
       {isDriver && (
-        <div className="px-4 py-2 border-b flex flex-wrap gap-2"
+        <div className="px-4 py-2 border-b space-y-2"
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
-          <button onClick={handleLoadPassengers}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-                  style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
-            👥 Passengers {passengers.length > 0 ? `(${passengers.length})` : ''}
-          </button>
+          {/* Row 1: Acknowledge booking + view passengers */}
+          <div className="flex flex-wrap gap-2 items-center">
+            <button
+              onClick={() => {
+                setShowDriverPickup(p => !p)
+                if (!showDriverPickup && navigator.geolocation) {
+                  // Auto-detect GPS when opening the panel
+                  handleDriverGetGPS()
+                }
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-amber-600 hover:bg-amber-500 text-white">
+              📍 Acknowledge Booking & Share Pickup
+            </button>
 
+            <button onClick={handleLoadPassengers}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                    style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
+              👥 Passengers {passengers.length > 0 ? `(${passengers.length})` : ''}
+            </button>
+          </div>
+
+          {/* Acknowledge Booking / Share Pickup Panel */}
+          {showDriverPickup && (
+            <div className="rounded-xl p-3 space-y-2 border"
+                 style={{ background: 'var(--bg-input)', borderColor: 'rgba(245,158,11,0.3)' }}>
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>
+                📍 Acknowledge Booking — Share Your Pickup Location
+              </p>
+
+              {/* GPS status */}
+              {driverPickupLat != null ? (
+                <div className="flex items-center gap-2 text-xs rounded-lg px-2 py-1"
+                     style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)' }}>
+                  <span className="text-green-400">📌</span>
+                  <a href={`https://maps.google.com/?q=${driverPickupLat},${driverPickupLng}`}
+                     target="_blank" rel="noopener noreferrer"
+                     className="text-blue-400 hover:text-blue-300 underline flex-1 truncate">
+                    {`${driverPickupLat.toFixed(5)}, ${driverPickupLng.toFixed(5)}`}
+                  </a>
+                  <span className="text-green-400 font-semibold shrink-0">GPS ✓</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleDriverGetGPS}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-700 hover:bg-blue-600 text-white"
+                >
+                  📡 Detect My GPS Location
+                </button>
+              )}
+
+              {/* Manual address */}
+              <input
+                placeholder="Or type pickup address (e.g. Gate 5, Kampala Mall)"
+                value={driverPickupAddress}
+                onChange={e => setDriverPickupAddress(e.target.value)}
+                className="rounded-lg px-3 py-2 text-xs outline-none w-full"
+                style={{ background: 'var(--bg-surface)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              />
+
+              {driverPickupMsg && (
+                <p className="text-xs" style={{ color: driverPickupMsg.startsWith('✅') ? '#6ee7b7' : 'var(--text-muted)' }}>
+                  {driverPickupMsg}
+                </p>
+              )}
+
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDriverSharePickup}
+                  className="flex-1 px-3 py-2 rounded-xl text-xs font-semibold text-white"
+                  style={{ background: 'linear-gradient(135deg, #f59e0b, #b45309)' }}
+                >
+                  ✅ Share & Acknowledge
+                </button>
+                <button
+                  onClick={() => { setShowDriverPickup(false); setDriverPickupAddress(''); setDriverPickupLat(null); setDriverPickupLng(null); setDriverPickupMsg('') }}
+                  className="px-3 py-2 rounded-xl text-xs hover:opacity-80"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Row 2: Proximity notify */}
           <div className="flex items-center gap-1 flex-wrap">
+            <span className="text-xs font-medium shrink-0" style={{ color: 'var(--text-secondary)' }}>🔔 Notify users within:</span>
             <input
               type="number" min="0.1" step="0.1" placeholder="Distance"
               value={distance} onChange={e => setDistance(e.target.value)}
-              className="w-24 rounded px-2 py-1 text-xs outline-none"
+              className="w-20 rounded px-2 py-1 text-xs outline-none"
               style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
             />
             <select value={distUnit} onChange={e => setDistUnit(e.target.value)}
@@ -690,21 +885,23 @@ export default function RideChat({ ride, user, onClose }) {
             </select>
             <button onClick={handleProximityNotify}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-blue-600 hover:bg-blue-500 text-white">
-              📍 Notify
+              Notify Nearby Users
             </button>
           </div>
           {notifyMsg && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{notifyMsg}</span>}
 
-          <button onClick={handleShareLiveLocation}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-green-700 hover:bg-green-600 text-white">
-            🗺️ Share My Location
-          </button>
-          {locShareMsg && <span className="text-xs" style={{ color: 'var(--text-muted)' }}>{locShareMsg}</span>}
-
-          <button onClick={handleConfirmPickup}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-amber-600 hover:bg-amber-500 text-white">
-            ✅ Confirm Pick-Up
-          </button>
+          {/* Row 3: Broadcast live location (requires location services ON) */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={handleShareLiveLocation}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-green-700 hover:bg-green-600 text-white">
+              🗺️ Broadcast My Live Location
+            </button>
+            <button onClick={handleConfirmPickup}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-teal-700 hover:bg-teal-600 text-white">
+              🚗 I'm On My Way
+            </button>
+            {locShareMsg && <span className="text-xs" style={{ color: locShareMsg.startsWith('✅') ? '#6ee7b7' : '#f87171' }}>{locShareMsg}</span>}
+          </div>
         </div>
       )}
 
@@ -774,7 +971,7 @@ export default function RideChat({ ride, user, onClose }) {
         </div>
       )}
 
-      {/* Passenger — Share Pickup Location */}
+      {/* ── Passenger: Confirm My Trip ── */}
       {!isDriver && (
         <div className="px-4 py-3 border-b"
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
@@ -786,7 +983,7 @@ export default function RideChat({ ride, user, onClose }) {
           {confirmSuccess && (
             <div className="mb-2 rounded-xl px-4 py-2 text-sm font-semibold text-center text-white animate-bounce"
                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
-              🎉 Booking Confirmed!
+              🎉 Trip Confirmed!
             </div>
           )}
 
@@ -845,16 +1042,19 @@ export default function RideChat({ ride, user, onClose }) {
               onClick={handleOpenConfirm}
               className="w-full relative inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white overflow-hidden shadow-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-amber-500/40 active:scale-[0.98]"
               style={{
-                background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)',
-                boxShadow: '0 4px 15px rgba(245,158,11,0.35)',
+                background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
+                boxShadow: '0 4px 15px rgba(16,185,129,0.35)',
               }}
             >
-              <span className="text-base">📍</span>
-              <span>Share Pickup Location & Confirm</span>
-              <span className="absolute inset-0 rounded-xl border border-amber-300/30 pointer-events-none" />
+              <span className="text-base">✅</span>
+              <span>Confirm My Trip</span>
+              <span className="absolute inset-0 rounded-xl border border-green-300/30 pointer-events-none" />
             </button>
           ) : showConfirm ? (
             <div className="flex flex-col gap-2">
+              <p className="text-xs font-semibold" style={{ color: 'var(--text-secondary)' }}>
+                📍 Share your pickup location so the driver can find you
+              </p>
               <div className="flex gap-2">
                 <input placeholder="Your name" value={realName} onChange={e => setRealName(e.target.value)}
                        className="flex-1 rounded-lg px-3 py-2 text-sm outline-none"
@@ -925,13 +1125,13 @@ export default function RideChat({ ride, user, onClose }) {
               <div className="flex gap-2">
                 <button
                   onClick={handleConfirm}
-                  className="flex-1 relative inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-amber-500/40 active:scale-[0.98]"
+                  className="flex-1 relative inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-green-500/40 active:scale-[0.98]"
                   style={{
-                    background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 50%, #b45309 100%)',
-                    boxShadow: '0 4px 12px rgba(245,158,11,0.35)',
+                    background: 'linear-gradient(135deg, #10b981 0%, #059669 50%, #047857 100%)',
+                    boxShadow: '0 4px 12px rgba(16,185,129,0.35)',
                   }}
                 >
-                  <span>📍</span> Confirm & Share
+                  <span>✅</span> Confirm Trip & Share Location
                 </button>
                 <button onClick={() => { setShowConfirm(false); setManualAddress(''); setMediaFile(null) }}
                         className="px-4 py-2 rounded-lg text-sm hover:opacity-80 transition-opacity"
@@ -939,7 +1139,7 @@ export default function RideChat({ ride, user, onClose }) {
                   Cancel
                 </button>
               </div>
-              {confirmMsg && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{confirmMsg}</p>}
+              {confirmMsg && <p className="text-xs" style={{ color: confirmMsg.startsWith('✅') ? '#6ee7b7' : 'var(--text-muted)' }}>{confirmMsg}</p>}
             </div>
           ) : null}
         </div>
@@ -950,7 +1150,9 @@ export default function RideChat({ ride, user, onClose }) {
         {loading && <p className="text-center text-xs py-8" style={{ color: 'var(--text-muted)' }}>Loading…</p>}
         {error && <p className="text-center text-xs py-4 text-red-400">{error}</p>}
         {!loading && messages.length === 0 && (
-          <p className="text-center text-xs py-8" style={{ color: 'var(--text-muted)' }}>No messages yet. Say hello!</p>
+          <p className="text-center text-xs py-8" style={{ color: 'var(--text-muted)' }}>
+            {isDriver ? 'No messages yet. Passengers will message you here.' : 'No messages yet. Confirm your trip or message the driver!'}
+          </p>
         )}
         {messages.map((msg, i) => {
           const senderName = msg.sender_name || msg.name || 'User'
@@ -1106,10 +1308,10 @@ export default function RideChat({ ride, user, onClose }) {
         <div ref={bottomRef} />
       </div>
 
-      {/* Quick reply templates */}
+      {/* Quick reply templates — role-specific */}
       <div className="px-3 py-1.5 border-t flex gap-1.5 overflow-x-auto scrollbar-hide flex-nowrap"
            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
-        {QUICK_REPLIES.map(qr => (
+        {(isDriver ? DRIVER_QUICK_REPLIES : USER_QUICK_REPLIES).map(qr => (
           <button
             key={qr}
             onClick={() => { setText(qr); }}
@@ -1128,7 +1330,7 @@ export default function RideChat({ ride, user, onClose }) {
           value={text}
           onChange={handleTextChange}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
-          placeholder="Type a message…"
+          placeholder={isDriver ? 'Message passengers…' : 'Message driver…'}
           maxLength={500}
           className="flex-1 rounded-full px-4 py-2 text-sm outline-none"
           style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
