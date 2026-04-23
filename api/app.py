@@ -4887,18 +4887,13 @@ async def api_ride_proximity_notify(request: Request, ride_id: str, body: _Proxi
                     (ride_id,),
                 )
                 confirmed_rows = cur2.fetchall()
-
-            # Fetch driver's current location from driver_locations table if available
-            if USE_POSTGRES:
-                cur.execute("SELECT lat, lng FROM driver_locations WHERE user_id=%s", (user_id,))
-                dloc = cur.fetchone()
-            else:
-                dloc_row = conn.execute("SELECT lat, lng FROM driver_locations WHERE user_id=?", (user_id,)).fetchone()
-                dloc = dloc_row
-            driver_lat = dloc[0] if dloc else None
-            driver_lng = dloc[1] if dloc else None
         finally:
             conn.close()
+
+    # Fetch driver's current location from in-memory _driver_locations cache
+    driver_loc = _driver_locations.get(user_id, {})
+    driver_lat = driver_loc.get("lat")
+    driver_lng = driver_loc.get("lng")
 
     driver_name = user["name"]
     distance_str = f"{round(distance_val, 1)} {unit}"
@@ -4924,13 +4919,12 @@ async def api_ride_proximity_notify(request: Request, ride_id: str, body: _Proxi
         dist_km = None
         if driver_lat is not None and driver_lng is not None and p_lat is not None and p_lng is not None:
             R = 6371
-            import math as _math
-            dLat = (p_lat - driver_lat) * _math.pi / 180
-            dLng = (p_lng - driver_lng) * _math.pi / 180
-            a = (_math.sin(dLat / 2) ** 2 +
-                 _math.cos(driver_lat * _math.pi / 180) * _math.cos(p_lat * _math.pi / 180) *
-                 _math.sin(dLng / 2) ** 2)
-            dist_km = round(R * 2 * _math.atan2(_math.sqrt(a), _math.sqrt(1 - a)), 2)
+            dLat = (p_lat - driver_lat) * math.pi / 180
+            dLng = (p_lng - driver_lng) * math.pi / 180
+            a = (math.sin(dLat / 2) ** 2 +
+                 math.cos(driver_lat * math.pi / 180) * math.cos(p_lat * math.pi / 180) *
+                 math.sin(dLng / 2) ** 2)
+            dist_km = round(R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)), 2)
 
         summary_list.append({
             "user_id": passenger_id,
