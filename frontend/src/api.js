@@ -186,6 +186,12 @@ export const alertRideClients = (rideId) => request('POST', `/api/rides/${encode
 export const confirmJourney = (rideId, real_name, contact, lat = null, lng = null) =>
   request('POST', `/api/rides/${encodeURIComponent(rideId)}/confirm_journey`, { real_name, contact, lat, lng })
 
+export const cancelJourneyConfirmation = (rideId, reason = '') =>
+  request('DELETE', `/api/rides/${encodeURIComponent(rideId)}/confirm_journey`, { reason })
+
+export const driverCancelPassengerConfirmation = (rideId, confirmationId, reason = '') =>
+  request('DELETE', `/api/rides/${encodeURIComponent(rideId)}/confirm_journey/${encodeURIComponent(confirmationId)}`, { reason })
+
 export const getConfirmedUsers = (rideId) =>
   request('GET', `/api/rides/${encodeURIComponent(rideId)}/confirmed_users`)
 

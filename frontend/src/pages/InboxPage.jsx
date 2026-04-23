@@ -4,9 +4,11 @@
  * Sidebar (≈35% width):
  *  - Search bar with real-time filtering by origin/destination
  *  - All / Unread filter toggle
- *  - Ride chat conversation list, sorted newest-first (descending chronological order)
+ *  - Smart 6-chat limit: pinned chats always show + up to 6 non-pinned, with "Show more"
+ *  - Sort: unread first, then most-recent activity
+ *  - Pin / Archive / Mute per-chat (stored in localStorage)
  *  - Avatar with initial, unread badge (99+ cap), relative timestamp
- *  - Long-press / right-click to delete a thread
+ *  - Long-press / right-click for context menu (delete, pin, archive, mute)
  *
  * Chat panel (≈65% width):
  *  - RideChat for ride conversations
@@ -26,7 +28,19 @@ import {
 } from '../api'
 import socket from '../socket'
 
-const FIRST_TIME_KEY = 'yot_inbox_first_visit'
+const FIRST_TIME_KEY  = 'yot_inbox_first_visit'
+const PINNED_KEY      = 'yot_pinned_rides'
+const ARCHIVED_KEY    = 'yot_archived_rides'
+const MUTED_KEY       = 'yot_muted_rides'
+const CHAT_LIMIT      = 6  // max non-pinned chats shown before "Show more"
+
+// ── Persist helpers ───────────────────────────────────────────────────────────
+function loadSet(key) {
+  try { return new Set(JSON.parse(localStorage.getItem(key) || '[]')) } catch { return new Set() }
+}
+function saveSet(key, set) {
+  try { localStorage.setItem(key, JSON.stringify([...set])) } catch {}
+}
 
 function fmtTs(ts) {
   if (!ts) return ''
@@ -50,7 +64,6 @@ function unreadLabel(count) {
 /** Circular avatar showing the first letter of a name */
 function Avatar({ name = '?', size = 'w-10 h-10', textSize = 'text-sm' }) {
   const initial = (name || '?')[0].toUpperCase()
-  // Pick a deterministic hue from the name so avatars differ per person
   const hue = [...(name || '?')].reduce((acc, c) => acc + c.charCodeAt(0), 0) % 360
   return (
     <div
@@ -72,19 +85,52 @@ export default function InboxPage() {
   const [contextMenu, setContextMenu] = useState(null) // { ride_id }
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all') // 'all' | 'unread'
+  const [showArchived, setShowArchived] = useState(false)
+  const [showMore, setShowMore] = useState(false)
   const [isOnline, setIsOnline] = useState(navigator.onLine)
   const [showCoachMark, setShowCoachMark] = useState(false)
   const longPressTimer = useRef(null)
+
+  // Persistent sets (localStorage)
+  const [pinned,   setPinned]   = useState(() => loadSet(PINNED_KEY))
+  const [archived, setArchived] = useState(() => loadSet(ARCHIVED_KEY))
+  const [muted,    setMuted]    = useState(() => loadSet(MUTED_KEY))
+
+  const togglePin = useCallback((rideId) => {
+    setPinned(prev => {
+      const next = new Set(prev)
+      next.has(rideId) ? next.delete(rideId) : next.add(rideId)
+      saveSet(PINNED_KEY, next)
+      return next
+    })
+  }, [])
+
+  const toggleArchive = useCallback((rideId) => {
+    setArchived(prev => {
+      const next = new Set(prev)
+      next.has(rideId) ? next.delete(rideId) : next.add(rideId)
+      saveSet(ARCHIVED_KEY, next)
+      return next
+    })
+    setContextMenu(null)
+  }, [])
+
+  const toggleMute = useCallback((rideId) => {
+    setMuted(prev => {
+      const next = new Set(prev)
+      next.has(rideId) ? next.delete(rideId) : next.add(rideId)
+      saveSet(MUTED_KEY, next)
+      return next
+    })
+    setContextMenu(null)
+  }, [])
 
   useEffect(() => {
     getUserProfile().then(u => setAppUser(u)).catch(() => setAppUser(null))
   }, [])
 
-  // First-time user coach mark
   useEffect(() => {
-    if (!localStorage.getItem(FIRST_TIME_KEY)) {
-      setShowCoachMark(true)
-    }
+    if (!localStorage.getItem(FIRST_TIME_KEY)) setShowCoachMark(true)
   }, [])
 
   const dismissCoachMark = () => {
@@ -92,7 +138,6 @@ export default function InboxPage() {
     setShowCoachMark(false)
   }
 
-  // Online/offline detection
   useEffect(() => {
     const goOnline  = () => setIsOnline(true)
     const goOffline = () => setIsOnline(false)
@@ -109,8 +154,11 @@ export default function InboxPage() {
     getRideChatInbox()
       .then(d => {
         const convs = d.conversations || d.inbox || []
-        // Sort in descending chronological order (newest first)
+        // Sort: unread first (by unread_count desc), then by most-recent activity (ts desc)
         const sorted = [...convs].sort((a, b) => {
+          const au = a.unread_count || 0
+          const bu = b.unread_count || 0
+          if (au !== bu) return bu - au  // unread first
           const ta = a.ts || a.timestamp || 0
           const tb = b.ts || b.timestamp || 0
           const na = typeof ta === 'number' ? ta : new Date(ta).getTime() / 1000
@@ -125,19 +173,29 @@ export default function InboxPage() {
 
   useEffect(() => { loadRideInbox() }, [loadRideInbox])
 
-  // Real-time ride chat updates — move updated thread to top
+  // Real-time ride chat updates — move updated thread to top and increment unread
   useEffect(() => {
     const onRideNotif = (data) => {
       if (data?.ride_id) {
         setRideInbox(prev => {
           const idx = prev.findIndex(item => item.ride_id === data.ride_id)
-          if (idx < 0) {
-            loadRideInbox()
-            return prev
+          // Increment unread only if chat is not currently selected and not muted
+          const shouldBumpUnread = selectedRide?.ride_id !== data.ride_id && !muted.has(data.ride_id)
+          if (idx < 0) { loadRideInbox(); return prev }
+          const updated = {
+            ...prev[idx],
+            ts: Date.now() / 1000,
+            unread_count: shouldBumpUnread ? (prev[idx].unread_count || 0) + 1 : prev[idx].unread_count,
           }
-          const updated = { ...prev[idx], ts: Date.now() / 1000, unread_count: (prev[idx].unread_count || 0) + 1 }
           const rest = prev.filter((_, i) => i !== idx)
-          return [updated, ...rest]
+          // Re-sort: unread first, then most-recent
+          const next = [updated, ...rest].sort((a, b) => {
+            const au = a.unread_count || 0
+            const bu = b.unread_count || 0
+            if (au !== bu) return bu - au
+            return (b.ts || 0) - (a.ts || 0)
+          })
+          return next
         })
       } else {
         loadRideInbox()
@@ -145,10 +203,11 @@ export default function InboxPage() {
     }
     socket.on('ride_chat_notification', onRideNotif)
     return () => { socket.off('ride_chat_notification', onRideNotif) }
-  }, [loadRideInbox])
+  }, [loadRideInbox, selectedRide, muted])
 
-  // Filtered conversation list
-  const filteredInbox = rideInbox.filter(item => {
+  // Base filtered + search
+  const baseFiltered = rideInbox.filter(item => {
+    if (archived.has(item.ride_id)) return false  // archived chats excluded from main list
     if (filter === 'unread' && !(item.unread_count > 0)) return false
     if (!search.trim()) return true
     const q = search.trim().toLowerCase()
@@ -158,8 +217,16 @@ export default function InboxPage() {
     return origin.includes(q) || destination.includes(q) || companion.includes(q)
   })
 
+  // Pinned always shown, non-pinned limited to CHAT_LIMIT unless showMore
+  const pinnedItems    = baseFiltered.filter(item => pinned.has(item.ride_id))
+  const nonPinnedItems = baseFiltered.filter(item => !pinned.has(item.ride_id))
+  const visibleNonPinned = showMore ? nonPinnedItems : nonPinnedItems.slice(0, CHAT_LIMIT)
+  const filteredInbox  = [...pinnedItems, ...visibleNonPinned]
+
+  // Archived chat list
+  const archivedItems = rideInbox.filter(item => archived.has(item.ride_id))
+
   const handleSelectRide = (item) => {
-    // Clear unread badge when opening
     setRideInbox(prev => prev.map(r => r.ride_id === item.ride_id ? { ...r, unread_count: 0 } : r))
     setSelectedRide(item)
     setShowSidebar(false)
@@ -167,22 +234,17 @@ export default function InboxPage() {
   }
   const handleBack = () => { setSelectedRide(null); setShowSidebar(true) }
 
-  // Delete a thread from the local inbox view
   const handleDeleteThread = (rideId) => {
     setRideInbox(prev => prev.filter(item => item.ride_id !== rideId))
     if (selectedRide?.ride_id === rideId) { setSelectedRide(null); setShowSidebar(true) }
     setContextMenu(null)
   }
 
-  // Long-press handler for touch devices
   const handleLongPressStart = (rideId) => {
-    longPressTimer.current = setTimeout(() => {
-      setContextMenu({ ride_id: rideId })
-    }, 500)
+    longPressTimer.current = setTimeout(() => setContextMenu({ ride_id: rideId }), 500)
   }
-  const handleLongPressEnd = () => { clearTimeout(longPressTimer.current) }
+  const handleLongPressEnd = () => clearTimeout(longPressTimer.current)
 
-  // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return
     const close = () => setContextMenu(null)
@@ -190,7 +252,7 @@ export default function InboxPage() {
     return () => document.removeEventListener('click', close)
   }, [contextMenu])
 
-  const totalUnread = rideInbox.reduce((s, item) => s + (item.unread_count || 0), 0)
+  const totalUnread = rideInbox.filter(item => !muted.has(item.ride_id)).reduce((s, item) => s + (item.unread_count || 0), 0)
 
   return (
     <div style={{ background: 'var(--bg-page)', minHeight: '100vh' }} className="flex flex-col">
@@ -224,8 +286,9 @@ export default function InboxPage() {
             <h3 className="text-base font-semibold" style={{ color: 'var(--text-primary)' }}>💬 Ride Chat Tips</h3>
             <ul className="space-y-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
               <li>🚗 Chat with your driver or passenger here.</li>
-              <li>🔒 Conversations are only available for confirmed bookings.</li>
-              <li>👆 Swipe left (or long-press) on a conversation to delete it.</li>
+              <li>📌 Long-press or right-click to pin, archive, or mute a chat.</li>
+              <li>🔔 Pinned chats always stay visible at the top.</li>
+              <li>👆 Swipe left (or long-press) on a conversation to see options.</li>
             </ul>
             <button
               onClick={dismissCoachMark}
@@ -238,13 +301,13 @@ export default function InboxPage() {
         </div>
       )}
 
-      {/* ── Delete context menu ── */}
+      {/* ── Context menu (pin / archive / mute / delete) ── */}
       {contextMenu && (
         <div
           className="fixed z-50 rounded-xl shadow-2xl border overflow-hidden"
           style={{
             top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-            background: 'var(--bg-card)', borderColor: 'var(--border-color)', minWidth: '180px',
+            background: 'var(--bg-card)', borderColor: 'var(--border-color)', minWidth: '200px',
           }}
           role="menu"
           aria-label="Conversation options"
@@ -252,8 +315,33 @@ export default function InboxPage() {
         >
           <button
             role="menuitem"
+            onClick={() => { togglePin(contextMenu.ride_id); setContextMenu(null) }}
+            className="w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {pinned.has(contextMenu.ride_id) ? '📌 Unpin chat' : '📌 Pin chat'}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => toggleArchive(contextMenu.ride_id)}
+            className="w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2"
+            style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}
+          >
+            {archived.has(contextMenu.ride_id) ? '📂 Unarchive chat' : '🗂️ Archive chat'}
+          </button>
+          <button
+            role="menuitem"
+            onClick={() => toggleMute(contextMenu.ride_id)}
+            className="w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2"
+            style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}
+          >
+            {muted.has(contextMenu.ride_id) ? '🔔 Unmute notifications' : '🔕 Mute notifications'}
+          </button>
+          <button
+            role="menuitem"
             onClick={() => handleDeleteThread(contextMenu.ride_id)}
             className="w-full text-left px-4 py-3 text-sm hover:opacity-80 text-red-400 flex items-center gap-2"
+            style={{ borderTop: '1px solid var(--border-color)' }}
           >
             🗑️ Delete conversation
           </button>
@@ -261,7 +349,7 @@ export default function InboxPage() {
             role="menuitem"
             onClick={() => setContextMenu(null)}
             className="w-full text-left px-4 py-3 text-sm hover:opacity-80 flex items-center gap-2"
-            style={{ color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)' }}
+            style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)' }}
           >
             Cancel
           </button>
@@ -365,12 +453,14 @@ export default function InboxPage() {
             ) : filteredInbox.map((item, i) => {
               const isSelected   = selectedRide?.ride_id === item.ride_id
               const showCtxMenu  = contextMenu?.ride_id === item.ride_id
+              const isPinned     = pinned.has(item.ride_id)
+              const isMuted      = muted.has(item.ride_id)
               const origin       = item.ride_info?.origin      || item.origin      || '?'
               const destination  = item.ride_info?.destination || item.destination || '?'
               const companion    = item.companion_name || item.driver_name || ''
               const preview      = item.text || item.last_message || ''
-              const badge        = unreadLabel(item.unread_count)
-              const ariaLabel    = `Conversation: ${origin} to ${destination}${companion ? `, with ${companion}` : ''}${badge ? `, ${badge} unread` : ''}`
+              const badge        = isMuted ? null : unreadLabel(item.unread_count)
+              const ariaLabel    = `Conversation: ${origin} to ${destination}${companion ? `, with ${companion}` : ''}${badge ? `, ${badge} unread` : ''}${isPinned ? ', pinned' : ''}`
               return (
                 <div
                   key={item.ride_id || i}
@@ -393,7 +483,15 @@ export default function InboxPage() {
                     }}
                   >
                     {/* Avatar */}
-                    <Avatar name={companion || destination} />
+                    <div className="relative">
+                      <Avatar name={companion || destination} />
+                      {isPinned && (
+                        <span className="absolute -top-1 -right-1 text-xs" title="Pinned">📌</span>
+                      )}
+                      {isMuted && (
+                        <span className="absolute -bottom-1 -right-1 text-xs" title="Muted">🔕</span>
+                      )}
+                    </div>
 
                     {/* Text block */}
                     <div className="flex-1 min-w-0">
@@ -444,6 +542,55 @@ export default function InboxPage() {
                 </div>
               )
             })}
+
+            {/* Show more / less toggle for non-pinned overflow */}
+            {nonPinnedItems.length > CHAT_LIMIT && !search.trim() && filter === 'all' && (
+              <button
+                onClick={() => setShowMore(v => !v)}
+                className="w-full text-center py-2.5 text-xs font-medium hover:opacity-80 transition-opacity"
+                style={{ color: 'var(--text-muted)', borderTop: '1px solid var(--border-color)' }}
+              >
+                {showMore
+                  ? `▲ Show fewer chats`
+                  : `▼ Show ${nonPinnedItems.length - CHAT_LIMIT} more chat${nonPinnedItems.length - CHAT_LIMIT !== 1 ? 's' : ''}`}
+              </button>
+            )}
+
+            {/* Archived section */}
+            {archivedItems.length > 0 && (
+              <div style={{ borderTop: '1px solid var(--border-color)' }}>
+                <button
+                  onClick={() => setShowArchived(v => !v)}
+                  className="w-full text-left px-4 py-2 text-xs flex items-center gap-1.5 hover:opacity-80"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  🗂️ Archived ({archivedItems.length}) {showArchived ? '▲' : '▼'}
+                </button>
+                {showArchived && archivedItems.map((item, i) => {
+                  const origin      = item.ride_info?.origin      || item.origin      || '?'
+                  const destination = item.ride_info?.destination || item.destination || '?'
+                  const companion   = item.companion_name || item.driver_name || ''
+                  return (
+                    <div key={item.ride_id || i} className="flex items-center gap-2 px-3 py-2 border-b"
+                         style={{ borderColor: 'var(--border-color)' }}>
+                      <button
+                        onClick={() => handleSelectRide(item)}
+                        className="flex items-center gap-2 flex-1 text-left text-xs hover:opacity-80"
+                        style={{ color: 'var(--text-muted)' }}
+                      >
+                        <Avatar name={companion || destination} size="w-7 h-7" textSize="text-xs" />
+                        <span className="truncate">{origin} → {destination}</span>
+                      </button>
+                      <button
+                        onClick={() => toggleArchive(item.ride_id)}
+                        className="text-xs text-amber-500 hover:text-amber-400 shrink-0"
+                        title="Unarchive"
+                      >Unarchive</button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -490,3 +637,4 @@ export default function InboxPage() {
     </div>
   )
 }
+

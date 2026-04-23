@@ -297,10 +297,14 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
 
     confirmedLocations.forEach(p => {
       if (p.lat == null || p.lng == null) return
+      // Color-code: green = driver has confirmed (driver_confirmed), yellow = waiting, red = cancelled
+      const driverConfirmed = p.driver_confirmed === true || p.driver_confirmed === 1
+      const isCancelled     = p.status === 'cancelled'
+      const pinColor = isCancelled ? '#ef4444' : driverConfirmed ? '#22c55e' : '#eab308'
       const icon = L.divIcon({
         className: '',
         html: `<div style="
-          background:#7c3aed;color:#fff;border-radius:50%;
+          background:${pinColor};color:#fff;border-radius:50%;
           width:26px;height:26px;display:flex;align-items:center;
           justify-content:center;font-size:13px;
           box-shadow:0 2px 8px rgba(0,0,0,0.4);
@@ -309,9 +313,13 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
         iconSize:   [26, 26],
         iconAnchor: [13, 13],
       })
+      const statusLabel = isCancelled ? 'Cancelled' : driverConfirmed ? 'Confirmed ✓' : 'Waiting for driver confirmation'
       const m = L.marker([p.lat, p.lng], { icon })
         .addTo(map)
-        .bindTooltip(`<strong>${p.name || 'Passenger'}</strong><br>Confirmed pickup`, { direction: 'top' })
+        .bindTooltip(
+          `<strong>${p.name || 'Passenger'}</strong><br>${statusLabel}<br><span style="font-size:10px;opacity:0.7">Tap for booking details</span>`,
+          { direction: 'top' }
+        )
       confirmedMarkersRef.current.push(m)
     })
   }, [confirmedLocations])
@@ -530,6 +538,19 @@ export default function RideShareMap({ rides = [], userLocation, onRequestRide, 
             <span>{l.label}</span>
           </div>
         ))}
+        {/* Color-coded confirmed passenger legend */}
+        {confirmedLocations.length > 0 && (
+          <>
+            <div className="flex items-center gap-1 bg-gray-900/80 rounded-full px-2 py-0.5 text-xs text-gray-300">
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+              <span>Driver confirmed</span>
+            </div>
+            <div className="flex items-center gap-1 bg-gray-900/80 rounded-full px-2 py-0.5 text-xs text-gray-300">
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block" />
+              <span>Awaiting confirmation</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

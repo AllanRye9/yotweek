@@ -4304,9 +4304,21 @@ class _JourneyConfirmRequest(BaseModel):
     lng:       float | None = None
 
 
+class _CancelJourneyRequest(BaseModel):
+    reason: str = ""
+
+
 @fastapi_app.post("/api/rides/{ride_id}/confirm_journey")
 async def api_ride_confirm_journey(request: Request, ride_id: str, body: _JourneyConfirmRequest):
-    """Passenger confirms their journey for a specific ride by submitting real name + contact."""
+    """Passenger (or driver acting as passenger) confirms their journey for a specific ride.
+
+    Changes from base behaviour:
+    - Returns the ``confirmation_id`` as ``trip_id`` so the client can display it.
+    - Sends a confirmation receipt notification + socket event to the confirming
+      user in addition to the existing driver notification.
+    - Users with role=driver bypass the seat-availability block so they are never
+      shown a false "Fully Booked" error when joining someone else's ride.
+    """
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Login required."}, status_code=401)
@@ -4316,7 +4328,11 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
     if not real_name or not contact:
         return JSONResponse({"error": "Real name and contact are required."}, status_code=400)
 
+    user = _get_app_user(user_id)
+    confirmer_is_driver = user and user.get("role") == "driver"
+
     new_seats = None
+    confirmation_id_used = None
     with _db_lock:
         conn = _get_db()
         try:
@@ -4337,82 +4353,93 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             destination    = ride_row[3]
             current_seats  = ride_row[4]
 
-            # Driver cannot confirm their own ride.
-            # Their presence is implicit; skip seat decrement and return success.
-            # The client side already hides the confirm panel for drivers via the
-            # isDriver flag, so this is a safety net for direct API calls.
+            # Ride owner (driver of this ride) cannot consume a seat on their own ride.
             if user_id == driver_user_id:
-                return JSONResponse({"ok": True, "message": "You are the driver of this ride.", "seats": current_seats})
+                return JSONResponse({"ok": True, "message": "You are the driver of this ride.", "seats": current_seats, "trip_id": None})
 
             # Check if this user has already confirmed (to avoid double seat decrement)
             if USE_POSTGRES:
                 cur.execute(
-                    "SELECT 1 FROM ride_journey_confirmations WHERE ride_id=%s AND user_id=%s",
+                    "SELECT confirmation_id FROM ride_journey_confirmations WHERE ride_id=%s AND user_id=%s",
                     (ride_id, user_id),
                 )
-                already_confirmed = cur.fetchone() is not None
+                existing_row = cur.fetchone()
+                already_confirmed = existing_row is not None
+                existing_conf_id  = existing_row[0] if existing_row else None
             else:
-                already_confirmed = conn.execute(
-                    "SELECT 1 FROM ride_journey_confirmations WHERE ride_id=? AND user_id=?",
+                existing_row = conn.execute(
+                    "SELECT confirmation_id FROM ride_journey_confirmations WHERE ride_id=? AND user_id=?",
                     (ride_id, user_id),
-                ).fetchone() is not None
+                ).fetchone()
+                already_confirmed = existing_row is not None
+                existing_conf_id  = existing_row[0] if existing_row else None
 
-            confirmation_id = str(uuid.uuid4())
-            created_at      = datetime.now(timezone.utc).isoformat()
+            # Seat check: skip for drivers (they have a verified identity) and for
+            # users who have already confirmed (re-confirmation is an update).
+            if not already_confirmed and not confirmer_is_driver and current_seats <= 0:
+                return JSONResponse({"error": "No seats available. This ride is fully booked."}, status_code=409)
 
-            if USE_POSTGRES:
-                cur.execute(
-                    """INSERT INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, lat, lng, created_at)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-                       ON CONFLICT (ride_id, user_id) DO UPDATE SET real_name=EXCLUDED.real_name, contact=EXCLUDED.contact, lat=EXCLUDED.lat, lng=EXCLUDED.lng""",
-                    (confirmation_id, ride_id, user_id, real_name, contact, body.lat, body.lng, created_at),
-                )
-            else:
-                conn.execute(
-                    """INSERT OR REPLACE INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, lat, lng, created_at)
-                       VALUES (?,?,?,?,?,?,?,?)""",
-                    (confirmation_id, ride_id, user_id, real_name, contact, body.lat, body.lng, created_at),
-                )
-
-            # Decrement available seats only for a first-time confirmation
-            if not already_confirmed and current_seats > 0:
-                new_seat_count = max(0, current_seats - 1)
+            if already_confirmed:
+                # Update existing confirmation; reuse the existing confirmation_id
+                confirmation_id_used = existing_conf_id or str(uuid.uuid4())
                 if USE_POSTGRES:
                     cur.execute(
-                        "UPDATE rides SET seats = %s WHERE ride_id = %s",
-                        (new_seat_count, ride_id),
+                        "UPDATE ride_journey_confirmations SET real_name=%s, contact=%s, lat=%s, lng=%s WHERE ride_id=%s AND user_id=%s",
+                        (real_name, contact, body.lat, body.lng, ride_id, user_id),
                     )
-                    # Auto-complete the ride when all seats are filled
-                    if new_seat_count == 0:
-                        cur.execute(
-                            "UPDATE rides SET status = 'completed' WHERE ride_id = %s AND status = 'open'",
-                            (ride_id,),
-                        )
                 else:
                     conn.execute(
-                        "UPDATE rides SET seats = ? WHERE ride_id = ?",
-                        (new_seat_count, ride_id),
+                        "UPDATE ride_journey_confirmations SET real_name=?, contact=?, lat=?, lng=? WHERE ride_id=? AND user_id=?",
+                        (real_name, contact, body.lat, body.lng, ride_id, user_id),
                     )
-                    # Auto-complete the ride when all seats are filled
-                    if new_seat_count == 0:
-                        conn.execute(
-                            "UPDATE rides SET status = 'completed' WHERE ride_id = ? AND status = 'open'",
-                            (ride_id,),
-                        )
-                new_seats = new_seat_count
+            else:
+                confirmation_id_used = str(uuid.uuid4())
+                created_at           = datetime.now(timezone.utc).isoformat()
+                if USE_POSTGRES:
+                    cur.execute(
+                        """INSERT INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, lat, lng, created_at)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+                        (confirmation_id_used, ride_id, user_id, real_name, contact, body.lat, body.lng, created_at),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO ride_journey_confirmations (confirmation_id, ride_id, user_id, real_name, contact, lat, lng, created_at)
+                           VALUES (?,?,?,?,?,?,?,?)""",
+                        (confirmation_id_used, ride_id, user_id, real_name, contact, body.lat, body.lng, created_at),
+                    )
+
+                # Decrement seats only on first confirmation; drivers bypass this
+                if not confirmer_is_driver and current_seats > 0:
+                    new_seat_count = max(0, current_seats - 1)
+                    if USE_POSTGRES:
+                        cur.execute("UPDATE rides SET seats = %s WHERE ride_id = %s", (new_seat_count, ride_id))
+                        if new_seat_count == 0:
+                            cur.execute(
+                                "UPDATE rides SET status = 'completed' WHERE ride_id = %s AND status = 'open'",
+                                (ride_id,),
+                            )
+                    else:
+                        conn.execute("UPDATE rides SET seats = ? WHERE ride_id = ?", (new_seat_count, ride_id))
+                        if new_seat_count == 0:
+                            conn.execute(
+                                "UPDATE rides SET status = 'completed' WHERE ride_id = ? AND status = 'open'",
+                                (ride_id,),
+                            )
+                    new_seats = new_seat_count
 
             conn.commit()
         finally:
             conn.close()
 
-    # Notify the driver about the confirmation
-    user = _get_app_user(user_id)
     user_display = user["name"] if user else real_name
+    trip_id_short = (confirmation_id_used or "")[:8].upper()
+
+    # Notify the driver about the confirmation
     _create_notification(
         driver_user_id,
         "journey_confirmed",
         f"✅ Journey Confirmed — {user_display}",
-        f"{real_name} confirmed their journey for your ride {origin} → {destination}.",
+        f"{real_name} confirmed their journey for your ride {origin} → {destination}. Trip ID: {trip_id_short}",
         link=f"/rides?chat={ride_id}",
         link_label="View Confirmed Users",
     )
@@ -4420,12 +4447,35 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
         dsid = _user_to_sid.get(driver_user_id)
     if dsid:
         asyncio.ensure_future(sio.emit("journey_confirmed", {
-            "ride_id":   ride_id,
-            "real_name": real_name,
-            "contact":   contact,
-            "lat":       body.lat,
-            "lng":       body.lng,
+            "ride_id":        ride_id,
+            "real_name":      real_name,
+            "contact":        contact,
+            "lat":            body.lat,
+            "lng":            body.lng,
+            "confirmation_id": confirmation_id_used,
+            "trip_id":        trip_id_short,
         }, room=dsid))
+
+    # Send receipt notification to the confirming user as well
+    _create_notification(
+        user_id,
+        "journey_receipt",
+        f"🎫 Booking Receipt — Trip ID: {trip_id_short}",
+        f"Your seat on {origin} → {destination} (Driver: {driver_name}) is confirmed. Trip ID: {trip_id_short}",
+        link=f"/rides?chat={ride_id}",
+        link_label="Open Chat",
+    )
+    with _socket_user_lock:
+        usid = _user_to_sid.get(user_id)
+    if usid:
+        asyncio.ensure_future(sio.emit("journey_receipt", {
+            "ride_id":        ride_id,
+            "trip_id":        trip_id_short,
+            "confirmation_id": confirmation_id_used,
+            "origin":         origin,
+            "destination":    destination,
+            "driver_name":    driver_name,
+        }, room=usid))
 
     # Broadcast seat update to all clients in the ride room for real-time UI update
     if new_seats is not None:
@@ -4434,10 +4484,251 @@ async def api_ride_confirm_journey(request: Request, ride_id: str, body: _Journe
             "seats":   new_seats,
         }))
 
-    return JSONResponse({"ok": True, "message": "Journey confirmed successfully.", "seats": new_seats})
+    return JSONResponse({
+        "ok":             True,
+        "message":        "Journey confirmed successfully.",
+        "seats":          new_seats,
+        "trip_id":        trip_id_short,
+        "confirmation_id": confirmation_id_used,
+    })
 
 
-@fastapi_app.get("/api/rides/{ride_id}/confirmed_users")
+@fastapi_app.delete("/api/rides/{ride_id}/confirm_journey")
+async def api_cancel_journey_confirmation(request: Request, ride_id: str, body: _CancelJourneyRequest):
+    """Cancel a passenger's journey confirmation and restore the seat.
+
+    The confirming user or the ride's driver may cancel.  An optional ``reason``
+    is stored with the cancellation and forwarded to both parties via socket/notification.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if not user:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+
+    reason = (body.reason or "").strip()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, driver_name, origin, destination, seats FROM rides WHERE ride_id=%s", (ride_id,))
+                ride_row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id, driver_name, origin, destination, seats FROM rides WHERE ride_id=?", (ride_id,))
+                ride_row = cur.fetchone()
+            if not ride_row:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+
+            driver_user_id = ride_row[0]
+            driver_name    = ride_row[1]
+            origin         = ride_row[2]
+            destination    = ride_row[3]
+            current_seats  = ride_row[4]
+
+            # Determine whose confirmation to cancel
+            # - If the requester is the driver, they cancel a specific passenger's confirmation.
+            #   In that case the cancelled user_id must come from the request body (not yet
+            #   implemented here — driver cancels their own entry by acting as passenger).
+            # - If the requester is a passenger, they cancel their own confirmation.
+            target_user_id = user_id  # always the caller's own confirmation
+
+            if USE_POSTGRES:
+                cur.execute(
+                    "SELECT confirmation_id, real_name FROM ride_journey_confirmations WHERE ride_id=%s AND user_id=%s",
+                    (ride_id, target_user_id),
+                )
+                conf_row = cur.fetchone()
+            else:
+                conf_row = conn.execute(
+                    "SELECT confirmation_id, real_name FROM ride_journey_confirmations WHERE ride_id=? AND user_id=?",
+                    (ride_id, target_user_id),
+                ).fetchone()
+
+            if not conf_row:
+                return JSONResponse({"error": "No confirmation found for this ride."}, status_code=404)
+
+            # Ensure the requester is either the passenger or the ride's driver
+            if user_id != target_user_id and user_id != driver_user_id:
+                return JSONResponse({"error": "Not authorised to cancel this confirmation."}, status_code=403)
+
+            confirmation_id_cancelled = conf_row[0]
+            passenger_name            = conf_row[1]
+
+            if USE_POSTGRES:
+                cur.execute(
+                    "DELETE FROM ride_journey_confirmations WHERE confirmation_id=%s",
+                    (confirmation_id_cancelled,),
+                )
+                # Restore seat
+                cur.execute("UPDATE rides SET seats = %s WHERE ride_id = %s", (current_seats + 1, ride_id))
+            else:
+                conn.execute(
+                    "DELETE FROM ride_journey_confirmations WHERE confirmation_id=?",
+                    (confirmation_id_cancelled,),
+                )
+                conn.execute("UPDATE rides SET seats = ? WHERE ride_id = ?", (current_seats + 1, ride_id))
+
+            conn.commit()
+            new_seats_after_cancel = current_seats + 1
+        finally:
+            conn.close()
+
+    reason_text = f" Reason: {reason}" if reason else ""
+
+    # Notify driver
+    _create_notification(
+        driver_user_id,
+        "journey_cancelled",
+        f"❌ Booking Cancelled — {passenger_name}",
+        f"{passenger_name} cancelled their booking for {origin} → {destination}.{reason_text}",
+        link=f"/rides?chat={ride_id}",
+        link_label="View Ride",
+    )
+    with _socket_user_lock:
+        dsid = _user_to_sid.get(driver_user_id)
+    if dsid:
+        asyncio.ensure_future(sio.emit("journey_cancelled", {
+            "ride_id":        ride_id,
+            "user_id":        target_user_id,
+            "passenger_name": passenger_name,
+            "reason":         reason,
+            "seats":          new_seats_after_cancel,
+        }, room=dsid))
+
+    # Notify the passenger (if driver initiated the cancellation)
+    if user_id == driver_user_id and target_user_id != driver_user_id:
+        _create_notification(
+            target_user_id,
+            "journey_cancelled",
+            f"❌ Your Booking Was Cancelled",
+            f"The driver ({driver_name}) cancelled your booking for {origin} → {destination}.{reason_text}",
+            link=f"/rides?chat={ride_id}",
+            link_label="View Ride",
+        )
+        with _socket_user_lock:
+            psid = _user_to_sid.get(target_user_id)
+        if psid:
+            asyncio.ensure_future(sio.emit("journey_cancelled", {
+                "ride_id": ride_id,
+                "reason":  reason,
+                "seats":   new_seats_after_cancel,
+            }, room=psid))
+
+    # Broadcast restored seat count
+    asyncio.ensure_future(sio.emit("ride_seats_updated", {
+        "ride_id": ride_id,
+        "seats":   new_seats_after_cancel,
+    }))
+
+    return JSONResponse({"ok": True, "message": "Confirmation cancelled.", "seats": new_seats_after_cancel})
+
+
+class _DriverCancelPassengerRequest(BaseModel):
+    reason: str = ""
+
+
+@fastapi_app.delete("/api/rides/{ride_id}/confirm_journey/{confirmation_id}")
+async def api_driver_cancel_passenger_confirmation(
+    request: Request, ride_id: str, confirmation_id: str, body: _DriverCancelPassengerRequest
+):
+    """Driver cancels a specific passenger's confirmation by confirmation_id.
+
+    Restores the seat and notifies the passenger via socket and in-app notification.
+    """
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Login required."}, status_code=401)
+
+    user = _get_app_user(user_id)
+    if not user or user.get("role") != "driver":
+        return JSONResponse({"error": "Only drivers can cancel passenger confirmations."}, status_code=403)
+
+    reason = (body.reason or "").strip()
+
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id, driver_name, origin, destination, seats FROM rides WHERE ride_id=%s", (ride_id,))
+                ride_row = cur.fetchone()
+            else:
+                cur = conn.execute("SELECT user_id, driver_name, origin, destination, seats FROM rides WHERE ride_id=?", (ride_id,))
+                ride_row = cur.fetchone()
+            if not ride_row:
+                return JSONResponse({"error": "Ride not found."}, status_code=404)
+            if ride_row[0] != user_id:
+                return JSONResponse({"error": "Not authorised."}, status_code=403)
+
+            driver_name   = ride_row[1]
+            origin        = ride_row[2]
+            destination   = ride_row[3]
+            current_seats = ride_row[4]
+
+            if USE_POSTGRES:
+                cur.execute(
+                    "SELECT user_id, real_name FROM ride_journey_confirmations WHERE confirmation_id=%s AND ride_id=%s",
+                    (confirmation_id, ride_id),
+                )
+                conf_row = cur.fetchone()
+            else:
+                conf_row = conn.execute(
+                    "SELECT user_id, real_name FROM ride_journey_confirmations WHERE confirmation_id=? AND ride_id=?",
+                    (confirmation_id, ride_id),
+                ).fetchone()
+
+            if not conf_row:
+                return JSONResponse({"error": "Confirmation not found."}, status_code=404)
+
+            passenger_id   = conf_row[0]
+            passenger_name = conf_row[1]
+
+            if USE_POSTGRES:
+                cur.execute("DELETE FROM ride_journey_confirmations WHERE confirmation_id=%s", (confirmation_id,))
+                cur.execute("UPDATE rides SET seats = %s WHERE ride_id = %s", (current_seats + 1, ride_id))
+            else:
+                conn.execute("DELETE FROM ride_journey_confirmations WHERE confirmation_id=?", (confirmation_id,))
+                conn.execute("UPDATE rides SET seats = ? WHERE ride_id = ?", (current_seats + 1, ride_id))
+
+            conn.commit()
+            new_seats_after_cancel = current_seats + 1
+        finally:
+            conn.close()
+
+    reason_text = f" Reason: {reason}" if reason else ""
+
+    # Notify the passenger
+    _create_notification(
+        passenger_id,
+        "journey_cancelled",
+        "❌ Your Booking Was Cancelled",
+        f"The driver ({driver_name}) cancelled your booking for {origin} → {destination}.{reason_text}",
+        link=f"/rides?chat={ride_id}",
+        link_label="View Ride",
+    )
+    with _socket_user_lock:
+        psid = _user_to_sid.get(passenger_id)
+    if psid:
+        asyncio.ensure_future(sio.emit("journey_cancelled", {
+            "ride_id":  ride_id,
+            "reason":   reason,
+            "seats":    new_seats_after_cancel,
+        }, room=psid))
+
+    asyncio.ensure_future(sio.emit("ride_seats_updated", {"ride_id": ride_id, "seats": new_seats_after_cancel}))
+
+    return JSONResponse({
+        "ok":      True,
+        "message": f"Cancelled {passenger_name}'s confirmation.",
+        "seats":   new_seats_after_cancel,
+    })
+
+
+
 async def api_ride_confirmed_users(request: Request, ride_id: str):
     """Driver retrieves list of passengers who confirmed their journey for a ride."""
     user_id = request.session.get("app_user_id")
@@ -4464,16 +4755,16 @@ async def api_ride_confirmed_users(request: Request, ride_id: str):
             if ride_row[0] != user_id and user.get("role") != "admin":
                 return JSONResponse({"error": "Not authorised."}, status_code=403)
 
-            cols = ["confirmation_id", "ride_id", "user_id", "real_name", "contact", "lat", "lng", "created_at"]
+            cols = ["confirmation_id", "ride_id", "user_id", "real_name", "contact", "lat", "lng", "created_at", "driver_confirmed"]
             if USE_POSTGRES:
                 cur.execute(
-                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,lat,lng,created_at FROM ride_journey_confirmations WHERE ride_id=%s ORDER BY created_at ASC",
+                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,lat,lng,created_at,driver_confirmed FROM ride_journey_confirmations WHERE ride_id=%s ORDER BY created_at ASC",
                     (ride_id,),
                 )
                 rows = cur.fetchall()
             else:
                 cur2 = conn.execute(
-                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,lat,lng,created_at FROM ride_journey_confirmations WHERE ride_id=? ORDER BY created_at ASC",
+                    "SELECT confirmation_id,ride_id,user_id,real_name,contact,lat,lng,created_at,driver_confirmed FROM ride_journey_confirmations WHERE ride_id=? ORDER BY created_at ASC",
                     (ride_id,),
                 )
                 rows = cur2.fetchall()
@@ -4523,14 +4814,14 @@ async def api_ride_confirmed_locations(request: Request, ride_id: str):
 
             if USE_POSTGRES:
                 cur.execute(
-                    "SELECT user_id, real_name, lat, lng FROM ride_journey_confirmations"
+                    "SELECT user_id, real_name, lat, lng, driver_confirmed FROM ride_journey_confirmations"
                     " WHERE ride_id=%s AND lat IS NOT NULL AND lng IS NOT NULL",
                     (ride_id,),
                 )
                 rows = cur.fetchall()
             else:
                 cur2 = conn.execute(
-                    "SELECT user_id, real_name, lat, lng FROM ride_journey_confirmations"
+                    "SELECT user_id, real_name, lat, lng, driver_confirmed FROM ride_journey_confirmations"
                     " WHERE ride_id=? AND lat IS NOT NULL AND lng IS NOT NULL",
                     (ride_id,),
                 )
@@ -4538,7 +4829,7 @@ async def api_ride_confirmed_locations(request: Request, ride_id: str):
         finally:
             conn.close()
 
-    locations = [{"user_id": r[0], "name": r[1], "lat": r[2], "lng": r[3]} for r in rows]
+    locations = [{"user_id": r[0], "name": r[1], "lat": r[2], "lng": r[3], "driver_confirmed": bool(r[4])} for r in rows]
     return JSONResponse({"confirmed_locations": locations})
 
 
@@ -4581,19 +4872,31 @@ async def api_ride_proximity_notify(request: Request, ride_id: str, body: _Proxi
             origin      = ride_row[1]
             destination = ride_row[2]
 
-            # Get confirmed users
+            # Get confirmed users with their name and location (if available)
             if USE_POSTGRES:
                 cur.execute(
-                    "SELECT user_id FROM ride_journey_confirmations WHERE ride_id=%s",
+                    "SELECT rjc.user_id, rjc.real_name, rjc.lat, rjc.lng"
+                    " FROM ride_journey_confirmations rjc WHERE rjc.ride_id=%s",
                     (ride_id,),
                 )
                 confirmed_rows = cur.fetchall()
             else:
                 cur2 = conn.execute(
-                    "SELECT user_id FROM ride_journey_confirmations WHERE ride_id=?",
+                    "SELECT user_id, real_name, lat, lng"
+                    " FROM ride_journey_confirmations WHERE ride_id=?",
                     (ride_id,),
                 )
                 confirmed_rows = cur2.fetchall()
+
+            # Fetch driver's current location from driver_locations table if available
+            if USE_POSTGRES:
+                cur.execute("SELECT lat, lng FROM driver_locations WHERE user_id=%s", (user_id,))
+                dloc = cur.fetchone()
+            else:
+                dloc_row = conn.execute("SELECT lat, lng FROM driver_locations WHERE user_id=?", (user_id,)).fetchone()
+                dloc = dloc_row
+            driver_lat = dloc[0] if dloc else None
+            driver_lng = dloc[1] if dloc else None
         finally:
             conn.close()
 
@@ -4611,7 +4914,29 @@ async def api_ride_proximity_notify(request: Request, ride_id: str, body: _Proxi
     }
 
     notified = 0
-    for (passenger_id,) in confirmed_rows:
+    summary_list = []
+    for row in confirmed_rows:
+        passenger_id   = row[0]
+        passenger_name = row[1]
+        p_lat, p_lng   = row[2], row[3]
+
+        # Compute distance from driver to this passenger (km) if both locations known
+        dist_km = None
+        if driver_lat is not None and driver_lng is not None and p_lat is not None and p_lng is not None:
+            R = 6371
+            import math as _math
+            dLat = (p_lat - driver_lat) * _math.pi / 180
+            dLng = (p_lng - driver_lng) * _math.pi / 180
+            a = (_math.sin(dLat / 2) ** 2 +
+                 _math.cos(driver_lat * _math.pi / 180) * _math.cos(p_lat * _math.pi / 180) *
+                 _math.sin(dLng / 2) ** 2)
+            dist_km = round(R * 2 * _math.atan2(_math.sqrt(a), _math.sqrt(1 - a)), 2)
+
+        summary_list.append({
+            "user_id": passenger_id,
+            "name":    passenger_name,
+            "dist_km": dist_km,
+        })
         try:
             _create_notification(
                 passenger_id,
@@ -4629,7 +4954,28 @@ async def api_ride_proximity_notify(request: Request, ride_id: str, body: _Proxi
         except Exception as exc:
             logger.warning("Failed to notify passenger %s: %s", passenger_id, exc)
 
-    return JSONResponse({"ok": True, "notified": notified, "message": message})
+    # Sort summary by distance (closest first, unknowns last)
+    summary_list.sort(key=lambda x: (x["dist_km"] is None, x["dist_km"] or 0))
+
+    # Send summary back to driver via socket
+    with _socket_user_lock:
+        driver_sid = _user_to_sid.get(user_id)
+    if driver_sid:
+        asyncio.ensure_future(sio.emit("proximity_notify_summary", {
+            "ride_id":        ride_id,
+            "total_reached":  notified,
+            "total_users":    len(confirmed_rows),
+            "users":          summary_list,
+            "distance_str":   distance_str,
+        }, room=driver_sid))
+
+    return JSONResponse({
+        "ok":            True,
+        "notified":      notified,
+        "message":       message,
+        "total_users":   len(confirmed_rows),
+        "users_reached": summary_list,
+    })
 
 
 # =========================================================

@@ -1,6 +1,25 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import socket from '../socket'
-import { getRideChatMessages, confirmJourney, getConfirmedUsers, proximityNotify, deleteRideChatMessage, getDriverReviews, submitDriverReview } from '../api'
+import { getRideChatMessages, confirmJourney, cancelJourneyConfirmation, getConfirmedUsers, proximityNotify, deleteRideChatMessage, driverConfirmBooking, driverCancelPassengerConfirmation, getDriverReviews, submitDriverReview } from '../api'
+
+// Quick-reply templates shown above the message input
+const QUICK_REPLIES = [
+  'On my way 🚶',
+  'Running late ⏳',
+  'I\'m here! 📍',
+  'Got it ✅',
+  'Be there in 5 min 🚗',
+  'Please share your location 📌',
+]
+
+// Cancel reasons for booking cancellation
+const CANCEL_REASONS = [
+  'User no-show',
+  'Route change',
+  'Vehicle issue',
+  'Emergency',
+  'Other',
+]
 
 // ── StarRating ────────────────────────────────────────────────────────────────
 function StarRating({ value, onChange, size = 'text-xl' }) {
@@ -111,25 +130,37 @@ export default function RideChat({ ride, user, onClose }) {
   const [realName, setRealName]       = useState('')
   const [contact, setContact]         = useState('')
   const [confirmMsg, setConfirmMsg]   = useState('')
+  const [tripId, setTripId]           = useState(null)  // shown after successful confirm
   const [locationLabel, setLocationLabel] = useState('')
-  const [locationLat, setLocationLat] = useState(null)   // geo lat for confirm + map
-  const [locationLng, setLocationLng] = useState(null)   // geo lng for confirm + map
-  const [manualAddress, setManualAddress] = useState('')  // free-text override
-  const [notifyDriver, setNotifyDriver] = useState(true)  // alert-driver toggle
-  const [mediaFile, setMediaFile]     = useState(null)    // File for media attachment
-  const [confirmSuccess, setConfirmSuccess] = useState(false)  // animation flag
-  const [currentSeats, setCurrentSeats] = useState(ride?.seats ?? null)  // real-time seat count
+  const [locationLat, setLocationLat] = useState(null)
+  const [locationLng, setLocationLng] = useState(null)
+  const [manualAddress, setManualAddress] = useState('')
+  const [notifyDriver, setNotifyDriver] = useState(true)
+  const [mediaFile, setMediaFile]     = useState(null)
+  const [confirmSuccess, setConfirmSuccess] = useState(false)
+  const [currentSeats, setCurrentSeats] = useState(ride?.seats ?? null)
   const fileInputRef = useRef(null)
+
+  // Cancel confirmation (passenger)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelMsg, setCancelMsg] = useState('')
 
   // Confirmed passengers (drivers)
   const [showPassengers, setShowPassengers]   = useState(false)
   const [passengers, setPassengers]           = useState([])
   const [passengersLoading, setPassengersLoading] = useState(false)
 
+  // Per-passenger cancel modal (driver)
+  const [cancelTarget, setCancelTarget]   = useState(null) // { confirmation_id, real_name }
+  const [driverCancelReason, setDriverCancelReason] = useState('')
+  const [driverCancelMsg, setDriverCancelMsg] = useState('')
+
   // Proximity notify (drivers)
   const [distance, setDistance]   = useState('')
   const [distUnit, setDistUnit]   = useState('km')
   const [notifyMsg, setNotifyMsg] = useState('')
+  const [notifySummary, setNotifySummary] = useState(null) // { total_reached, users }
 
   // Driver live-location sharing
   const [locShareMsg, setLocShareMsg] = useState('')
@@ -139,6 +170,11 @@ export default function RideChat({ ride, user, onClose }) {
   const typingTimers = useRef({})
   const myTypingTimer = useRef(null)
   const isTypingRef = useRef(false)
+
+  // Delete control: undo toast
+  const [deletedMsg, setDeletedMsg] = useState(null) // { msg, timeout }
+  const deleteUndoTimer = useRef(null)
+  const [showDeleteMenu, setShowDeleteMenu] = useState(null) // msg identifier
 
   // Message being hovered (for delete button)
   const [hoveredMsg, setHoveredMsg] = useState(null)
@@ -303,6 +339,8 @@ export default function RideChat({ ride, user, onClose }) {
       const result = await confirmJourney(rideId, nameToSend, contactToSend, locationLat, locationLng)
       setConfirmMsg('✅ Booking confirmed!')
       setConfirmSuccess(true)
+      // Show trip ID
+      if (result?.trip_id) setTripId(result.trip_id)
       // Update seat count if backend returned new seat total
       if (result?.seats != null) setCurrentSeats(result.seats)
       setTimeout(() => setConfirmSuccess(false), 2000)
@@ -371,14 +409,76 @@ export default function RideChat({ ride, user, onClose }) {
     }
   }
 
-  const handleDeleteMessage = async (msg) => {
-    const msgId = msg.msg_id || msg.id
-    if (!msgId) { setMessages(prev => prev.filter(m => m !== msg)); return }
+  const handleCancelConfirmation = async () => {
+    setCancelMsg('')
     try {
-      await deleteRideChatMessage(rideId, msgId)
-      setMessages(prev => prev.filter(m => (m.msg_id || m.id) !== msgId))
+      const result = await cancelJourneyConfirmation(rideId, cancelReason)
+      setCancelMsg('✅ Booking cancelled.')
+      if (result?.seats != null) setCurrentSeats(result.seats)
+      setTripId(null)
+      setTimeout(() => { setShowCancelConfirm(false); setCancelMsg('') }, 1500)
+    } catch (e) {
+      setCancelMsg('❌ ' + (e?.message || 'Failed'))
+    }
+  }
+
+  const handleDriverCancelPassenger = async () => {
+    if (!cancelTarget) return
+    setDriverCancelMsg('')
+    try {
+      const result = await driverCancelPassengerConfirmation(rideId, cancelTarget.confirmation_id, driverCancelReason)
+      setDriverCancelMsg('✅ Cancelled.')
+      if (result?.seats != null) setCurrentSeats(result.seats)
+      setPassengers(prev => prev.filter(p => p.confirmation_id !== cancelTarget.confirmation_id))
+      setTimeout(() => { setCancelTarget(null); setDriverCancelMsg(''); setDriverCancelReason('') }, 1200)
+    } catch (e) {
+      setDriverCancelMsg('❌ ' + (e?.message || 'Failed'))
+    }
+  }
+
+  const handleDriverConfirmPassenger = async (confirmationId) => {
+    try {
+      await driverConfirmBooking(rideId, confirmationId)
+      setPassengers(prev => prev.map(p =>
+        p.confirmation_id === confirmationId ? { ...p, driver_confirmed: 1 } : p
+      ))
     } catch {}
   }
+
+  const handleDeleteMessage = useCallback((msg, deleteForEveryone = false) => {
+    const msgId = msg.msg_id || msg.id
+    const identifier = msgId || msg._localId
+
+    if (!deleteForEveryone || !msgId) {
+      // Delete for me: remove from local state with undo
+      clearTimeout(deleteUndoTimer.current)
+      setDeletedMsg({ msg, identifier })
+      setMessages(prev => prev.filter(m => (m.msg_id || m.id || m._localId) !== identifier))
+      deleteUndoTimer.current = setTimeout(() => setDeletedMsg(null), 5000)
+      return
+    }
+
+    // Delete for everyone: backend delete
+    deleteRideChatMessage(rideId, msgId)
+      .then(() => {
+        setMessages(prev => prev.filter(m => (m.msg_id || m.id) !== msgId))
+      })
+      .catch(() => {})
+  }, [rideId])
+
+  const handleUndoDelete = useCallback(() => {
+    if (!deletedMsg) return
+    clearTimeout(deleteUndoTimer.current)
+    setMessages(prev => {
+      // Re-insert at approximate position by timestamp
+      const ts = deletedMsg.msg.ts || 0
+      const insertIdx = prev.findLastIndex(m => (m.ts || 0) <= ts) + 1
+      const next = [...prev]
+      next.splice(insertIdx, 0, deletedMsg.msg)
+      return next
+    })
+    setDeletedMsg(null)
+  }, [deletedMsg])
 
   const handleLoadPassengers = async () => {
     setShowPassengers(p => !p)
@@ -395,13 +495,42 @@ export default function RideChat({ ride, user, onClose }) {
     }
   }
 
+  // Listen for real-time journey confirmation events when driver is viewing passengers
+  useEffect(() => {
+    const onJourneyConfirmed = (data) => {
+      if (data?.ride_id !== rideId) return
+      // Refresh passengers list if currently shown
+      if (showPassengers) {
+        getConfirmedUsers(rideId)
+          .then(d => setPassengers(d.confirmed_users || []))
+          .catch(() => {})
+      }
+    }
+    const onJourneyCancelled = (data) => {
+      if (data?.ride_id !== rideId) return
+      if (data?.user_id) {
+        setPassengers(prev => prev.filter(p => p.user_id !== data.user_id))
+      }
+    }
+    socket.on('journey_confirmed', onJourneyConfirmed)
+    socket.on('journey_cancelled', onJourneyCancelled)
+    return () => {
+      socket.off('journey_confirmed', onJourneyConfirmed)
+      socket.off('journey_cancelled', onJourneyCancelled)
+    }
+  }, [rideId, showPassengers])
+
   const handleProximityNotify = async () => {
     setNotifyMsg('')
+    setNotifySummary(null)
     const km = parseFloat(distance)
     if (!km || km <= 0) { setNotifyMsg('Enter a valid distance'); return }
     try {
-      await proximityNotify(rideId, km, distUnit)
-      setNotifyMsg('✅ Passengers notified!')
+      const result = await proximityNotify(rideId, km, distUnit)
+      setNotifyMsg(`✅ Notified ${result.notified ?? 0} passenger(s)!`)
+      if (result.users_reached && result.users_reached.length > 0) {
+        setNotifySummary({ total: result.notified, users: result.users_reached })
+      }
     } catch (e) {
       setNotifyMsg('❌ ' + (e?.message || 'Failed'))
     }
@@ -468,6 +597,56 @@ export default function RideChat({ ride, user, onClose }) {
     <div className="flex flex-col h-full rounded-xl overflow-hidden border"
          style={{ background: 'var(--bg-card)', borderColor: 'var(--border-color)' }}>
 
+      {/* ── Undo delete toast ── */}
+      {deletedMsg && (
+        <div
+          className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl px-4 py-2.5 shadow-2xl text-sm font-medium"
+          style={{ background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155' }}
+          role="status"
+          aria-live="polite"
+        >
+          <span>🗑️ Message deleted</span>
+          <button onClick={handleUndoDelete}
+                  className="ml-1 text-amber-400 hover:text-amber-300 font-semibold text-xs">
+            Undo
+          </button>
+        </div>
+      )}
+
+      {/* ── Driver: cancel passenger modal ── */}
+      {cancelTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+             style={{ background: 'rgba(0,0,0,0.6)' }}>
+          <div className="rounded-2xl p-5 max-w-xs w-full space-y-3 shadow-2xl"
+               style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+            <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
+              ❌ Cancel {cancelTarget.real_name}'s Booking
+            </h3>
+            <select
+              value={driverCancelReason}
+              onChange={e => setDriverCancelReason(e.target.value)}
+              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+              style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+            >
+              <option value="">Select reason…</option>
+              {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            {driverCancelMsg && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{driverCancelMsg}</p>}
+            <div className="flex gap-2">
+              <button onClick={handleDriverCancelPassenger}
+                      className="flex-1 px-3 py-2 rounded-xl text-sm font-semibold text-white bg-red-600 hover:bg-red-500">
+                Cancel Booking
+              </button>
+              <button onClick={() => { setCancelTarget(null); setDriverCancelReason(''); setDriverCancelMsg('') }}
+                      className="px-3 py-2 rounded-xl text-sm hover:opacity-80"
+                      style={{ color: 'var(--text-muted)' }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header — display real place names */}
       <div className="flex items-center justify-between px-4 py-3 border-b"
            style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
@@ -493,7 +672,7 @@ export default function RideChat({ ride, user, onClose }) {
           <button onClick={handleLoadPassengers}
                   className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
                   style={{ background: 'var(--accent)', color: 'var(--accent-text)' }}>
-            👥 Passengers
+            👥 Passengers {passengers.length > 0 ? `(${passengers.length})` : ''}
           </button>
 
           <div className="flex items-center gap-1 flex-wrap">
@@ -529,16 +708,65 @@ export default function RideChat({ ride, user, onClose }) {
         </div>
       )}
 
+      {/* Proximity notify summary */}
+      {isDriver && notifySummary && (
+        <div className="px-4 py-2 border-b text-xs"
+             style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
+          <div className="flex items-center justify-between mb-1">
+            <span className="font-medium" style={{ color: 'var(--text-primary)' }}>
+              📊 Alert Summary — {notifySummary.total} passenger(s) notified
+            </span>
+            <button onClick={() => setNotifySummary(null)} className="text-xs opacity-50 hover:opacity-80"
+                    style={{ color: 'var(--text-muted)' }}>✕</button>
+          </div>
+          <ul className="space-y-0.5">
+            {notifySummary.users.map((u, i) => (
+              <li key={i} className="flex gap-2">
+                <span style={{ color: 'var(--text-primary)' }}>{u.name}</span>
+                {u.dist_km != null && (
+                  <span style={{ color: 'var(--text-muted)' }}>{u.dist_km} km away</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Passengers panel */}
       {isDriver && showPassengers && (
         <div className="px-4 py-2 border-b text-xs"
              style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}>
           {passengersLoading ? 'Loading…' : passengers.length === 0 ? 'No confirmed passengers yet.' : (
-            <ul className="space-y-1">
+            <ul className="space-y-1.5">
               {passengers.map((p, i) => (
-                <li key={i} className="flex gap-3">
+                <li key={p.confirmation_id || i} className="flex items-center gap-2 flex-wrap">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${p.driver_confirmed ? 'bg-green-400' : 'bg-yellow-400'}`}
+                        title={p.driver_confirmed ? 'Driver confirmed' : 'Pending driver confirmation'} />
                   <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{p.real_name}</span>
                   <span style={{ color: 'var(--text-muted)' }}>{p.contact}</span>
+                  {p.lat != null && (
+                    <a href={`https://maps.google.com/?q=${p.lat},${p.lng}`}
+                       target="_blank" rel="noopener noreferrer"
+                       className="text-blue-400 hover:text-blue-300 text-xs">📍 Map</a>
+                  )}
+                  <div className="flex gap-1 ml-auto shrink-0">
+                    {!p.driver_confirmed && (
+                      <button
+                        onClick={() => handleDriverConfirmPassenger(p.confirmation_id)}
+                        className="px-2 py-0.5 rounded text-xs bg-green-700 hover:bg-green-600 text-white font-medium"
+                        title="Confirm this passenger"
+                      >
+                        ✓ Confirm
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setCancelTarget(p); setDriverCancelReason(''); setDriverCancelMsg('') }}
+                      className="px-2 py-0.5 rounded text-xs bg-red-800 hover:bg-red-700 text-white font-medium"
+                      title="Cancel this passenger's booking"
+                    >
+                      ✕ Cancel
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -561,12 +789,58 @@ export default function RideChat({ ride, user, onClose }) {
               🎉 Booking Confirmed!
             </div>
           )}
+
+          {/* Trip ID receipt */}
+          {tripId && !showConfirm && !showCancelConfirm && (
+            <div className="mb-2 rounded-xl px-3 py-2 text-xs flex items-center justify-between gap-2"
+                 style={{ background: 'var(--bg-input)', border: '1px solid var(--border-color)' }}>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                🎫 Trip ID: <strong style={{ color: 'var(--text-primary)', fontFamily: 'monospace' }}>{tripId}</strong>
+              </span>
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                className="text-xs text-red-400 hover:text-red-300 font-medium shrink-0"
+              >
+                Cancel Booking
+              </button>
+            </div>
+          )}
+
+          {/* Cancel confirmation panel */}
+          {showCancelConfirm && (
+            <div className="mb-2 rounded-xl p-3 space-y-2"
+                 style={{ background: 'var(--bg-input)', border: '1px solid rgba(248,113,113,0.3)' }}>
+              <p className="text-xs font-medium" style={{ color: '#f87171' }}>Cancel your booking?</p>
+              <select
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                className="w-full rounded-lg px-2 py-1.5 text-xs outline-none"
+                style={{ background: 'var(--bg-input)', color: 'var(--text-primary)', border: '1px solid var(--border-color)' }}
+              >
+                <option value="">Select reason (optional)…</option>
+                {CANCEL_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              {cancelMsg && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{cancelMsg}</p>}
+              <div className="flex gap-2">
+                <button onClick={handleCancelConfirmation}
+                        className="flex-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-600 hover:bg-red-500 text-white">
+                  Confirm Cancel
+                </button>
+                <button onClick={() => setShowCancelConfirm(false)}
+                        className="px-3 py-1.5 rounded-lg text-xs hover:opacity-80"
+                        style={{ color: 'var(--text-muted)' }}>
+                  Keep Booking
+                </button>
+              </div>
+            </div>
+          )}
+
           {currentSeats === 0 && !showConfirm ? (
             <div className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-red-300"
                  style={{ background: 'rgba(127,29,29,0.4)', border: '1px solid rgba(248,113,113,0.3)' }}>
               🚫 Fully Booked — No seats available
             </div>
-          ) : !showConfirm ? (
+          ) : !showConfirm && !showCancelConfirm ? (
             <button
               onClick={handleOpenConfirm}
               className="w-full relative inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white overflow-hidden shadow-lg transition-all duration-300 hover:scale-[1.02] hover:shadow-amber-500/40 active:scale-[0.98]"
@@ -579,7 +853,7 @@ export default function RideChat({ ride, user, onClose }) {
               <span>Share Pickup Location & Confirm</span>
               <span className="absolute inset-0 rounded-xl border border-amber-300/30 pointer-events-none" />
             </button>
-          ) : (
+          ) : showConfirm ? (
             <div className="flex flex-col gap-2">
               <div className="flex gap-2">
                 <input placeholder="Your name" value={realName} onChange={e => setRealName(e.target.value)}
@@ -600,7 +874,12 @@ export default function RideChat({ ride, user, onClose }) {
                      className="text-blue-400 hover:text-blue-300 underline flex-1 truncate">
                     {`https://maps.google.com/?q=${locationLat.toFixed(5)},${locationLng.toFixed(5)}`}
                   </a>
-                  <span className="text-green-400">✓ Auto-detected</span>
+                  <button
+                    onClick={() => navigator.clipboard?.writeText(`https://maps.google.com/?q=${locationLat},${locationLng}`)}
+                    className="text-xs text-amber-400 hover:text-amber-300 shrink-0"
+                    title="Copy address"
+                  >📋</button>
+                  <span className="text-green-400 shrink-0">✓</span>
                 </div>
               ) : (
                 <p className="text-xs" style={{ color: 'var(--text-muted)' }}>📍 Detecting your location…</p>
@@ -662,7 +941,7 @@ export default function RideChat({ ride, user, onClose }) {
               </div>
               {confirmMsg && <p className="text-xs" style={{ color: 'var(--text-muted)' }}>{confirmMsg}</p>}
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -680,16 +959,24 @@ export default function RideChat({ ride, user, onClose }) {
           const prevSender = prevMsg?.sender_name || prevMsg?.name
           const showSender = !mine && (i === 0 || prevSender !== senderName)
           const msgId = msg.msg_id || msg.id
+          const identifier = msgId || msg._localId || i
           const canDelete = mine || isDriver
-          // Apply entry animation only to the last few messages (newly arrived)
           const isRecent = i >= messages.length - 3
+          const msgText = msg.text || msg.content || ''
+          // Detect location/maps messages for copy button
+          const isMapsMsg = msgText.includes('maps.google.com') || msgText.includes('📍')
+          const mapsUrl = isMapsMsg ? (msgText.match(/https?:\/\/maps\.google\.com\S+/) || [])[0] : null
+          // Extract plain address from "📍 Pickup address: ..." messages
+          const addressMatch = msgText.match(/📍 Pickup address:\s*(.+)/)
+          const plainAddress = addressMatch ? addressMatch[1].trim() : null
+
           return (
             <div key={msgId || msg._localId || i}
                  className={`flex ${mine ? 'justify-end' : 'justify-start'} ${
                    i > 0 && prevSender === senderName ? 'mt-0.5' : 'mt-2'
                  } ${isRecent && msg._pending ? 'msg-entry' : ''}`}
-                 onMouseEnter={() => setHoveredMsg(msgId || msg._localId || i)}
-                 onMouseLeave={() => setHoveredMsg(null)}>
+                 onMouseEnter={() => setHoveredMsg(identifier)}
+                 onMouseLeave={() => { setHoveredMsg(null); setShowDeleteMenu(null) }}>
               {/* Avatar for incoming messages */}
               {!mine && (
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mr-1.5 mt-auto mb-0.5 ${
@@ -705,12 +992,35 @@ export default function RideChat({ ride, user, onClose }) {
                   </p>
                 )}
                 <div className="flex items-end gap-1">
-                  {mine && canDelete && hoveredMsg === (msgId || msg._localId || i) && (
-                    <button onClick={() => handleDeleteMessage(msg)}
-                            className="text-xs opacity-60 hover:opacity-100 hover:text-red-400 shrink-0 mb-1"
-                            title="Delete message"
-                            style={{ color: 'var(--text-muted)' }}>🗑</button>
+                  {/* Delete button for own messages */}
+                  {mine && canDelete && hoveredMsg === identifier && (
+                    <div className="relative shrink-0 mb-1">
+                      <button
+                        onClick={() => setShowDeleteMenu(v => v === identifier ? null : identifier)}
+                        className="text-xs opacity-60 hover:opacity-100 hover:text-red-400"
+                        title="Delete options"
+                        style={{ color: 'var(--text-muted)' }}
+                      >🗑</button>
+                      {showDeleteMenu === identifier && (
+                        <div className="absolute bottom-full mb-1 right-0 rounded-xl shadow-2xl overflow-hidden z-20 min-w-[160px]"
+                             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                          <button
+                            onClick={() => { handleDeleteMessage(msg, false); setShowDeleteMenu(null) }}
+                            className="w-full text-left px-3 py-2 text-xs hover:opacity-80"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >Delete for me</button>
+                          {msgId && (
+                            <button
+                              onClick={() => { handleDeleteMessage(msg, true); setShowDeleteMenu(null) }}
+                              className="w-full text-left px-3 py-2 text-xs hover:opacity-80 text-red-400 border-t"
+                              style={{ borderColor: 'var(--border-color)' }}
+                            >Delete for everyone</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
+
                   <div className={`relative px-3 py-2 rounded-2xl text-sm break-words ${
                     mine
                       ? 'bg-amber-500 text-black rounded-tr-sm'
@@ -720,18 +1030,46 @@ export default function RideChat({ ride, user, onClose }) {
                     {msg.media_type === 'image' && msg.media_data ? (
                       <img src={msg.media_data} alt="Shared photo" className="max-w-[180px] rounded-lg" style={{ maxHeight: 160, objectFit: 'cover' }} />
                     ) : (
-                      <p className="break-words leading-snug">{msg.text || msg.content}</p>
+                      <p className="break-words leading-snug">{msgText}</p>
+                    )}
+                    {/* Copy address button for location messages */}
+                    {(mapsUrl || plainAddress) && (
+                      <button
+                        onClick={() => navigator.clipboard?.writeText(mapsUrl || plainAddress || '')}
+                        className="mt-1 flex items-center gap-1 text-xs opacity-70 hover:opacity-100 transition-opacity"
+                        style={{ color: mine ? 'rgba(0,0,0,0.7)' : 'var(--text-muted)' }}
+                        title="Copy address"
+                      >
+                        📋 Copy address
+                      </button>
                     )}
                     <div className={`flex items-center justify-end gap-0.5 mt-0.5 ${mine ? 'opacity-70' : 'opacity-50'}`}>
                       <span className="text-xs">{fmtTime(msg.ts || msg.timestamp)}</span>
                       {mine && <MessageTicks msg={msg} />}
                     </div>
                   </div>
-                  {!mine && canDelete && isDriver && hoveredMsg === (msgId || msg._localId || i) && (
-                    <button onClick={() => handleDeleteMessage(msg)}
-                            className="text-xs opacity-60 hover:opacity-100 hover:text-red-400 shrink-0 mb-1"
-                            title="Delete message"
-                            style={{ color: 'var(--text-muted)' }}>🗑</button>
+
+                  {/* Driver can delete others' messages */}
+                  {!mine && canDelete && isDriver && hoveredMsg === identifier && (
+                    <div className="relative shrink-0 mb-1">
+                      <button
+                        onClick={() => setShowDeleteMenu(v => v === `d-${identifier}` ? null : `d-${identifier}`)}
+                        className="text-xs opacity-60 hover:opacity-100 hover:text-red-400"
+                        title="Delete message"
+                        style={{ color: 'var(--text-muted)' }}
+                      >🗑</button>
+                      {showDeleteMenu === `d-${identifier}` && (
+                        <div className="absolute bottom-full mb-1 left-0 rounded-xl shadow-2xl overflow-hidden z-20 min-w-[160px]"
+                             style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+                          {msgId && (
+                            <button
+                              onClick={() => { handleDeleteMessage(msg, true); setShowDeleteMenu(null) }}
+                              className="w-full text-left px-3 py-2 text-xs hover:opacity-80 text-red-400"
+                            >Delete for everyone</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
@@ -766,6 +1104,21 @@ export default function RideChat({ ride, user, onClose }) {
         )}
 
         <div ref={bottomRef} />
+      </div>
+
+      {/* Quick reply templates */}
+      <div className="px-3 py-1.5 border-t flex gap-1.5 overflow-x-auto scrollbar-hide flex-nowrap"
+           style={{ background: 'var(--bg-surface)', borderColor: 'var(--border-color)' }}>
+        {QUICK_REPLIES.map(qr => (
+          <button
+            key={qr}
+            onClick={() => { setText(qr); }}
+            className="shrink-0 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap hover:opacity-80 transition-opacity"
+            style={{ background: 'var(--bg-input)', color: 'var(--text-secondary)', border: '1px solid var(--border-color)' }}
+          >
+            {qr}
+          </button>
+        ))}
       </div>
 
       {/* Input */}
