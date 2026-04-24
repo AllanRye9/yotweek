@@ -132,6 +132,7 @@ async def lifespan(application):
     _loop = asyncio.get_running_loop()
     # Ensure all database tables exist before the app starts serving requests.
     init_db()
+    _seed_emergency_resources()
     yield
 
 fastapi_app = FastAPI(lifespan=lifespan)
@@ -818,6 +819,273 @@ def init_db():
                         created_at TEXT NOT NULL
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_profile_extra (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT UNIQUE NOT NULL,
+                        travel_style TEXT DEFAULT '',
+                        budget_tier TEXT DEFAULT '',
+                        interests TEXT DEFAULT '',
+                        languages TEXT DEFAULT '',
+                        travel_dates_from TEXT DEFAULT '',
+                        travel_dates_to TEXT DEFAULT '',
+                        destinations TEXT DEFAULT '',
+                        gender TEXT DEFAULT '',
+                        age INTEGER,
+                        smoking INTEGER DEFAULT 0,
+                        pets INTEGER DEFAULT 0,
+                        noise_tolerance TEXT DEFAULT 'medium',
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_privacy (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT UNIQUE NOT NULL,
+                        phone_visibility TEXT DEFAULT 'private',
+                        location_visibility TEXT DEFAULT 'public',
+                        bio_visibility TEXT DEFAULT 'public',
+                        travel_dates_visibility TEXT DEFAULT 'public',
+                        interests_visibility TEXT DEFAULT 'public',
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_verifications (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT UNIQUE NOT NULL,
+                        email_verified INTEGER DEFAULT 0,
+                        phone_verified INTEGER DEFAULT 0,
+                        id_verified INTEGER DEFAULT 0,
+                        license_verified INTEGER DEFAULT 0,
+                        vehicle_docs_verified INTEGER DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trust_stats (
+                        id SERIAL PRIMARY KEY,
+                        user_id TEXT UNIQUE NOT NULL,
+                        completed_trips INTEGER DEFAULT 0,
+                        rating_avg REAL DEFAULT 0,
+                        response_rate REAL DEFAULT 0,
+                        community_score INTEGER DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS posts (
+                        id SERIAL PRIMARY KEY,
+                        post_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        author_name TEXT NOT NULL,
+                        author_avatar TEXT DEFAULT '',
+                        post_type TEXT DEFAULT 'text',
+                        content TEXT NOT NULL,
+                        media_url TEXT DEFAULT '',
+                        location_name TEXT DEFAULT '',
+                        location_lat REAL,
+                        location_lng REAL,
+                        hashtags TEXT DEFAULT '',
+                        poll_options TEXT DEFAULT '',
+                        event_date TEXT DEFAULT '',
+                        likes INTEGER DEFAULT 0,
+                        comments INTEGER DEFAULT 0,
+                        shares INTEGER DEFAULT 0,
+                        status TEXT DEFAULT 'active',
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS post_interactions (
+                        id SERIAL PRIMARY KEY,
+                        interaction_id TEXT UNIQUE NOT NULL,
+                        post_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(post_id, user_id, type)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS post_comments (
+                        id SERIAL PRIMARY KEY,
+                        comment_id TEXT UNIQUE NOT NULL,
+                        post_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        author_name TEXT NOT NULL,
+                        author_avatar TEXT DEFAULT '',
+                        content TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS companion_interests (
+                        id SERIAL PRIMARY KEY,
+                        interest_id TEXT UNIQUE NOT NULL,
+                        from_user_id TEXT NOT NULL,
+                        to_companion_id TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(from_user_id, to_companion_id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_trips (
+                        id SERIAL PRIMARY KEY,
+                        trip_id TEXT UNIQUE NOT NULL,
+                        creator_id TEXT NOT NULL,
+                        destination TEXT NOT NULL,
+                        date_from TEXT NOT NULL,
+                        date_to TEXT NOT NULL,
+                        budget TEXT DEFAULT '',
+                        style TEXT DEFAULT '',
+                        description TEXT DEFAULT '',
+                        max_members INTEGER DEFAULT 10,
+                        status TEXT DEFAULT 'open',
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS group_trip_members (
+                        id SERIAL PRIMARY KEY,
+                        member_id TEXT UNIQUE NOT NULL,
+                        trip_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        status TEXT DEFAULT 'joined',
+                        joined_at TEXT NOT NULL,
+                        UNIQUE(trip_id, user_id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ride_bookings (
+                        id SERIAL PRIMARY KEY,
+                        booking_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        passenger_id TEXT NOT NULL,
+                        passenger_name TEXT NOT NULL,
+                        passenger_contact TEXT DEFAULT '',
+                        seats INTEGER DEFAULT 1,
+                        special_request TEXT DEFAULT '',
+                        amount REAL DEFAULT 0,
+                        escrow_status TEXT DEFAULT 'held',
+                        payment_ref TEXT DEFAULT '',
+                        status TEXT DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS qr_partner_locations (
+                        id SERIAL PRIMARY KEY,
+                        location_id TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        lat REAL NOT NULL,
+                        lng REAL NOT NULL,
+                        qr_token TEXT UNIQUE NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS wellness_pings (
+                        id SERIAL PRIMARY KEY,
+                        ping_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        status TEXT DEFAULT 'pending',
+                        sent_at TEXT NOT NULL,
+                        responded_at TEXT
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ride_audit_log (
+                        id SERIAL PRIMARY KEY,
+                        log_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        actor_id TEXT,
+                        lat REAL,
+                        lng REAL,
+                        details TEXT DEFAULT '',
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trip_ideas (
+                        id SERIAL PRIMARY KEY,
+                        idea_id TEXT UNIQUE NOT NULL,
+                        trip_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        author_name TEXT NOT NULL,
+                        category TEXT DEFAULT 'activity',
+                        title TEXT NOT NULL,
+                        description TEXT DEFAULT '',
+                        estimated_cost REAL DEFAULT 0,
+                        votes INTEGER DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trip_idea_votes (
+                        id SERIAL PRIMARY KEY,
+                        vote_id TEXT UNIQUE NOT NULL,
+                        idea_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(idea_id, user_id)
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trip_checklist (
+                        id SERIAL PRIMARY KEY,
+                        item_id TEXT UNIQUE NOT NULL,
+                        trip_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        assigned_to TEXT DEFAULT '',
+                        title TEXT NOT NULL,
+                        completed INTEGER DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS sos_alerts (
+                        id SERIAL PRIMARY KEY,
+                        alert_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        lat REAL,
+                        lng REAL,
+                        status TEXT DEFAULT 'active',
+                        message TEXT DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        resolved_at TEXT
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS trusted_contacts (
+                        id SERIAL PRIMARY KEY,
+                        contact_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT DEFAULT '',
+                        email TEXT DEFAULT '',
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS emergency_resources (
+                        id SERIAL PRIMARY KEY,
+                        resource_id TEXT UNIQUE NOT NULL,
+                        country_code TEXT NOT NULL,
+                        country_name TEXT NOT NULL,
+                        resource_type TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT DEFAULT '',
+                        address TEXT DEFAULT '',
+                        lat REAL,
+                        lng REAL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
                 conn.commit()
                 # Migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0"), ("preferred_language", "TEXT DEFAULT ''")]:
@@ -868,6 +1136,20 @@ def init_db():
                 for col, coldef in [("subtotal", "REAL NOT NULL DEFAULT 0")]:
                     try:
                         cur.execute(f"ALTER TABLE receipts ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
+                for col, coldef in [("e2e_enabled", "INTEGER DEFAULT 0"), ("message_request_status", "TEXT DEFAULT 'accepted'")]:
+                    try:
+                        cur.execute(f"ALTER TABLE dm_conversations ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
+                for col, coldef in [("date_of_birth", "TEXT DEFAULT ''")]:
+                    try:
+                        cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                         conn.commit()
                     except Exception:
                         conn.rollback()
@@ -1095,6 +1377,233 @@ def init_db():
                         ts REAL NOT NULL,
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS user_profile_extra (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT UNIQUE NOT NULL,
+                        travel_style TEXT DEFAULT '',
+                        budget_tier TEXT DEFAULT '',
+                        interests TEXT DEFAULT '',
+                        languages TEXT DEFAULT '',
+                        travel_dates_from TEXT DEFAULT '',
+                        travel_dates_to TEXT DEFAULT '',
+                        destinations TEXT DEFAULT '',
+                        gender TEXT DEFAULT '',
+                        age INTEGER,
+                        smoking INTEGER DEFAULT 0,
+                        pets INTEGER DEFAULT 0,
+                        noise_tolerance TEXT DEFAULT 'medium',
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS user_privacy (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT UNIQUE NOT NULL,
+                        phone_visibility TEXT DEFAULT 'private',
+                        location_visibility TEXT DEFAULT 'public',
+                        bio_visibility TEXT DEFAULT 'public',
+                        travel_dates_visibility TEXT DEFAULT 'public',
+                        interests_visibility TEXT DEFAULT 'public',
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS user_verifications (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT UNIQUE NOT NULL,
+                        email_verified INTEGER DEFAULT 0,
+                        phone_verified INTEGER DEFAULT 0,
+                        id_verified INTEGER DEFAULT 0,
+                        license_verified INTEGER DEFAULT 0,
+                        vehicle_docs_verified INTEGER DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS trust_stats (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id TEXT UNIQUE NOT NULL,
+                        completed_trips INTEGER DEFAULT 0,
+                        rating_avg REAL DEFAULT 0,
+                        response_rate REAL DEFAULT 0,
+                        community_score INTEGER DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS posts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        post_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        author_name TEXT NOT NULL,
+                        author_avatar TEXT DEFAULT '',
+                        post_type TEXT DEFAULT 'text',
+                        content TEXT NOT NULL,
+                        media_url TEXT DEFAULT '',
+                        location_name TEXT DEFAULT '',
+                        location_lat REAL,
+                        location_lng REAL,
+                        hashtags TEXT DEFAULT '',
+                        poll_options TEXT DEFAULT '',
+                        event_date TEXT DEFAULT '',
+                        likes INTEGER DEFAULT 0,
+                        comments INTEGER DEFAULT 0,
+                        shares INTEGER DEFAULT 0,
+                        status TEXT DEFAULT 'active',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS post_interactions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        interaction_id TEXT UNIQUE NOT NULL,
+                        post_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        type TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(post_id, user_id, type)
+                    );
+                    CREATE TABLE IF NOT EXISTS post_comments (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        comment_id TEXT UNIQUE NOT NULL,
+                        post_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        author_name TEXT NOT NULL,
+                        author_avatar TEXT DEFAULT '',
+                        content TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS companion_interests (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        interest_id TEXT UNIQUE NOT NULL,
+                        from_user_id TEXT NOT NULL,
+                        to_companion_id TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(from_user_id, to_companion_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS group_trips (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        trip_id TEXT UNIQUE NOT NULL,
+                        creator_id TEXT NOT NULL,
+                        destination TEXT NOT NULL,
+                        date_from TEXT NOT NULL,
+                        date_to TEXT NOT NULL,
+                        budget TEXT DEFAULT '',
+                        style TEXT DEFAULT '',
+                        description TEXT DEFAULT '',
+                        max_members INTEGER DEFAULT 10,
+                        status TEXT DEFAULT 'open',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS group_trip_members (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        member_id TEXT UNIQUE NOT NULL,
+                        trip_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        status TEXT DEFAULT 'joined',
+                        joined_at TEXT NOT NULL,
+                        UNIQUE(trip_id, user_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS ride_bookings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        booking_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        passenger_id TEXT NOT NULL,
+                        passenger_name TEXT NOT NULL,
+                        passenger_contact TEXT DEFAULT '',
+                        seats INTEGER DEFAULT 1,
+                        special_request TEXT DEFAULT '',
+                        amount REAL DEFAULT 0,
+                        escrow_status TEXT DEFAULT 'held',
+                        payment_ref TEXT DEFAULT '',
+                        status TEXT DEFAULT 'pending',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS qr_partner_locations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        location_id TEXT UNIQUE NOT NULL,
+                        name TEXT NOT NULL,
+                        lat REAL NOT NULL,
+                        lng REAL NOT NULL,
+                        qr_token TEXT UNIQUE NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS wellness_pings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        ping_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        status TEXT DEFAULT 'pending',
+                        sent_at TEXT NOT NULL,
+                        responded_at TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS ride_audit_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        log_id TEXT UNIQUE NOT NULL,
+                        ride_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        actor_id TEXT,
+                        lat REAL,
+                        lng REAL,
+                        details TEXT DEFAULT '',
+                        ts REAL NOT NULL,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS trip_ideas (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        idea_id TEXT UNIQUE NOT NULL,
+                        trip_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        author_name TEXT NOT NULL,
+                        category TEXT DEFAULT 'activity',
+                        title TEXT NOT NULL,
+                        description TEXT DEFAULT '',
+                        estimated_cost REAL DEFAULT 0,
+                        votes INTEGER DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS trip_idea_votes (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        vote_id TEXT UNIQUE NOT NULL,
+                        idea_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(idea_id, user_id)
+                    );
+                    CREATE TABLE IF NOT EXISTS trip_checklist (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        item_id TEXT UNIQUE NOT NULL,
+                        trip_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        assigned_to TEXT DEFAULT '',
+                        title TEXT NOT NULL,
+                        completed INTEGER DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS sos_alerts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        alert_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        lat REAL,
+                        lng REAL,
+                        status TEXT DEFAULT 'active',
+                        message TEXT DEFAULT '',
+                        created_at TEXT NOT NULL,
+                        resolved_at TEXT
+                    );
+                    CREATE TABLE IF NOT EXISTS trusted_contacts (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        contact_id TEXT UNIQUE NOT NULL,
+                        user_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT DEFAULT '',
+                        email TEXT DEFAULT '',
+                        created_at TEXT NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS emergency_resources (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        resource_id TEXT UNIQUE NOT NULL,
+                        country_code TEXT NOT NULL,
+                        country_name TEXT NOT NULL,
+                        resource_type TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        phone TEXT DEFAULT '',
+                        address TEXT DEFAULT '',
+                        lat REAL,
+                        lng REAL,
+                        created_at TEXT NOT NULL
+                    );
                 """)
                 # SQLite migrations: add new columns to existing tables if needed
                 for col, coldef in [("avatar_url", "TEXT"), ("bio", "TEXT"), ("public_key", "TEXT"), ("can_post_properties", "INTEGER DEFAULT 0"), ("phone", "TEXT DEFAULT ''"), ("username", "TEXT"), ("email_verified", "INTEGER NOT NULL DEFAULT 0"), ("preferred_language", "TEXT DEFAULT ''")]:
@@ -1135,6 +1644,78 @@ def init_db():
                         conn.execute(f"ALTER TABLE receipts ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass  # column already exists
+                for col, coldef in [("e2e_enabled", "INTEGER DEFAULT 0"), ("message_request_status", "TEXT DEFAULT 'accepted'")]:
+                    try:
+                        conn.execute(f"ALTER TABLE dm_conversations ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass
+                for col, coldef in [("date_of_birth", "TEXT DEFAULT ''")]:
+                    try:
+                        conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass
+            conn.commit()
+        finally:
+            conn.close()
+
+
+def _seed_emergency_resources():
+    """Seed emergency resources for top countries if table is empty."""
+    resources = [
+        ("US", "United States", "police", "Emergency Police", "911"),
+        ("US", "United States", "ambulance", "Emergency Ambulance", "911"),
+        ("US", "United States", "fire", "Fire Emergency", "911"),
+        ("GB", "United Kingdom", "police", "Emergency Police", "999"),
+        ("GB", "United Kingdom", "ambulance", "Emergency Ambulance", "999"),
+        ("GB", "United Kingdom", "fire", "Fire Emergency", "999"),
+        ("KE", "Kenya", "police", "Kenya Police", "999"),
+        ("KE", "Kenya", "ambulance", "Kenya Ambulance", "999"),
+        ("KE", "Kenya", "fire", "Kenya Fire Brigade", "999"),
+        ("NG", "Nigeria", "police", "Nigeria Police", "199"),
+        ("NG", "Nigeria", "ambulance", "Nigeria Ambulance", "199"),
+        ("NG", "Nigeria", "fire", "Nigeria Fire Service", "199"),
+        ("ZA", "South Africa", "police", "SA Police (SAPS)", "10111"),
+        ("ZA", "South Africa", "ambulance", "SA Ambulance", "10177"),
+        ("ZA", "South Africa", "fire", "SA Fire Brigade", "10177"),
+        ("IN", "India", "police", "India Police", "100"),
+        ("IN", "India", "ambulance", "India Ambulance", "102"),
+        ("IN", "India", "fire", "India Fire", "101"),
+        ("AU", "Australia", "police", "Australia Emergency", "000"),
+        ("AU", "Australia", "ambulance", "Australia Ambulance", "000"),
+        ("CA", "Canada", "police", "Canada Emergency", "911"),
+        ("CA", "Canada", "ambulance", "Canada Ambulance", "911"),
+        ("FR", "France", "police", "Police Nationale", "17"),
+        ("FR", "France", "ambulance", "SAMU", "15"),
+        ("FR", "France", "fire", "Pompiers", "18"),
+        ("DE", "Germany", "police", "Polizei", "110"),
+        ("DE", "Germany", "ambulance", "Rettungsdienst", "112"),
+        ("DE", "Germany", "fire", "Feuerwehr", "112"),
+    ]
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM emergency_resources")
+                cnt = cur.fetchone()[0]
+            else:
+                cnt = conn.execute("SELECT COUNT(*) FROM emergency_resources").fetchone()[0]
+            if cnt > 0:
+                return
+            for cc, cn, rt, name, phone in resources:
+                rid = str(uuid.uuid4())
+                if USE_POSTGRES:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "INSERT INTO emergency_resources (resource_id,country_code,country_name,resource_type,name,phone,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (rid, cc, cn, rt, name, phone, now)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO emergency_resources (resource_id,country_code,country_name,resource_type,name,phone,created_at) VALUES (?,?,?,?,?,?,?)",
+                        (rid, cc, cn, rt, name, phone, now)
+                    )
             conn.commit()
         finally:
             conn.close()
@@ -1662,12 +2243,13 @@ def _get_property_conversation(conv_id: str) -> dict | None:
 
 
 class _UserRegisterRequest(BaseModel):
-    name:     str
-    email:    str
-    password: str
-    role:     str = "passenger"  # "passenger" | "driver"
-    username: str = ""
-    phone:    str = ""
+    name:            str
+    email:           str
+    password:        str
+    role:            str = "passenger"  # "passenger" | "driver"
+    username:        str = ""
+    phone:           str = ""
+    date_of_birth:   str = ""
 
 
 class _ForgotPasswordRequest(BaseModel):
@@ -1752,6 +2334,14 @@ async def api_user_register(body: _UserRegisterRequest):
         return JSONResponse({"error": "Password must be at least 6 characters."}, status_code=400)
     if not _is_valid_email(email):
         return JSONResponse({"error": "Invalid email address."}, status_code=400)
+    if body.date_of_birth:
+        try:
+            dob = datetime.fromisoformat(body.date_of_birth)
+            age = (datetime.now(timezone.utc) - dob.replace(tzinfo=timezone.utc)).days // 365
+            if age < 18:
+                return JSONResponse({"error": "You must be 18 or older to register."}, status_code=400)
+        except ValueError:
+            pass
 
     # Derive username from provided value or from email prefix
     raw_username = (body.username or "").strip() or re.sub(r"[^a-z0-9_.-]", "", email.split("@")[0].lower())
@@ -1777,13 +2367,13 @@ async def api_user_register(body: _UserRegisterRequest):
                     if USE_POSTGRES:
                         cur = conn.cursor()
                         cur.execute(
-                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username,phone,email_verified) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                            (user_id, name, email, pw_hash, role, created_at, username, phone, email_verified),
+                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username,phone,email_verified,date_of_birth) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                            (user_id, name, email, pw_hash, role, created_at, username, phone, email_verified, body.date_of_birth),
                         )
                     else:
                         conn.execute(
-                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username,phone,email_verified) VALUES (?,?,?,?,?,?,?,?,?)",
-                            (user_id, name, email, pw_hash, role, created_at, username, phone, email_verified),
+                            "INSERT INTO app_users (user_id,name,email,password_hash,role,created_at,username,phone,email_verified,date_of_birth) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                            (user_id, name, email, pw_hash, role, created_at, username, phone, email_verified, body.date_of_birth),
                         )
                     break  # success
                 except Exception as _exc:
@@ -6866,6 +7456,12 @@ async def on_prop_conv_stop_typing(sid, data):
     await sio.emit("prop_conv_stop_typing", {"conv_id": conv_id, "sender_id": sender_id}, room=room, skip_sid=sid)
 
 
+@sio.event
+async def join_group_trip(sid, data):
+    trip_id = data.get("trip_id", "")
+    if trip_id:
+        await sio.enter_room(sid, f"group_trip_{trip_id}")
+
 
 # =========================================================
 # INITIALIZATION
@@ -8149,6 +8745,1570 @@ async def api_ai_chat(body: _AIRequest):
         return JSONResponse({"error": "message is required."}, status_code=400)
     reply = _ai_respond(body.message.strip())
     return JSONResponse({"reply": reply})
+
+
+# ── Phase 1: Profile & Identity Expansion ───────────────────────────────────
+
+class _ExtraProfileUpdate(BaseModel):
+    travel_style: str = ""
+    budget_tier: str = ""
+    interests: str = ""
+    languages: str = ""
+    travel_dates_from: str = ""
+    travel_dates_to: str = ""
+    destinations: str = ""
+    gender: str = ""
+    age: int = None
+    smoking: int = 0
+    pets: int = 0
+    noise_tolerance: str = "medium"
+
+
+class _PrivacyUpdate(BaseModel):
+    phone_visibility: str = "private"
+    location_visibility: str = "public"
+    bio_visibility: str = "public"
+    travel_dates_visibility: str = "public"
+    interests_visibility: str = "public"
+
+
+@fastapi_app.get("/api/profile/extra")
+async def api_get_extra_profile(request: Request):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM user_profile_extra WHERE user_id=%s", (user_id,))
+                extra = cur.fetchone()
+                cur.execute("SELECT * FROM user_privacy WHERE user_id=%s", (user_id,))
+                privacy = cur.fetchone()
+                cur.execute("SELECT * FROM user_verifications WHERE user_id=%s", (user_id,))
+                verif = cur.fetchone()
+                cur.execute("SELECT * FROM trust_stats WHERE user_id=%s", (user_id,))
+                trust = cur.fetchone()
+            else:
+                extra = conn.execute("SELECT * FROM user_profile_extra WHERE user_id=?", (user_id,)).fetchone()
+                privacy = conn.execute("SELECT * FROM user_privacy WHERE user_id=?", (user_id,)).fetchone()
+                verif = conn.execute("SELECT * FROM user_verifications WHERE user_id=?", (user_id,)).fetchone()
+                trust = conn.execute("SELECT * FROM trust_stats WHERE user_id=?", (user_id,)).fetchone()
+        finally:
+            conn.close()
+    return JSONResponse({
+        "extra": dict(extra) if extra else {},
+        "privacy": dict(privacy) if privacy else {},
+        "verifications": dict(verif) if verif else {},
+        "trust_stats": dict(trust) if trust else {},
+    })
+
+
+@fastapi_app.put("/api/profile/extra")
+async def api_update_extra_profile(request: Request, body: _ExtraProfileUpdate):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM user_profile_extra WHERE user_id=%s", (user_id,))
+                exists = cur.fetchone()
+                if exists:
+                    cur.execute(
+                        "UPDATE user_profile_extra SET travel_style=%s,budget_tier=%s,interests=%s,languages=%s,travel_dates_from=%s,travel_dates_to=%s,destinations=%s,gender=%s,age=%s,smoking=%s,pets=%s,noise_tolerance=%s,updated_at=%s WHERE user_id=%s",
+                        (body.travel_style, body.budget_tier, body.interests, body.languages, body.travel_dates_from, body.travel_dates_to, body.destinations, body.gender, body.age, body.smoking, body.pets, body.noise_tolerance, now, user_id)
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO user_profile_extra (user_id,travel_style,budget_tier,interests,languages,travel_dates_from,travel_dates_to,destinations,gender,age,smoking,pets,noise_tolerance,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                        (user_id, body.travel_style, body.budget_tier, body.interests, body.languages, body.travel_dates_from, body.travel_dates_to, body.destinations, body.gender, body.age, body.smoking, body.pets, body.noise_tolerance, now)
+                    )
+            else:
+                exists = conn.execute("SELECT id FROM user_profile_extra WHERE user_id=?", (user_id,)).fetchone()
+                if exists:
+                    conn.execute(
+                        "UPDATE user_profile_extra SET travel_style=?,budget_tier=?,interests=?,languages=?,travel_dates_from=?,travel_dates_to=?,destinations=?,gender=?,age=?,smoking=?,pets=?,noise_tolerance=?,updated_at=? WHERE user_id=?",
+                        (body.travel_style, body.budget_tier, body.interests, body.languages, body.travel_dates_from, body.travel_dates_to, body.destinations, body.gender, body.age, body.smoking, body.pets, body.noise_tolerance, now, user_id)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO user_profile_extra (user_id,travel_style,budget_tier,interests,languages,travel_dates_from,travel_dates_to,destinations,gender,age,smoking,pets,noise_tolerance,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (user_id, body.travel_style, body.budget_tier, body.interests, body.languages, body.travel_dates_from, body.travel_dates_to, body.destinations, body.gender, body.age, body.smoking, body.pets, body.noise_tolerance, now)
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.put("/api/profile/privacy")
+async def api_update_privacy(request: Request, body: _PrivacyUpdate):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM user_privacy WHERE user_id=%s", (user_id,))
+                exists = cur.fetchone()
+                if exists:
+                    cur.execute(
+                        "UPDATE user_privacy SET phone_visibility=%s,location_visibility=%s,bio_visibility=%s,travel_dates_visibility=%s,interests_visibility=%s,updated_at=%s WHERE user_id=%s",
+                        (body.phone_visibility, body.location_visibility, body.bio_visibility, body.travel_dates_visibility, body.interests_visibility, now, user_id)
+                    )
+                else:
+                    cur.execute(
+                        "INSERT INTO user_privacy (user_id,phone_visibility,location_visibility,bio_visibility,travel_dates_visibility,interests_visibility,updated_at) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                        (user_id, body.phone_visibility, body.location_visibility, body.bio_visibility, body.travel_dates_visibility, body.interests_visibility, now)
+                    )
+            else:
+                exists = conn.execute("SELECT id FROM user_privacy WHERE user_id=?", (user_id,)).fetchone()
+                if exists:
+                    conn.execute(
+                        "UPDATE user_privacy SET phone_visibility=?,location_visibility=?,bio_visibility=?,travel_dates_visibility=?,interests_visibility=?,updated_at=? WHERE user_id=?",
+                        (body.phone_visibility, body.location_visibility, body.bio_visibility, body.travel_dates_visibility, body.interests_visibility, now, user_id)
+                    )
+                else:
+                    conn.execute(
+                        "INSERT INTO user_privacy (user_id,phone_visibility,location_visibility,bio_visibility,travel_dates_visibility,interests_visibility,updated_at) VALUES (?,?,?,?,?,?,?)",
+                        (user_id, body.phone_visibility, body.location_visibility, body.bio_visibility, body.travel_dates_visibility, body.interests_visibility, now)
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/users/{user_id}/full_profile")
+async def api_get_full_profile(request: Request, user_id: str):
+    viewer_id = request.session.get("app_user_id")
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id,name,username,avatar_url,bio,location_name,created_at FROM app_users WHERE user_id=%s", (user_id,))
+                user = cur.fetchone()
+                cur.execute("SELECT * FROM user_profile_extra WHERE user_id=%s", (user_id,))
+                extra = cur.fetchone()
+                cur.execute("SELECT * FROM user_privacy WHERE user_id=%s", (user_id,))
+                privacy = cur.fetchone()
+                cur.execute("SELECT * FROM trust_stats WHERE user_id=%s", (user_id,))
+                trust = cur.fetchone()
+            else:
+                user = conn.execute("SELECT user_id,name,username,avatar_url,bio,location_name,created_at FROM app_users WHERE user_id=?", (user_id,)).fetchone()
+                extra = conn.execute("SELECT * FROM user_profile_extra WHERE user_id=?", (user_id,)).fetchone()
+                privacy = conn.execute("SELECT * FROM user_privacy WHERE user_id=?", (user_id,)).fetchone()
+                trust = conn.execute("SELECT * FROM trust_stats WHERE user_id=?", (user_id,)).fetchone()
+        finally:
+            conn.close()
+    if not user:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    priv = dict(privacy) if privacy else {}
+    ext = dict(extra) if extra else {}
+    result = dict(user)
+    # Apply privacy filters for non-owner viewers
+    if viewer_id != user_id:
+        if priv.get("bio_visibility") == "private":
+            result["bio"] = ""
+        if priv.get("location_visibility") == "private":
+            result["location_name"] = ""
+        if priv.get("travel_dates_visibility") != "public":
+            ext.pop("travel_dates_from", None)
+            ext.pop("travel_dates_to", None)
+        if priv.get("interests_visibility") != "public":
+            ext.pop("interests", None)
+    result["extra"] = ext
+    result["trust_stats"] = dict(trust) if trust else {}
+    return JSONResponse(result)
+
+
+# ── Phase 2: Social Feed ─────────────────────────────────────────────────────
+
+class _CreatePostRequest(BaseModel):
+    content: str
+    post_type: str = "text"
+    media_url: str = ""
+    location_name: str = ""
+    location_lat: float = None
+    location_lng: float = None
+    hashtags: str = ""
+    poll_options: str = ""
+    event_date: str = ""
+
+
+class _AddCommentRequest(BaseModel):
+    content: str
+
+
+@fastapi_app.post("/api/posts")
+async def api_create_post(request: Request, body: _CreatePostRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if not body.content.strip():
+        return JSONResponse({"error": "Content required."}, status_code=400)
+    post_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT name,avatar_url FROM app_users WHERE user_id=%s", (user_id,))
+                u = cur.fetchone()
+            else:
+                u = conn.execute("SELECT name,avatar_url FROM app_users WHERE user_id=?", (user_id,)).fetchone()
+            author_name = u["name"] if u else ""
+            author_avatar = (u["avatar_url"] or "") if u else ""
+            if USE_POSTGRES:
+                cur.execute(
+                    "INSERT INTO posts (post_id,user_id,author_name,author_avatar,post_type,content,media_url,location_name,location_lat,location_lng,hashtags,poll_options,event_date,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (post_id, user_id, author_name, author_avatar, body.post_type, body.content, body.media_url, body.location_name, body.location_lat, body.location_lng, body.hashtags, body.poll_options, body.event_date, now)
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO posts (post_id,user_id,author_name,author_avatar,post_type,content,media_url,location_name,location_lat,location_lng,hashtags,poll_options,event_date,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (post_id, user_id, author_name, author_avatar, body.post_type, body.content, body.media_url, body.location_name, body.location_lat, body.location_lng, body.hashtags, body.poll_options, body.event_date, now)
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    emit_from_thread("new_post", {"post_id": post_id, "author": author_name, "content": body.content[:100]})
+    return JSONResponse({"ok": True, "post_id": post_id}, status_code=201)
+
+
+@fastapi_app.get("/api/feed")
+async def api_get_feed(request: Request, destination: str = "", hashtag: str = "", page: int = 1, per_page: int = 20):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    offset = (page - 1) * per_page
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                if destination:
+                    cur.execute("SELECT * FROM posts WHERE status='active' AND location_name ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s", (f"%{destination}%", per_page, offset))
+                elif hashtag:
+                    cur.execute("SELECT * FROM posts WHERE status='active' AND hashtags ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s", (f"%{hashtag}%", per_page, offset))
+                else:
+                    cur.execute("SELECT * FROM posts WHERE status='active' ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
+                rows = cur.fetchall()
+            else:
+                if destination:
+                    rows = conn.execute("SELECT * FROM posts WHERE status='active' AND location_name LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?", (f"%{destination}%", per_page, offset)).fetchall()
+                elif hashtag:
+                    rows = conn.execute("SELECT * FROM posts WHERE status='active' AND hashtags LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?", (f"%{hashtag}%", per_page, offset)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM posts WHERE status='active' ORDER BY created_at DESC LIMIT ? OFFSET ?", (per_page, offset)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"posts": [dict(r) for r in rows], "page": page, "per_page": per_page})
+
+
+@fastapi_app.get("/api/feed/trending")
+async def api_trending_destinations(request: Request):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT location_name, COUNT(*) as cnt FROM posts WHERE status='active' AND location_name!='' AND created_at>=%s GROUP BY location_name ORDER BY cnt DESC LIMIT 10", (since,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT location_name, COUNT(*) as cnt FROM posts WHERE status='active' AND location_name!='' AND created_at>=? GROUP BY location_name ORDER BY cnt DESC LIMIT 10", (since,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"trending": [dict(r) for r in rows]})
+
+
+@fastapi_app.get("/api/posts/{post_id}")
+async def api_get_post(request: Request, post_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM posts WHERE post_id=%s", (post_id,))
+                row = cur.fetchone()
+            else:
+                row = conn.execute("SELECT * FROM posts WHERE post_id=?", (post_id,)).fetchone()
+        finally:
+            conn.close()
+    if not row:
+        return JSONResponse({"error": "Post not found."}, status_code=404)
+    return JSONResponse(dict(row))
+
+
+@fastapi_app.delete("/api/posts/{post_id}")
+async def api_delete_post(request: Request, post_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM posts WHERE post_id=%s", (post_id,))
+                row = cur.fetchone()
+            else:
+                row = conn.execute("SELECT user_id FROM posts WHERE post_id=?", (post_id,)).fetchone()
+            if not row:
+                return JSONResponse({"error": "Post not found."}, status_code=404)
+            if row["user_id"] != user_id:
+                return JSONResponse({"error": "Forbidden."}, status_code=403)
+            if USE_POSTGRES:
+                cur.execute("UPDATE posts SET status='deleted' WHERE post_id=%s", (post_id,))
+            else:
+                conn.execute("UPDATE posts SET status='deleted' WHERE post_id=?", (post_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/posts/{post_id}/like")
+async def api_like_post(request: Request, post_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    interaction_id = str(uuid.uuid4())
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT interaction_id FROM post_interactions WHERE post_id=%s AND user_id=%s AND type='like'", (post_id, user_id))
+                existing = cur.fetchone()
+                if existing:
+                    cur.execute("DELETE FROM post_interactions WHERE post_id=%s AND user_id=%s AND type='like'", (post_id, user_id))
+                    cur.execute("UPDATE posts SET likes=GREATEST(likes-1,0) WHERE post_id=%s", (post_id,))
+                    liked = False
+                else:
+                    cur.execute("INSERT INTO post_interactions (interaction_id,post_id,user_id,type,created_at) VALUES (%s,%s,%s,'like',%s)", (interaction_id, post_id, user_id, now))
+                    cur.execute("UPDATE posts SET likes=likes+1 WHERE post_id=%s", (post_id,))
+                    liked = True
+            else:
+                existing = conn.execute("SELECT interaction_id FROM post_interactions WHERE post_id=? AND user_id=? AND type='like'", (post_id, user_id)).fetchone()
+                if existing:
+                    conn.execute("DELETE FROM post_interactions WHERE post_id=? AND user_id=? AND type='like'", (post_id, user_id))
+                    conn.execute("UPDATE posts SET likes=MAX(likes-1,0) WHERE post_id=?", (post_id,))
+                    liked = False
+                else:
+                    conn.execute("INSERT INTO post_interactions (interaction_id,post_id,user_id,type,created_at) VALUES (?,?,?,'like',?)", (interaction_id, post_id, user_id, now))
+                    conn.execute("UPDATE posts SET likes=likes+1 WHERE post_id=?", (post_id,))
+                    liked = True
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "liked": liked})
+
+
+@fastapi_app.post("/api/posts/{post_id}/save")
+async def api_save_post(request: Request, post_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    interaction_id = str(uuid.uuid4())
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT interaction_id FROM post_interactions WHERE post_id=%s AND user_id=%s AND type='save'", (post_id, user_id))
+                existing = cur.fetchone()
+                if existing:
+                    cur.execute("DELETE FROM post_interactions WHERE post_id=%s AND user_id=%s AND type='save'", (post_id, user_id))
+                    saved = False
+                else:
+                    cur.execute("INSERT INTO post_interactions (interaction_id,post_id,user_id,type,created_at) VALUES (%s,%s,%s,'save',%s)", (interaction_id, post_id, user_id, now))
+                    saved = True
+            else:
+                existing = conn.execute("SELECT interaction_id FROM post_interactions WHERE post_id=? AND user_id=? AND type='save'", (post_id, user_id)).fetchone()
+                if existing:
+                    conn.execute("DELETE FROM post_interactions WHERE post_id=? AND user_id=? AND type='save'", (post_id, user_id))
+                    saved = False
+                else:
+                    conn.execute("INSERT INTO post_interactions (interaction_id,post_id,user_id,type,created_at) VALUES (?,?,?,'save',?)", (interaction_id, post_id, user_id, now))
+                    saved = True
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "saved": saved})
+
+
+@fastapi_app.post("/api/posts/{post_id}/share")
+async def api_share_post(request: Request, post_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    interaction_id = str(uuid.uuid4())
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO post_interactions (interaction_id,post_id,user_id,type,created_at) VALUES (%s,%s,%s,'share',%s)", (interaction_id, post_id, user_id, now))
+                cur.execute("UPDATE posts SET shares=shares+1 WHERE post_id=%s", (post_id,))
+            else:
+                conn.execute("INSERT INTO post_interactions (interaction_id,post_id,user_id,type,created_at) VALUES (?,?,?,'share',?)", (interaction_id, post_id, user_id, now))
+                conn.execute("UPDATE posts SET shares=shares+1 WHERE post_id=?", (post_id,))
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/posts/{post_id}/comments")
+async def api_get_comments(request: Request, post_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM post_comments WHERE post_id=%s ORDER BY created_at ASC", (post_id,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM post_comments WHERE post_id=? ORDER BY created_at ASC", (post_id,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"comments": [dict(r) for r in rows]})
+
+
+@fastapi_app.post("/api/posts/{post_id}/comments")
+async def api_add_comment(request: Request, post_id: str, body: _AddCommentRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    if not body.content.strip():
+        return JSONResponse({"error": "Content required."}, status_code=400)
+    comment_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT name,avatar_url FROM app_users WHERE user_id=%s", (user_id,))
+                u = cur.fetchone()
+                author_name = u["name"] if u else ""
+                author_avatar = (u["avatar_url"] or "") if u else ""
+                cur.execute("INSERT INTO post_comments (comment_id,post_id,user_id,author_name,author_avatar,content,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s)", (comment_id, post_id, user_id, author_name, author_avatar, body.content, now))
+                cur.execute("UPDATE posts SET comments=comments+1 WHERE post_id=%s", (post_id,))
+            else:
+                u = conn.execute("SELECT name,avatar_url FROM app_users WHERE user_id=?", (user_id,)).fetchone()
+                author_name = u["name"] if u else ""
+                author_avatar = (u["avatar_url"] or "") if u else ""
+                conn.execute("INSERT INTO post_comments (comment_id,post_id,user_id,author_name,author_avatar,content,created_at) VALUES (?,?,?,?,?,?,?)", (comment_id, post_id, user_id, author_name, author_avatar, body.content, now))
+                conn.execute("UPDATE posts SET comments=comments+1 WHERE post_id=?", (post_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "comment_id": comment_id}, status_code=201)
+
+
+@fastapi_app.delete("/api/posts/{post_id}/comments/{comment_id}")
+async def api_delete_comment(request: Request, post_id: str, comment_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM post_comments WHERE comment_id=%s AND post_id=%s", (comment_id, post_id))
+                row = cur.fetchone()
+            else:
+                row = conn.execute("SELECT user_id FROM post_comments WHERE comment_id=? AND post_id=?", (comment_id, post_id)).fetchone()
+            if not row:
+                return JSONResponse({"error": "Comment not found."}, status_code=404)
+            if row["user_id"] != user_id:
+                return JSONResponse({"error": "Forbidden."}, status_code=403)
+            if USE_POSTGRES:
+                cur.execute("DELETE FROM post_comments WHERE comment_id=%s", (comment_id,))
+                cur.execute("UPDATE posts SET comments=GREATEST(comments-1,0) WHERE post_id=%s", (post_id,))
+            else:
+                conn.execute("DELETE FROM post_comments WHERE comment_id=?", (comment_id,))
+                conn.execute("UPDATE posts SET comments=MAX(comments-1,0) WHERE post_id=?", (post_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+# ── Phase 3: Companion Matching ───────────────────────────────────────────────
+
+class _CompanionInterestRequest(BaseModel):
+    pass
+
+
+@fastapi_app.get("/api/companions/suggestions")
+async def api_companion_suggestions(request: Request):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT companion_id FROM companion_interests WHERE from_user_id=%s", (user_id,))
+                acted = set(r["companion_id"] for r in cur.fetchall())
+                cur.execute("SELECT tc.*,au.avatar_url as user_avatar_url FROM travel_companions tc LEFT JOIN app_users au ON tc.user_id=au.user_id WHERE tc.status='active' AND tc.user_id!=%s ORDER BY tc.created_at DESC LIMIT 100", (user_id,))
+                companions = cur.fetchall()
+                cur.execute("SELECT * FROM user_profile_extra WHERE user_id=%s", (user_id,))
+                my_extra = cur.fetchone()
+            else:
+                acted = set(r[0] for r in conn.execute("SELECT to_companion_id FROM companion_interests WHERE from_user_id=?", (user_id,)).fetchall())
+                companions = conn.execute("SELECT tc.*,au.avatar_url as user_avatar_url FROM travel_companions tc LEFT JOIN app_users au ON tc.user_id=au.user_id WHERE tc.status='active' AND tc.user_id!=? ORDER BY tc.created_at DESC LIMIT 100", (user_id,)).fetchall()
+                my_extra = conn.execute("SELECT * FROM user_profile_extra WHERE user_id=?", (user_id,)).fetchone()
+        finally:
+            conn.close()
+    my_dest = (my_extra["destinations"] or "") if my_extra else ""
+    results = []
+    for c in companions:
+        cd = dict(c)
+        if cd["companion_id"] in acted:
+            continue
+        score = 0
+        if my_dest and cd.get("destination_country") and cd["destination_country"].lower() in my_dest.lower():
+            score += 40
+        results.append({**cd, "score": score})
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return JSONResponse({"suggestions": results[:20]})
+
+
+@fastapi_app.post("/api/companions/{companion_id}/interested")
+async def api_companion_interested(request: Request, companion_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    interest_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                try:
+                    cur.execute("INSERT INTO companion_interests (interest_id,from_user_id,to_companion_id,action,created_at) VALUES (%s,%s,%s,'interested',%s)", (interest_id, user_id, companion_id, now))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                # Check for mutual interest
+                cur.execute("SELECT tc.user_id FROM travel_companions tc WHERE tc.companion_id=%s", (companion_id,))
+                tc_row = cur.fetchone()
+                mutual = False
+                if tc_row:
+                    other_user = tc_row["user_id"]
+                    cur.execute("SELECT ci.from_user_id FROM companion_interests ci JOIN travel_companions tc2 ON ci.to_companion_id=tc2.companion_id WHERE ci.from_user_id=%s AND tc2.user_id=%s AND ci.action='interested'", (other_user, user_id))
+                    mutual = cur.fetchone() is not None
+            else:
+                try:
+                    conn.execute("INSERT INTO companion_interests (interest_id,from_user_id,to_companion_id,action,created_at) VALUES (?,?,?,'interested',?)", (interest_id, user_id, companion_id, now))
+                    conn.commit()
+                except Exception:
+                    pass
+                tc_row = conn.execute("SELECT user_id FROM travel_companions WHERE companion_id=?", (companion_id,)).fetchone()
+                mutual = False
+                if tc_row:
+                    other_user = tc_row["user_id"] if isinstance(tc_row, dict) else tc_row[0]
+                    mutual_row = conn.execute("SELECT ci.from_user_id FROM companion_interests ci JOIN travel_companions tc2 ON ci.to_companion_id=tc2.companion_id WHERE ci.from_user_id=? AND tc2.user_id=? AND ci.action='interested'", (other_user, user_id)).fetchone()
+                    mutual = mutual_row is not None
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "mutual": mutual})
+
+
+@fastapi_app.post("/api/companions/{companion_id}/pass")
+async def api_companion_pass(request: Request, companion_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    interest_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                try:
+                    cur.execute("INSERT INTO companion_interests (interest_id,from_user_id,to_companion_id,action,created_at) VALUES (%s,%s,%s,'pass',%s)", (interest_id, user_id, companion_id, now))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+            else:
+                try:
+                    conn.execute("INSERT INTO companion_interests (interest_id,from_user_id,to_companion_id,action,created_at) VALUES (?,?,?,'pass',?)", (interest_id, user_id, companion_id, now))
+                    conn.commit()
+                except Exception:
+                    pass
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+class _CreateGroupTripRequest(BaseModel):
+    destination: str
+    date_from: str
+    date_to: str
+    budget: str = ""
+    style: str = ""
+    description: str = ""
+    max_members: int = 10
+
+
+@fastapi_app.post("/api/group_trips")
+async def api_create_group_trip(request: Request, body: _CreateGroupTripRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    trip_id = str(uuid.uuid4())
+    member_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO group_trips (trip_id,creator_id,destination,date_from,date_to,budget,style,description,max_members,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", (trip_id, user_id, body.destination, body.date_from, body.date_to, body.budget, body.style, body.description, body.max_members, now))
+                cur.execute("INSERT INTO group_trip_members (member_id,trip_id,user_id,status,joined_at) VALUES (%s,%s,%s,'joined',%s)", (member_id, trip_id, user_id, now))
+            else:
+                conn.execute("INSERT INTO group_trips (trip_id,creator_id,destination,date_from,date_to,budget,style,description,max_members,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)", (trip_id, user_id, body.destination, body.date_from, body.date_to, body.budget, body.style, body.description, body.max_members, now))
+                conn.execute("INSERT INTO group_trip_members (member_id,trip_id,user_id,status,joined_at) VALUES (?,?,?,'joined',?)", (member_id, trip_id, user_id, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "trip_id": trip_id}, status_code=201)
+
+
+@fastapi_app.get("/api/group_trips")
+async def api_list_group_trips(request: Request):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT gt.*,(SELECT COUNT(*) FROM group_trip_members WHERE trip_id=gt.trip_id AND status='joined') as member_count FROM group_trips gt WHERE gt.status='open' ORDER BY gt.created_at DESC")
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT gt.*,(SELECT COUNT(*) FROM group_trip_members WHERE trip_id=gt.trip_id AND status='joined') as member_count FROM group_trips gt WHERE gt.status='open' ORDER BY gt.created_at DESC").fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"trips": [dict(r) for r in rows]})
+
+
+@fastapi_app.get("/api/group_trips/{trip_id}")
+async def api_get_group_trip(request: Request, trip_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM group_trips WHERE trip_id=%s", (trip_id,))
+                trip = cur.fetchone()
+                cur.execute("SELECT gtm.*,au.name,au.avatar_url FROM group_trip_members gtm LEFT JOIN app_users au ON gtm.user_id=au.user_id WHERE gtm.trip_id=%s AND gtm.status='joined'", (trip_id,))
+                members = cur.fetchall()
+            else:
+                trip = conn.execute("SELECT * FROM group_trips WHERE trip_id=?", (trip_id,)).fetchone()
+                members = conn.execute("SELECT gtm.*,au.name,au.avatar_url FROM group_trip_members gtm LEFT JOIN app_users au ON gtm.user_id=au.user_id WHERE gtm.trip_id=? AND gtm.status='joined'", (trip_id,)).fetchall()
+        finally:
+            conn.close()
+    if not trip:
+        return JSONResponse({"error": "Trip not found."}, status_code=404)
+    return JSONResponse({"trip": dict(trip), "members": [dict(m) for m in members]})
+
+
+@fastapi_app.post("/api/group_trips/{trip_id}/join")
+async def api_join_group_trip(request: Request, trip_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    member_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                try:
+                    cur.execute("INSERT INTO group_trip_members (member_id,trip_id,user_id,status,joined_at) VALUES (%s,%s,%s,'joined',%s)", (member_id, trip_id, user_id, now))
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                    return JSONResponse({"error": "Already a member."}, status_code=409)
+            else:
+                try:
+                    conn.execute("INSERT INTO group_trip_members (member_id,trip_id,user_id,status,joined_at) VALUES (?,?,?,'joined',?)", (member_id, trip_id, user_id, now))
+                    conn.commit()
+                except Exception:
+                    return JSONResponse({"error": "Already a member."}, status_code=409)
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.delete("/api/group_trips/{trip_id}/leave")
+async def api_leave_group_trip(request: Request, trip_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE group_trip_members SET status='left' WHERE trip_id=%s AND user_id=%s", (trip_id, user_id))
+            else:
+                conn.execute("UPDATE group_trip_members SET status='left' WHERE trip_id=? AND user_id=?", (trip_id, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+# ── Phase 4: Enhanced Ride System ────────────────────────────────────────────
+
+def _haversine(lat1, lng1, lat2, lng2):
+    R = 6371.0
+    dlat = math.radians(lat2 - lat1)
+    dlng = math.radians(lng2 - lng1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlng/2)**2
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+
+
+@fastapi_app.get("/api/rides/scan")
+async def api_scan_rides(request: Request, lat: float = 0, lng: float = 0, radius_km: float = 10, departure_date: str = ""):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                if departure_date:
+                    cur.execute("SELECT * FROM rides WHERE status='open' AND departure LIKE %s", (f"{departure_date}%",))
+                else:
+                    cur.execute("SELECT * FROM rides WHERE status='open'")
+                rows = cur.fetchall()
+            else:
+                if departure_date:
+                    rows = conn.execute("SELECT * FROM rides WHERE status='open' AND departure LIKE ?", (f"{departure_date}%",)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM rides WHERE status='open'").fetchall()
+        finally:
+            conn.close()
+    results = []
+    for r in rows:
+        rd = dict(r)
+        if rd.get("origin_lat") and rd.get("origin_lng"):
+            dist = _haversine(lat, lng, float(rd["origin_lat"]), float(rd["origin_lng"]))
+            if dist <= radius_km:
+                rd["distance_km"] = round(dist, 2)
+                results.append(rd)
+    return JSONResponse({"rides": results})
+
+
+@fastapi_app.get("/api/rides/qr/{qr_token}")
+async def api_rides_by_qr(request: Request, qr_token: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM qr_partner_locations WHERE qr_token=%s", (qr_token,))
+                loc = cur.fetchone()
+            else:
+                loc = conn.execute("SELECT * FROM qr_partner_locations WHERE qr_token=?", (qr_token,)).fetchone()
+        finally:
+            conn.close()
+    if not loc:
+        return JSONResponse({"error": "QR token not found."}, status_code=404)
+    loc_dict = dict(loc)
+    nearby = []
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM rides WHERE status='open'")
+                rides = cur.fetchall()
+            else:
+                rides = conn.execute("SELECT * FROM rides WHERE status='open'").fetchall()
+        finally:
+            conn.close()
+    for r in rides:
+        rd = dict(r)
+        if rd.get("origin_lat") and rd.get("origin_lng"):
+            dist = _haversine(loc_dict["lat"], loc_dict["lng"], float(rd["origin_lat"]), float(rd["origin_lng"]))
+            if dist <= 10:
+                rd["distance_km"] = round(dist, 2)
+                nearby.append(rd)
+    return JSONResponse({"location": loc_dict, "nearby_rides": nearby})
+
+
+class _CreatePartnerLocationRequest(BaseModel):
+    name: str
+    lat: float
+    lng: float
+
+
+@fastapi_app.post("/api/partner_locations")
+async def api_create_partner_location(request: Request, body: _CreatePartnerLocationRequest):
+    admin_session = request.session.get("admin_user")
+    if not admin_session:
+        return JSONResponse({"error": "Admin access required."}, status_code=403)
+    location_id = str(uuid.uuid4())
+    qr_token = secrets.token_urlsafe(16)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO qr_partner_locations (location_id,name,lat,lng,qr_token,created_at) VALUES (%s,%s,%s,%s,%s,%s)", (location_id, body.name, body.lat, body.lng, qr_token, now))
+            else:
+                conn.execute("INSERT INTO qr_partner_locations (location_id,name,lat,lng,qr_token,created_at) VALUES (?,?,?,?,?,?)", (location_id, body.name, body.lat, body.lng, qr_token, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "location_id": location_id, "qr_token": qr_token}, status_code=201)
+
+
+@fastapi_app.get("/api/partner_locations")
+async def api_list_partner_locations(request: Request):
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM qr_partner_locations ORDER BY created_at DESC")
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM qr_partner_locations ORDER BY created_at DESC").fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"locations": [dict(r) for r in rows]})
+
+
+@fastapi_app.get("/api/partner_locations/{location_id}/qr")
+async def api_get_partner_location_qr(request: Request, location_id: str):
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM qr_partner_locations WHERE location_id=%s", (location_id,))
+                loc = cur.fetchone()
+            else:
+                loc = conn.execute("SELECT * FROM qr_partner_locations WHERE location_id=?", (location_id,)).fetchone()
+        finally:
+            conn.close()
+    if not loc:
+        return JSONResponse({"error": "Location not found."}, status_code=404)
+    loc_dict = dict(loc)
+    deeplink = f"https://yotweek.app/scan?token={loc_dict['qr_token']}"
+    return JSONResponse({"qr_token": loc_dict["qr_token"], "name": loc_dict["name"], "deeplink": deeplink})
+
+
+class _BookRideRequest(BaseModel):
+    seats: int = 1
+    passenger_contact: str = ""
+    special_request: str = ""
+    amount: float = 0
+
+
+@fastapi_app.post("/api/rides/{ride_id}/book")
+async def api_book_ride(request: Request, ride_id: str, body: _BookRideRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    booking_id = str(uuid.uuid4())
+    log_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    ts = time.time()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM app_users WHERE user_id=%s", (user_id,))
+                u = cur.fetchone()
+                passenger_name = u["name"] if u else ""
+                cur.execute("INSERT INTO ride_bookings (booking_id,ride_id,passenger_id,passenger_name,passenger_contact,seats,special_request,amount,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", (booking_id, ride_id, user_id, passenger_name, body.passenger_contact, body.seats, body.special_request, body.amount, now))
+                cur.execute("INSERT INTO ride_audit_log (log_id,ride_id,event_type,actor_id,details,ts,created_at) VALUES (%s,%s,'booked',%s,%s,%s,%s)", (log_id, ride_id, user_id, f"seats:{body.seats}", ts, now))
+            else:
+                u = conn.execute("SELECT name FROM app_users WHERE user_id=?", (user_id,)).fetchone()
+                passenger_name = u["name"] if u else ""
+                conn.execute("INSERT INTO ride_bookings (booking_id,ride_id,passenger_id,passenger_name,passenger_contact,seats,special_request,amount,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (booking_id, ride_id, user_id, passenger_name, body.passenger_contact, body.seats, body.special_request, body.amount, now))
+                conn.execute("INSERT INTO ride_audit_log (log_id,ride_id,event_type,actor_id,details,ts,created_at) VALUES (?,?,'booked',?,?,?,?)", (log_id, ride_id, user_id, f"seats:{body.seats}", ts, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "booking_id": booking_id}, status_code=201)
+
+
+@fastapi_app.post("/api/rides/{ride_id}/bookings/{booking_id}/accept")
+async def api_accept_booking(request: Request, ride_id: str, booking_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE ride_bookings SET status='accepted',escrow_status='held' WHERE booking_id=%s AND ride_id=%s", (booking_id, ride_id))
+            else:
+                conn.execute("UPDATE ride_bookings SET status='accepted',escrow_status='held' WHERE booking_id=? AND ride_id=?", (booking_id, ride_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/rides/{ride_id}/bookings/{booking_id}/complete")
+async def api_complete_booking(request: Request, ride_id: str, booking_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE ride_bookings SET status='completed',escrow_status='released' WHERE booking_id=%s AND ride_id=%s", (booking_id, ride_id))
+            else:
+                conn.execute("UPDATE ride_bookings SET status='completed',escrow_status='released' WHERE booking_id=? AND ride_id=?", (booking_id, ride_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/rides/{ride_id}/bookings/{booking_id}/cancel")
+async def api_cancel_booking(request: Request, ride_id: str, booking_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE ride_bookings SET status='cancelled',escrow_status='refunded' WHERE booking_id=%s AND ride_id=%s", (booking_id, ride_id))
+            else:
+                conn.execute("UPDATE ride_bookings SET status='cancelled',escrow_status='refunded' WHERE booking_id=? AND ride_id=?", (booking_id, ride_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/rides/{ride_id}/bookings")
+async def api_get_ride_bookings(request: Request, ride_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT user_id FROM rides WHERE ride_id=%s", (ride_id,))
+                ride = cur.fetchone()
+            else:
+                ride = conn.execute("SELECT user_id FROM rides WHERE ride_id=?", (ride_id,)).fetchone()
+            if not ride or ride["user_id"] != user_id:
+                return JSONResponse({"error": "Forbidden."}, status_code=403)
+            if USE_POSTGRES:
+                cur.execute("SELECT * FROM ride_bookings WHERE ride_id=%s ORDER BY created_at DESC", (ride_id,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM ride_bookings WHERE ride_id=? ORDER BY created_at DESC", (ride_id,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"bookings": [dict(r) for r in rows]})
+
+
+@fastapi_app.post("/api/rides/{ride_id}/wellness_ping")
+async def api_trigger_wellness_ping(request: Request, ride_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT passenger_id FROM ride_bookings WHERE ride_id=%s AND status='accepted'", (ride_id,))
+                passengers = cur.fetchall()
+            else:
+                passengers = conn.execute("SELECT passenger_id FROM ride_bookings WHERE ride_id=? AND status='accepted'", (ride_id,)).fetchall()
+            ping_ids = []
+            for p in passengers:
+                ping_id = str(uuid.uuid4())
+                pid = p["passenger_id"] if isinstance(p, dict) else p[0]
+                if USE_POSTGRES:
+                    cur.execute("INSERT INTO wellness_pings (ping_id,ride_id,user_id,sent_at) VALUES (%s,%s,%s,%s)", (ping_id, ride_id, pid, now))
+                else:
+                    conn.execute("INSERT INTO wellness_pings (ping_id,ride_id,user_id,sent_at) VALUES (?,?,?,?)", (ping_id, ride_id, pid, now))
+                ping_ids.append({"ping_id": ping_id, "user_id": pid})
+            conn.commit()
+        finally:
+            conn.close()
+    emit_from_thread("wellness_ping", {"ride_id": ride_id, "pings": ping_ids}, room=f"ride_{ride_id}")
+    return JSONResponse({"ok": True, "pings": ping_ids})
+
+
+@fastapi_app.post("/api/wellness_pings/{ping_id}/respond")
+async def api_respond_wellness_ping(request: Request, ping_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE wellness_pings SET status='ok',responded_at=%s WHERE ping_id=%s AND user_id=%s", (now, ping_id, user_id))
+            else:
+                conn.execute("UPDATE wellness_pings SET status='ok',responded_at=? WHERE ping_id=? AND user_id=?", (now, ping_id, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/rides/{ride_id}/audit_log")
+async def api_get_ride_audit_log(request: Request, ride_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM ride_audit_log WHERE ride_id=%s ORDER BY ts ASC", (ride_id,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM ride_audit_log WHERE ride_id=? ORDER BY ts ASC", (ride_id,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"log": [dict(r) for r in rows]})
+
+
+# ── Phase 5: Group Trip Planning ─────────────────────────────────────────────
+
+class _AddTripIdeaRequest(BaseModel):
+    category: str = "activity"
+    title: str
+    description: str = ""
+    estimated_cost: float = 0
+
+
+class _UpdateChecklistRequest(BaseModel):
+    title: str = ""
+    completed: int = 0
+    assigned_to: str = ""
+
+
+class _AddChecklistRequest(BaseModel):
+    title: str
+    assigned_to: str = ""
+
+
+@fastapi_app.post("/api/group_trips/{trip_id}/ideas")
+async def api_add_trip_idea(request: Request, trip_id: str, body: _AddTripIdeaRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    idea_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT name FROM app_users WHERE user_id=%s", (user_id,))
+                u = cur.fetchone()
+                author_name = u["name"] if u else ""
+                cur.execute("INSERT INTO trip_ideas (idea_id,trip_id,user_id,author_name,category,title,description,estimated_cost,created_at) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", (idea_id, trip_id, user_id, author_name, body.category, body.title, body.description, body.estimated_cost, now))
+            else:
+                u = conn.execute("SELECT name FROM app_users WHERE user_id=?", (user_id,)).fetchone()
+                author_name = u["name"] if u else ""
+                conn.execute("INSERT INTO trip_ideas (idea_id,trip_id,user_id,author_name,category,title,description,estimated_cost,created_at) VALUES (?,?,?,?,?,?,?,?,?)", (idea_id, trip_id, user_id, author_name, body.category, body.title, body.description, body.estimated_cost, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "idea_id": idea_id}, status_code=201)
+
+
+@fastapi_app.get("/api/group_trips/{trip_id}/ideas")
+async def api_list_trip_ideas(request: Request, trip_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM trip_ideas WHERE trip_id=%s ORDER BY votes DESC,created_at ASC", (trip_id,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM trip_ideas WHERE trip_id=? ORDER BY votes DESC,created_at ASC", (trip_id,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"ideas": [dict(r) for r in rows]})
+
+
+@fastapi_app.post("/api/group_trips/{trip_id}/ideas/{idea_id}/vote")
+async def api_vote_trip_idea(request: Request, trip_id: str, idea_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    vote_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT vote_id FROM trip_idea_votes WHERE idea_id=%s AND user_id=%s", (idea_id, user_id))
+                existing = cur.fetchone()
+                if existing:
+                    cur.execute("DELETE FROM trip_idea_votes WHERE idea_id=%s AND user_id=%s", (idea_id, user_id))
+                    cur.execute("UPDATE trip_ideas SET votes=GREATEST(votes-1,0) WHERE idea_id=%s", (idea_id,))
+                    voted = False
+                else:
+                    cur.execute("INSERT INTO trip_idea_votes (vote_id,idea_id,user_id,created_at) VALUES (%s,%s,%s,%s)", (vote_id, idea_id, user_id, now))
+                    cur.execute("UPDATE trip_ideas SET votes=votes+1 WHERE idea_id=%s", (idea_id,))
+                    voted = True
+            else:
+                existing = conn.execute("SELECT vote_id FROM trip_idea_votes WHERE idea_id=? AND user_id=?", (idea_id, user_id)).fetchone()
+                if existing:
+                    conn.execute("DELETE FROM trip_idea_votes WHERE idea_id=? AND user_id=?", (idea_id, user_id))
+                    conn.execute("UPDATE trip_ideas SET votes=MAX(votes-1,0) WHERE idea_id=?", (idea_id,))
+                    voted = False
+                else:
+                    conn.execute("INSERT INTO trip_idea_votes (vote_id,idea_id,user_id,created_at) VALUES (?,?,?,?)", (vote_id, idea_id, user_id, now))
+                    conn.execute("UPDATE trip_ideas SET votes=votes+1 WHERE idea_id=?", (idea_id,))
+                    voted = True
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "voted": voted})
+
+
+@fastapi_app.get("/api/group_trips/{trip_id}/cost_split")
+async def api_trip_cost_split(request: Request, trip_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT COALESCE(SUM(estimated_cost),0) as total FROM trip_ideas WHERE trip_id=%s", (trip_id,))
+                total_row = cur.fetchone()
+                cur.execute("SELECT COUNT(*) as cnt FROM group_trip_members WHERE trip_id=%s AND status='joined'", (trip_id,))
+                member_row = cur.fetchone()
+            else:
+                total_row = conn.execute("SELECT COALESCE(SUM(estimated_cost),0) as total FROM trip_ideas WHERE trip_id=?", (trip_id,)).fetchone()
+                member_row = conn.execute("SELECT COUNT(*) as cnt FROM group_trip_members WHERE trip_id=? AND status='joined'", (trip_id,)).fetchone()
+            total = (total_row["total"] if isinstance(total_row, dict) else total_row[0]) or 0
+            members = (member_row["cnt"] if isinstance(member_row, dict) else member_row[0]) or 1
+        finally:
+            conn.close()
+    per_person = round(total / members, 2) if members > 0 else 0
+    return JSONResponse({"total": total, "members": members, "per_person": per_person})
+
+
+@fastapi_app.post("/api/group_trips/{trip_id}/checklist")
+async def api_add_checklist_item(request: Request, trip_id: str, body: _AddChecklistRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    item_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO trip_checklist (item_id,trip_id,user_id,assigned_to,title,created_at) VALUES (%s,%s,%s,%s,%s,%s)", (item_id, trip_id, user_id, body.assigned_to, body.title, now))
+            else:
+                conn.execute("INSERT INTO trip_checklist (item_id,trip_id,user_id,assigned_to,title,created_at) VALUES (?,?,?,?,?,?)", (item_id, trip_id, user_id, body.assigned_to, body.title, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "item_id": item_id}, status_code=201)
+
+
+@fastapi_app.get("/api/group_trips/{trip_id}/checklist")
+async def api_get_checklist(request: Request, trip_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM trip_checklist WHERE trip_id=%s ORDER BY created_at ASC", (trip_id,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM trip_checklist WHERE trip_id=? ORDER BY created_at ASC", (trip_id,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"items": [dict(r) for r in rows]})
+
+
+@fastapi_app.put("/api/group_trips/{trip_id}/checklist/{item_id}")
+async def api_update_checklist_item(request: Request, trip_id: str, item_id: str, body: _UpdateChecklistRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                if body.title:
+                    cur.execute("UPDATE trip_checklist SET title=%s,completed=%s,assigned_to=%s WHERE item_id=%s AND trip_id=%s", (body.title, body.completed, body.assigned_to, item_id, trip_id))
+                else:
+                    cur.execute("UPDATE trip_checklist SET completed=%s WHERE item_id=%s AND trip_id=%s", (body.completed, item_id, trip_id))
+            else:
+                if body.title:
+                    conn.execute("UPDATE trip_checklist SET title=?,completed=?,assigned_to=? WHERE item_id=? AND trip_id=?", (body.title, body.completed, body.assigned_to, item_id, trip_id))
+                else:
+                    conn.execute("UPDATE trip_checklist SET completed=? WHERE item_id=? AND trip_id=?", (body.completed, item_id, trip_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+# ── Phase 7: Safety & Emergency ──────────────────────────────────────────────
+
+class _SOSRequest(BaseModel):
+    lat: float = None
+    lng: float = None
+    message: str = ""
+
+
+class _AddTrustedContactRequest(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+
+
+@fastapi_app.post("/api/sos")
+async def api_trigger_sos(request: Request, body: _SOSRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    alert_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO sos_alerts (alert_id,user_id,lat,lng,message,created_at) VALUES (%s,%s,%s,%s,%s,%s)", (alert_id, user_id, body.lat, body.lng, body.message, now))
+                cur.execute("SELECT * FROM trusted_contacts WHERE user_id=%s", (user_id,))
+                contacts = cur.fetchall()
+            else:
+                conn.execute("INSERT INTO sos_alerts (alert_id,user_id,lat,lng,message,created_at) VALUES (?,?,?,?,?,?)", (alert_id, user_id, body.lat, body.lng, body.message, now))
+                contacts = conn.execute("SELECT * FROM trusted_contacts WHERE user_id=?", (user_id,)).fetchall()
+            conn.commit()
+        finally:
+            conn.close()
+    emit_from_thread("sos_alert", {"alert_id": alert_id, "user_id": user_id, "lat": body.lat, "lng": body.lng, "message": body.message}, room="safety_team")
+    return JSONResponse({"ok": True, "alert_id": alert_id, "trusted_contacts": [dict(c) for c in contacts]}, status_code=201)
+
+
+@fastapi_app.post("/api/sos/{alert_id}/resolve")
+async def api_resolve_sos(request: Request, alert_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE sos_alerts SET status='resolved',resolved_at=%s WHERE alert_id=%s", (now, alert_id))
+            else:
+                conn.execute("UPDATE sos_alerts SET status='resolved',resolved_at=? WHERE alert_id=?", (now, alert_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/trusted_contacts")
+async def api_get_trusted_contacts(request: Request):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM trusted_contacts WHERE user_id=%s ORDER BY created_at ASC", (user_id,))
+                rows = cur.fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM trusted_contacts WHERE user_id=? ORDER BY created_at ASC", (user_id,)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"contacts": [dict(r) for r in rows]})
+
+
+@fastapi_app.post("/api/trusted_contacts")
+async def api_add_trusted_contact(request: Request, body: _AddTrustedContactRequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    contact_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("INSERT INTO trusted_contacts (contact_id,user_id,name,phone,email,created_at) VALUES (%s,%s,%s,%s,%s,%s)", (contact_id, user_id, body.name, body.phone, body.email, now))
+            else:
+                conn.execute("INSERT INTO trusted_contacts (contact_id,user_id,name,phone,email,created_at) VALUES (?,?,?,?,?,?)", (contact_id, user_id, body.name, body.phone, body.email, now))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "contact_id": contact_id}, status_code=201)
+
+
+@fastapi_app.delete("/api/trusted_contacts/{contact_id}")
+async def api_delete_trusted_contact(request: Request, contact_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM trusted_contacts WHERE contact_id=%s AND user_id=%s", (contact_id, user_id))
+            else:
+                conn.execute("DELETE FROM trusted_contacts WHERE contact_id=? AND user_id=?", (contact_id, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/emergency_resources")
+async def api_emergency_resources(request: Request, country_code: str = "", lat: float = None, lng: float = None):
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                if country_code:
+                    cur.execute("SELECT * FROM emergency_resources WHERE country_code=%s ORDER BY resource_type ASC", (country_code.upper(),))
+                else:
+                    cur.execute("SELECT * FROM emergency_resources ORDER BY country_code ASC,resource_type ASC")
+                rows = cur.fetchall()
+            else:
+                if country_code:
+                    rows = conn.execute("SELECT * FROM emergency_resources WHERE country_code=? ORDER BY resource_type ASC", (country_code.upper(),)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM emergency_resources ORDER BY country_code ASC,resource_type ASC").fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"resources": [dict(r) for r in rows]})
+
+
+# ── Phase 8: Messaging Enhancements ──────────────────────────────────────────
+
+class _ToggleE2ERequest(BaseModel):
+    enabled: bool
+
+
+@fastapi_app.put("/api/dm/conversations/{conv_id}/e2e")
+async def api_toggle_e2e(request: Request, conv_id: str, body: _ToggleE2ERequest):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE dm_conversations SET e2e_enabled=%s WHERE conv_id=%s AND (user1_id=%s OR user2_id=%s)", (1 if body.enabled else 0, conv_id, user_id, user_id))
+            else:
+                conn.execute("UPDATE dm_conversations SET e2e_enabled=? WHERE conv_id=? AND (user1_id=? OR user2_id=?)", (1 if body.enabled else 0, conv_id, user_id, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/dm/conversations/{conv_id}/accept_request")
+async def api_accept_message_request(request: Request, conv_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE dm_conversations SET message_request_status='accepted' WHERE conv_id=%s AND (user1_id=%s OR user2_id=%s)", (conv_id, user_id, user_id))
+            else:
+                conn.execute("UPDATE dm_conversations SET message_request_status='accepted' WHERE conv_id=? AND (user1_id=? OR user2_id=?)", (conv_id, user_id, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/api/dm/conversations/{conv_id}/decline_request")
+async def api_decline_message_request(request: Request, conv_id: str):
+    user_id = request.session.get("app_user_id")
+    if not user_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE dm_conversations SET message_request_status='declined' WHERE conv_id=%s AND (user1_id=%s OR user2_id=%s)", (conv_id, user_id, user_id))
+            else:
+                conn.execute("UPDATE dm_conversations SET message_request_status='declined' WHERE conv_id=? AND (user1_id=? OR user2_id=?)", (conv_id, user_id, user_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.get("/api/translate")
+async def api_translate(request: Request, text: str = "", target_lang: str = "en"):
+    if not text:
+        return JSONResponse({"error": "text required."}, status_code=400)
+    try:
+        import urllib.request
+        payload = json.dumps({"q": text, "source": "auto", "target": target_lang, "format": "text"}).encode()
+        req = urllib.request.Request(
+            "https://libretranslate.de/translate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            result = json.loads(resp.read())
+            return JSONResponse({"translated": result.get("translatedText", text)})
+    except Exception:
+        return JSONResponse({"translated": text, "error": "Translation service unavailable"})
+
+
+# ── Phase 9: Analytics ───────────────────────────────────────────────────────
+
+@fastapi_app.get("/api/analytics/dashboard")
+async def api_analytics_dashboard(request: Request):
+    admin_session = request.session.get("admin_user")
+    if not admin_session:
+        return JSONResponse({"error": "Admin access required."}, status_code=403)
+    since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    since_5min = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(DISTINCT user_id) FROM dm_messages WHERE created_at>=%s", (since_24h,))
+                dau = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM app_users")
+                total_users = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM rides")
+                total_rides = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM posts")
+                total_posts = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM group_trips")
+                total_group_trips = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM sos_alerts")
+                total_sos = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM rides WHERE status='taken'")
+                taken = cur.fetchone()[0]
+                completion_rate = round(taken / max(total_rides, 1), 3)
+                cur.execute("SELECT COUNT(DISTINCT au.user_id) FROM app_users au WHERE au.role='driver' AND au.location_lat IS NOT NULL")
+                active_drivers = cur.fetchone()[0]
+            else:
+                dau = conn.execute("SELECT COUNT(DISTINCT user_id) FROM dm_messages WHERE created_at>=?", (since_24h,)).fetchone()[0]
+                total_users = conn.execute("SELECT COUNT(*) FROM app_users").fetchone()[0]
+                total_rides = conn.execute("SELECT COUNT(*) FROM rides").fetchone()[0]
+                total_posts = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
+                total_group_trips = conn.execute("SELECT COUNT(*) FROM group_trips").fetchone()[0]
+                total_sos = conn.execute("SELECT COUNT(*) FROM sos_alerts").fetchone()[0]
+                taken = conn.execute("SELECT COUNT(*) FROM rides WHERE status='taken'").fetchone()[0]
+                completion_rate = round(taken / max(total_rides, 1), 3)
+                active_drivers = conn.execute("SELECT COUNT(DISTINCT user_id) FROM app_users WHERE role='driver' AND location_lat IS NOT NULL").fetchone()[0]
+        finally:
+            conn.close()
+    return JSONResponse({
+        "dau": dau,
+        "total_users": total_users,
+        "total_rides": total_rides,
+        "total_posts": total_posts,
+        "total_group_trips": total_group_trips,
+        "total_sos_alerts": total_sos,
+        "ride_completion_rate": completion_rate,
+        "active_drivers": active_drivers,
+    })
 
 
 # =========================================================
