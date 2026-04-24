@@ -15,6 +15,7 @@ import {
   getAdminUsers, adminDeleteUser,
   getAdminBroadcasts, adminCancelBroadcast,
   getAnalyticsDashboard,
+  adminGetPosts, adminEditPost, adminPinPost, adminHidePost, adminDeletePostGlobal,
 } from '../../api'
 import AdminStats from '../../components/others/admin/AdminStats'
 import AnalyticsCharts from '../../components/others/admin/AnalyticsCharts'
@@ -36,9 +37,111 @@ const SIDEBAR_TABS = [
   { id: 'properties',        icon: '🏘',  label: 'Properties'       },
   { id: 'users',             icon: '👤',  label: 'Users'             },
   { id: 'broadcasts',        icon: '📡',  label: 'Broadcasts'       },
+  { id: 'feed_posts',        icon: '📰',  label: 'Feed Posts'       },
   { id: 'database',          icon: '🗄',  label: 'Database'         },
   { id: 'cookies',           icon: '🍪',  label: 'Cookies'          },
 ]
+
+function AdminPostRow({ post, onRefresh, setNotice, setError }) {
+  const [editMode, setEditMode]     = useState(false)
+  const [content,  setContent]      = useState(post.content || '')
+  const [pinned,   setPinned]       = useState(!!post.pinned)
+  const [status,   setStatus]       = useState(post.status || 'active')
+  const [busy,     setBusy]         = useState(false)
+
+  const fmtDate = s => { try { return new Date(s).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) } catch { return s } }
+
+  const handlePin = async () => {
+    setBusy(true)
+    try { const r = await adminPinPost(post.post_id); setPinned(r.pinned); setNotice(`Post ${r.pinned ? 'pinned' : 'unpinned'}.`) }
+    catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const handleHide = async () => {
+    setBusy(true)
+    try { const r = await adminHidePost(post.post_id); setStatus(r.status); setNotice(`Post ${r.status === 'hidden' ? 'hidden' : 'restored'}.`) }
+    catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const handleDelete = async () => {
+    if (!confirm('Permanently delete this post for all users?')) return
+    setBusy(true)
+    try { await adminDeletePostGlobal(post.post_id); setNotice('Post deleted globally.'); onRefresh() }
+    catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const handleSaveEdit = async () => {
+    if (!content.trim()) return
+    setBusy(true)
+    try { await adminEditPost(post.post_id, { content: content.trim() }); setEditMode(false); setNotice('Post content updated.') }
+    catch (e) { setError(e.message) } finally { setBusy(false) }
+  }
+
+  const statusBadge = {
+    active:  'bg-green-900/40 text-green-400 border-green-800',
+    hidden:  'bg-gray-800 text-gray-500 border-gray-700',
+    deleted: 'bg-red-900/40 text-red-400 border-red-800',
+  }[status] || 'bg-gray-800 text-gray-400 border-gray-700'
+
+  return (
+    <div className={`card p-4 space-y-2 ${status !== 'active' ? 'opacity-60' : ''}`}>
+      <div className="flex items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-sm font-semibold text-white">{post.author_name || 'Unknown'}</span>
+            <span className={`text-xs px-2 py-0.5 rounded-full border ${statusBadge}`}>{status}</span>
+            {pinned && <span className="text-xs px-2 py-0.5 rounded-full bg-amber-900/40 text-amber-400 border border-amber-800">📌 Pinned</span>}
+            <span className="text-xs text-gray-500 ml-auto">{fmtDate(post.created_at)}</span>
+          </div>
+          {post.title && <p className="text-sm font-medium text-gray-200 mb-1">{post.title}</p>}
+          {editMode ? (
+            <div className="space-y-2">
+              <textarea
+                value={content}
+                onChange={e => setContent(e.target.value)}
+                rows={3}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 outline-none resize-y"
+              />
+              <div className="flex gap-2">
+                <button className="btn-primary text-xs py-1.5 px-4" onClick={handleSaveEdit} disabled={busy}>Save</button>
+                <button className="btn-ghost text-xs" onClick={() => setEditMode(false)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-400 line-clamp-3 whitespace-pre-wrap">{post.content}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex gap-2 pt-2 border-t border-gray-800">
+        <button
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${pinned ? 'border-amber-700 bg-amber-900/30 text-amber-400' : 'border-gray-700 text-gray-400 hover:border-amber-700 hover:text-amber-400'}`}
+          onClick={handlePin} disabled={busy}
+        >
+          📌 {pinned ? 'Unpin' : 'Pin'}
+        </button>
+        <button
+          className="text-xs px-3 py-1.5 rounded-lg border border-gray-700 text-gray-400 hover:border-gray-500 transition-colors"
+          onClick={() => { setContent(post.content); setEditMode(v => !v) }} disabled={busy}
+        >
+          ✏️ Edit
+        </button>
+        <button
+          className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${status === 'hidden' ? 'border-green-700 text-green-400 hover:border-green-500' : 'border-gray-700 text-gray-400 hover:border-yellow-600 hover:text-yellow-400'}`}
+          onClick={handleHide} disabled={busy}
+        >
+          {status === 'hidden' ? '👁 Show' : '🚫 Hide'}
+        </button>
+        <button
+          className="text-xs px-3 py-1.5 rounded-lg border border-red-800 text-red-400 hover:bg-red-900/30 transition-colors ml-auto"
+          onClick={handleDelete} disabled={busy}
+        >
+          🗑 Delete
+        </button>
+      </div>
+    </div>
+  )
+}
 
 function WipeAllModal({ onBackup, onConfirm, onClose }) {
   const [backupDone, setBackupDone] = useState(false)
@@ -124,6 +227,9 @@ export default function AdminDashboard() {
   const [loadingUsers, setLoadingUsers] = useState(false)
   const [adminBroadcasts, setAdminBroadcasts] = useState([])
   const [loadingBroadcasts, setLoadingBroadcasts] = useState(false)
+  const [adminFeedPosts, setAdminFeedPosts] = useState([])
+  const [loadingFeedPosts, setLoadingFeedPosts] = useState(false)
+  const [feedPostsFilter, setFeedPostsFilter] = useState('active')
   const [cookieStatus, setCookieStatus] = useState(null)
   const [platformStats, setPlatformStats] = useState(null)
   const [loadingPlatformStats, setLoadingPlatformStats] = useState(false)
@@ -223,6 +329,12 @@ export default function AdminDashboard() {
     finally { setLoadingBroadcasts(false) }
   }, [])
 
+  const fetchAdminFeedPosts = useCallback(async (status) => {
+    setLoadingFeedPosts(true)
+    try { setAdminFeedPosts((await adminGetPosts({ status: status || feedPostsFilter, per_page: 50 })).posts || []) } catch {}
+    finally { setLoadingFeedPosts(false) }
+  }, [feedPostsFilter])
+
   // Load data based on active tab
   useEffect(() => {
     if (tab === 'dashboard' || tab === 'analytics') {
@@ -244,6 +356,7 @@ export default function AdminDashboard() {
     if (tab === 'users')             fetchAdminUsers()
     if (tab === 'broadcasts')        fetchAdminBroadcasts()
     if (tab === 'platform_analytics') fetchPlatformStats()
+    if (tab === 'feed_posts')        fetchAdminFeedPosts()
   }, [tab])
 
   const handleLogout = async () => {
@@ -1197,6 +1310,42 @@ export default function AdminDashboard() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+          {/* Feed Posts moderation tab */}
+          {tab === 'feed_posts' && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3 flex-wrap mb-2">
+                <h2 className="font-bold text-white text-lg">📰 Feed Post Moderation</h2>
+                <div className="flex gap-2">
+                  {['active', 'hidden', 'deleted', 'all'].map(s => (
+                    <button
+                      key={s}
+                      className={`text-xs px-3 py-1 rounded-full border transition-colors ${feedPostsFilter === s ? 'bg-amber-500 border-amber-400 text-black font-semibold' : 'border-gray-700 text-gray-400 hover:border-gray-500'}`}
+                      onClick={() => { setFeedPostsFilter(s); fetchAdminFeedPosts(s) }}
+                    >
+                      {s.charAt(0).toUpperCase() + s.slice(1)}
+                    </button>
+                  ))}
+                </div>
+                <button className="ml-auto btn-ghost text-xs" onClick={() => fetchAdminFeedPosts()}>↺ Refresh</button>
+              </div>
+
+              {loadingFeedPosts && <p className="text-sm text-gray-500">Loading…</p>}
+              {!loadingFeedPosts && adminFeedPosts.length === 0 && <p className="text-sm text-gray-500">No posts found.</p>}
+
+              <div className="space-y-3">
+                {adminFeedPosts.map(post => (
+                  <AdminPostRow
+                    key={post.post_id}
+                    post={post}
+                    onRefresh={() => fetchAdminFeedPosts()}
+                    setNotice={setNotice}
+                    setError={setError}
+                  />
+                ))}
+              </div>
             </div>
           )}
 

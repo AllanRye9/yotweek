@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getFeed, createPost, likePost, savePost, sharePost, getTrendingFeed, getUserProfile } from '../api'
+import { getFeed, createPost, likePost, savePost, sharePost, getTrendingFeed, getUserProfile,
+         hidePostForMe, adminPinPost, adminHidePost, adminDeletePostGlobal, adminEditPost } from '../api'
 import NavBar from '../components/NavBar'
+import { useAuth } from '../App'
 
 const POST_TYPES = ['all', 'travel_log', 'photo', 'event', 'poll']
 const TYPE_LABELS = { all: 'All', travel_log: 'Travel Logs', photo: 'Photos', event: 'Events', poll: 'Polls' }
@@ -21,13 +23,17 @@ function TypeBadge({ type }) {
   )
 }
 
-function PostCard({ post, onLike, onSave, onShare }) {
+function PostCard({ post, onLike, onSave, onShare, onHide, isAdmin, onAdminAction }) {
   const [liked,  setLiked]  = useState(post.liked_by_me  || false)
   const [saved,  setSaved]  = useState(post.saved_by_me  || false)
   const [likes,  setLikes]  = useState(post.likes_count  || 0)
   const [saves,  setSaves]  = useState(post.saves_count  || 0)
   const [shares, setShares] = useState(post.shares_count || 0)
   const [busy,   setBusy]   = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const [editMode, setEditMode] = useState(false)
+  const [editContent, setEditContent] = useState(post.content)
+  const [pinned, setPinned] = useState(!!post.pinned)
 
   const handleLike = async () => {
     if (busy) return
@@ -58,13 +64,62 @@ function PostCard({ post, onLike, onSave, onShare }) {
     } catch {} finally { setBusy(false) }
   }
 
+  const handleHide = async () => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await onHide(post.post_id)
+      setHidden(true)
+    } catch {} finally { setBusy(false) }
+  }
+
+  const handleAdminPin = async () => {
+    try {
+      const res = await adminPinPost(post.post_id)
+      setPinned(res.pinned)
+      onAdminAction?.()
+    } catch {}
+  }
+
+  const handleAdminHide = async () => {
+    try {
+      await adminHidePost(post.post_id)
+      onAdminAction?.()
+    } catch {}
+  }
+
+  const handleAdminDelete = async () => {
+    if (!confirm('Permanently delete this post for all users?')) return
+    try {
+      await adminDeletePostGlobal(post.post_id)
+      setHidden(true)
+      onAdminAction?.()
+    } catch {}
+  }
+
+  const handleAdminEdit = async () => {
+    if (!editContent.trim()) return
+    try {
+      await adminEditPost(post.post_id, { content: editContent.trim() })
+      setEditMode(false)
+      onAdminAction?.()
+    } catch {}
+  }
+
+  if (hidden) return null
+
   const fmtDate = (s) => {
     try { return new Date(s).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) }
     catch { return s }
   }
 
   return (
-    <article style={{ background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '16px 20px', marginBottom: 12 }}>
+    <article style={{ background: 'var(--bg-card)', border: `1px solid ${pinned ? 'rgba(245,158,11,0.5)' : 'var(--border-color)'}`, borderRadius: 16, padding: '16px 20px', marginBottom: 12, position: 'relative' }}>
+      {pinned && (
+        <div style={{ position: 'absolute', top: 10, right: 12, fontSize: '0.68rem', fontWeight: 700, color: '#fbbf24', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 9999, padding: '1px 8px' }}>
+          📌 Pinned
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
         <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#b45309', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fef3c7', fontSize: '0.9rem', flexShrink: 0, overflow: 'hidden' }}>
           {post.author_avatar ? (
@@ -78,18 +133,43 @@ function PostCard({ post, onLike, onSave, onShare }) {
           <p style={{ fontSize: '0.72rem', color: 'var(--text-muted)', margin: 0 }}>{fmtDate(post.created_at)}</p>
         </div>
         <TypeBadge type={post.post_type} />
+        {/* Hide from my feed button */}
+        <button
+          onClick={handleHide}
+          disabled={busy}
+          title="Hide from my feed"
+          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '1rem', padding: '2px 6px', borderRadius: 6, lineHeight: 1 }}
+        >
+          ✕
+        </button>
       </div>
 
       {post.title && (
         <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>{post.title}</h3>
       )}
-      <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 12 }}>{post.content}</p>
+
+      {editMode ? (
+        <div style={{ marginBottom: 12 }}>
+          <textarea
+            value={editContent}
+            onChange={e => setEditContent(e.target.value)}
+            rows={4}
+            style={{ width: '100%', background: 'var(--bg-input, var(--bg-surface))', border: '1px solid var(--border-color)', borderRadius: 8, padding: '8px 12px', color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box', resize: 'vertical' }}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <button onClick={handleAdminEdit} style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: 'var(--accent, #f59e0b)', color: '#000', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}>Save</button>
+            <button onClick={() => setEditMode(false)} style={{ padding: '5px 14px', borderRadius: 7, border: '1px solid var(--border-color)', background: 'transparent', color: 'var(--text-secondary)', fontSize: '0.8rem', cursor: 'pointer' }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <p style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', lineHeight: 1.55, whiteSpace: 'pre-wrap', wordBreak: 'break-word', marginBottom: 12 }}>{post.content}</p>
+      )}
 
       {post.image_url && (
         <img src={post.image_url} alt="" style={{ width: '100%', borderRadius: 10, marginBottom: 12, maxHeight: 320, objectFit: 'cover' }} />
       )}
 
-      <div style={{ display: 'flex', gap: 4, borderTop: '1px solid var(--border-color)', paddingTop: 10 }}>
+      <div style={{ display: 'flex', gap: 4, borderTop: '1px solid var(--border-color)', paddingTop: 10, flexWrap: 'wrap' }}>
         {[
           { icon: liked ? '❤️' : '🤍', label: likes,  action: handleLike,  active: liked,  color: '#f87171' },
           { icon: saved ? '🔖' : '📎', label: saves,  action: handleSave,  active: saved,  color: '#fbbf24' },
@@ -110,6 +190,16 @@ function PostCard({ post, onLike, onSave, onShare }) {
             <span>{btn.label}</span>
           </button>
         ))}
+
+        {/* Admin controls */}
+        {isAdmin && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+            <button onClick={handleAdminPin} title={pinned ? 'Unpin' : 'Pin'} style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(245,158,11,0.4)', background: pinned ? 'rgba(245,158,11,0.15)' : 'transparent', color: '#fbbf24', fontSize: '0.78rem', cursor: 'pointer' }}>📌</button>
+            <button onClick={() => setEditMode(true)} title="Edit" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(96,165,250,0.4)', background: 'rgba(96,165,250,0.1)', color: '#60a5fa', fontSize: '0.78rem', cursor: 'pointer' }}>✏️</button>
+            <button onClick={handleAdminHide} title="Toggle global hide" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(107,114,128,0.4)', background: post.status === 'hidden' ? 'rgba(107,114,128,0.2)' : 'transparent', color: 'var(--text-muted)', fontSize: '0.78rem', cursor: 'pointer' }}>🚫</button>
+            <button onClick={handleAdminDelete} title="Delete globally" style={{ padding: '5px 9px', borderRadius: 7, border: '1px solid rgba(248,113,113,0.4)', background: 'rgba(248,113,113,0.1)', color: '#f87171', fontSize: '0.78rem', cursor: 'pointer' }}>🗑</button>
+          </div>
+        )}
       </div>
     </article>
   )
@@ -217,6 +307,7 @@ function TrendingSidebar({ trending }) {
 
 export default function FeedPage() {
   const navigate = useNavigate()
+  const { admin } = useAuth()
   const [user,     setUser]     = useState(null)
   const [posts,    setPosts]    = useState([])
   const [trending, setTrending] = useState([])
@@ -262,6 +353,11 @@ export default function FeedPage() {
 
   const handleNewPost = (post) => {
     setPosts(prev => [post, ...prev])
+  }
+
+  const handleHidePost = async (postId) => {
+    await hidePostForMe(postId)
+    setPosts(prev => prev.filter(p => p.post_id !== postId))
   }
 
   const handleLogout = async () => { navigate('/') }
@@ -316,6 +412,9 @@ export default function FeedPage() {
                   onLike={likePost}
                   onSave={savePost}
                   onShare={sharePost}
+                  onHide={handleHidePost}
+                  isAdmin={!!admin}
+                  onAdminAction={() => loadPosts(1, filter, true)}
                 />
               ))}
 

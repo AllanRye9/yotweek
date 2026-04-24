@@ -529,13 +529,21 @@ export const createPost = (data) => request('POST', '/api/posts', data)
 export const getFeed = (params) => request('GET', `/api/feed?${new URLSearchParams(params || {})}`)
 export const getTrendingFeed = () => request('GET', '/api/feed/trending')
 export const getPost = (postId) => request('GET', `/api/posts/${postId}`)
-export const deletePost = (postId) => request('DELETE', `/api/posts/${postId}`)
+export const hidePostForMe = (postId) => request('DELETE', `/api/posts/${postId}`)
+export const deletePost = hidePostForMe  // alias kept for compatibility
 export const likePost = (postId) => request('POST', `/api/posts/${postId}/like`)
 export const savePost = (postId) => request('POST', `/api/posts/${postId}/save`)
 export const sharePost = (postId) => request('POST', `/api/posts/${postId}/share`)
 export const getComments = (postId) => request('GET', `/api/posts/${postId}/comments`)
 export const addComment = (postId, data) => request('POST', `/api/posts/${postId}/comments`, data)
 export const deleteComment = (postId, commentId) => request('DELETE', `/api/posts/${postId}/comments/${commentId}`)
+
+// Admin: Post Moderation
+export const adminGetPosts = (params) => request('GET', `/admin/api/posts?${new URLSearchParams(params || {})}`)
+export const adminEditPost = (postId, data) => request('PATCH', `/admin/api/posts/${postId}`, data)
+export const adminPinPost = (postId) => request('POST', `/admin/api/posts/${postId}/pin`, {})
+export const adminHidePost = (postId) => request('POST', `/admin/api/posts/${postId}/hide`, {})
+export const adminDeletePostGlobal = (postId) => request('DELETE', `/admin/api/posts/${postId}`)
 
 // Phase 3: Companion Matching & Group Trips
 export const getCompanionSuggestions = () => request('GET', '/api/companions/suggestions')

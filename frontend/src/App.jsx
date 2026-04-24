@@ -4,6 +4,7 @@ import { deleteSession, getUserProfile, getMe } from './api'
 import { SESSION_ID } from './session'
 import { getAdminAuthStatus } from './api'
 import Home from './pages/Home'
+import FeedGroupsHome from './pages/FeedGroupsHome'
 import RidesPage from './pages/RidesPage'
 import UserDashboard from './pages/UserDashboard'
 import DriverDashboard from './pages/DriverDashboard'
@@ -151,7 +152,10 @@ function RoutesWithTransition() {
   return (
     <Suspense fallback={null}>
       <Routes>
-        <Route path="/" element={<PageWrapper><Home /></PageWrapper>} />
+        {/* Default landing — Feed & Group Travels view */}
+        <Route path="/" element={<PageWrapper><FeedGroupsHome /></PageWrapper>} />
+        {/* Legacy home (ride-sharing landing) */}
+        <Route path="/home" element={<PageWrapper><Home /></PageWrapper>} />
         {/* Auth pages */}
         <Route path="/login" element={<PageWrapper><LoginPage /></PageWrapper>} />
         <Route path="/register" element={<PageWrapper><RegisterPage /></PageWrapper>} />
