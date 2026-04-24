@@ -21,6 +21,9 @@ import {
   updateProfileDetails,
   updateUserLocation,
   getRideHistory,
+  getExtraProfile,
+  updateExtraProfile,
+  updatePrivacy,
 } from '../api'
 import NavBar from '../components/NavBar'
 import UserAuth from '../components/UserAuth'
@@ -502,6 +505,186 @@ function RidesHistory() {
   )
 }
 
+// ─── Travel Preferences ───────────────────────────────────────────────────────
+function TravelPreferences() {
+  const TRAVEL_STYLE_OPTS   = ['budget', 'mid-range', 'luxury', 'backpacker']
+  const BUDGET_RANGE_OPTS   = ['<$50/day', '$50-150/day', '$150-500/day', '$500+/day']
+  const VISIBILITY_OPTS     = ['public', 'friends', 'private']
+
+  const defaultPrefs = { travel_style: '', budget_range: '', interests: '', languages: '', available_from: '', available_to: '', preferred_destinations: '', bio_travel: '' }
+  const defaultPrivacy = { profile_visibility: 'public', show_location: 'public', show_travel_dates: 'public' }
+
+  const [prefs,       setPrefs]       = useState(defaultPrefs)
+  const [privacy,     setPrivacy]     = useState(defaultPrivacy)
+  const [loading,     setLoading]     = useState(true)
+  const [savingPrefs, setSavingPrefs] = useState(false)
+  const [savingPriv,  setSavingPriv]  = useState(false)
+  const [savedPrefs,  setSavedPrefs]  = useState(false)
+  const [savedPriv,   setSavedPriv]   = useState(false)
+  const [errorPrefs,  setErrorPrefs]  = useState('')
+  const [errorPriv,   setErrorPriv]   = useState('')
+
+  useEffect(() => {
+    getExtraProfile()
+      .then(d => {
+        const p = d.profile || d || {}
+        setPrefs({
+          travel_style:          p.travel_style          || '',
+          budget_range:          p.budget_range          || '',
+          interests:             Array.isArray(p.interests) ? p.interests.join(', ') : (p.interests || ''),
+          languages:             p.languages             || '',
+          available_from:        p.available_from        || '',
+          available_to:          p.available_to          || '',
+          preferred_destinations: p.preferred_destinations || '',
+          bio_travel:            p.bio_travel            || '',
+        })
+        const priv = d.privacy || p.privacy || {}
+        setPrivacy({
+          profile_visibility: priv.profile_visibility || 'public',
+          show_location:      priv.show_location      || 'public',
+          show_travel_dates:  priv.show_travel_dates  || 'public',
+        })
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const setP  = (k, v) => setPrefs(prev => ({ ...prev, [k]: v }))
+  const setPr = (k, v) => setPrivacy(prev => ({ ...prev, [k]: v }))
+
+  const handleSavePrefs = async (e) => {
+    e.preventDefault()
+    setSavingPrefs(true)
+    setErrorPrefs('')
+    try {
+      await updateExtraProfile({
+        ...prefs,
+        interests: prefs.interests ? prefs.interests.split(',').map(s => s.trim()).filter(Boolean) : [],
+      })
+      setSavedPrefs(true)
+      setTimeout(() => setSavedPrefs(false), 2500)
+    } catch (err) {
+      setErrorPrefs(err.message || 'Save failed.')
+    } finally {
+      setSavingPrefs(false)
+    }
+  }
+
+  const handleSavePrivacy = async (e) => {
+    e.preventDefault()
+    setSavingPriv(true)
+    setErrorPriv('')
+    try {
+      await updatePrivacy(privacy)
+      setSavedPriv(true)
+      setTimeout(() => setSavedPriv(false), 2500)
+    } catch (err) {
+      setErrorPriv(err.message || 'Save failed.')
+    } finally {
+      setSavingPriv(false)
+    }
+  }
+
+  const fieldStyle = { width: '100%', background: 'var(--bg-input, var(--bg-surface))', border: '1px solid var(--border-color)', borderRadius: 8, padding: '9px 12px', color: 'var(--text-primary)', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' }
+  const labelStyle = { fontSize: '0.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: 4 }
+  const sectionStyle = { background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 16, padding: '20px 24px', marginBottom: 14 }
+
+  if (loading) return (
+    <section style={sectionStyle}>
+      <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>🌍 Travel Preferences</h2>
+      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Loading…</p>
+    </section>
+  )
+
+  return (
+    <>
+      {/* Travel Preferences form */}
+      <section style={sectionStyle}>
+        <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>🌍 Travel Preferences</h2>
+        <form onSubmit={handleSavePrefs} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Travel Style</label>
+              <select value={prefs.travel_style} onChange={e => setP('travel_style', e.target.value)} style={fieldStyle}>
+                <option value="">— Select —</option>
+                {TRAVEL_STYLE_OPTS.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Budget Range</label>
+              <select value={prefs.budget_range} onChange={e => setP('budget_range', e.target.value)} style={fieldStyle}>
+                <option value="">— Select —</option>
+                {BUDGET_RANGE_OPTS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Interests (comma-separated)</label>
+            <input type="text" value={prefs.interests} onChange={e => setP('interests', e.target.value)} placeholder="e.g. hiking, food, photography" style={fieldStyle} maxLength={300} />
+          </div>
+          <div>
+            <label style={labelStyle}>Languages Spoken</label>
+            <input type="text" value={prefs.languages} onChange={e => setP('languages', e.target.value)} placeholder="e.g. English, Spanish" style={fieldStyle} maxLength={200} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+            <div>
+              <label style={labelStyle}>Available From</label>
+              <input type="date" value={prefs.available_from} onChange={e => setP('available_from', e.target.value)} style={fieldStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Available To</label>
+              <input type="date" value={prefs.available_to} onChange={e => setP('available_to', e.target.value)} style={fieldStyle} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Preferred Destinations</label>
+            <input type="text" value={prefs.preferred_destinations} onChange={e => setP('preferred_destinations', e.target.value)} placeholder="e.g. Southeast Asia, Europe" style={fieldStyle} maxLength={300} />
+          </div>
+          <div>
+            <label style={labelStyle}>Travel Bio</label>
+            <textarea value={prefs.bio_travel} onChange={e => setP('bio_travel', e.target.value)} rows={3} style={{ ...fieldStyle, resize: 'vertical', minHeight: 72 }} placeholder="Tell fellow travellers about your travel style…" maxLength={500} />
+          </div>
+          {errorPrefs && <p style={{ fontSize: '0.8rem', color: '#f87171' }}>{errorPrefs}</p>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button type="submit" disabled={savingPrefs} style={{ padding: '8px 22px', borderRadius: 8, border: 'none', background: 'var(--accent, #f59e0b)', color: 'var(--accent-text, #000)', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', opacity: savingPrefs ? 0.6 : 1 }}>
+              {savingPrefs ? 'Saving…' : 'Save Preferences'}
+            </button>
+            {savedPrefs && <span style={{ fontSize: '0.82rem', color: '#34d399' }}>✓ Saved</span>}
+          </div>
+        </form>
+      </section>
+
+      {/* Privacy Settings */}
+      <section style={sectionStyle}>
+        <h2 style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.06em' }}>🔒 Privacy Settings</h2>
+        <form onSubmit={handleSavePrivacy} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12 }}>
+            {[
+              { key: 'profile_visibility', label: 'Profile Visibility' },
+              { key: 'show_location',      label: 'Show Location'      },
+              { key: 'show_travel_dates',  label: 'Show Travel Dates'  },
+            ].map(({ key, label }) => (
+              <div key={key}>
+                <label style={labelStyle}>{label}</label>
+                <select value={privacy[key]} onChange={e => setPr(key, e.target.value)} style={fieldStyle}>
+                  {VISIBILITY_OPTS.map(o => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+          {errorPriv && <p style={{ fontSize: '0.8rem', color: '#f87171' }}>{errorPriv}</p>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button type="submit" disabled={savingPriv} style={{ padding: '8px 22px', borderRadius: 8, border: 'none', background: 'var(--accent, #f59e0b)', color: 'var(--accent-text, #000)', fontSize: '0.88rem', fontWeight: 600, cursor: 'pointer', opacity: savingPriv ? 0.6 : 1 }}>
+              {savingPriv ? 'Saving…' : 'Save Privacy'}
+            </button>
+            {savedPriv && <span style={{ fontSize: '0.82rem', color: '#34d399' }}>✓ Saved</span>}
+          </div>
+        </form>
+      </section>
+    </>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ProfilePage() {
   const navigate  = useNavigate()
@@ -632,6 +815,7 @@ export default function ProfilePage() {
                 <DetailsPanel user={appUser} onUpdate={handleUpdate} />
                 <AccountActions onLogout={handleLogout} navigate={navigate} />
               </div>
+              <TravelPreferences />
             </>
           )}
         </main>

@@ -63,8 +63,8 @@ export const adminDbUpload      = (file) => {
 
 // ── User Auth ─────────────────────────────────────────────────────────────────
 
-export const userRegister = (name, email, password, role = 'passenger', phone = '') =>
-  request('POST', '/api/auth/register', { name, email, password, role, phone })
+export const userRegister = (name, email, password, role = 'passenger', phone = '', date_of_birth = undefined) =>
+  request('POST', '/api/auth/register', { name, email, password, role, phone, ...(date_of_birth ? { date_of_birth } : {}) })
 
 export const userLogin = (email, password, remember_me = false) =>
   request('POST', '/api/auth/login', { email, password, remember_me })
@@ -72,6 +72,7 @@ export const userLogin = (email, password, remember_me = false) =>
 export const userLogout = () => request('POST', '/api/auth/logout', {})
 
 export const getUserProfile = () => request('GET', '/api/auth/me')
+export const getMe = () => request('GET', '/api/auth/me')
 
 export const updateUserLocation = (lat, lng, location_name = '') =>
   request('POST', '/api/auth/location', { lat, lng, location_name })
@@ -516,3 +517,72 @@ export const getAdminReviews = () => request('GET', '/api/admin/reviews')
 export const deleteAdminReview = (reviewId) => request('DELETE', `/api/admin/reviews/${encodeURIComponent(reviewId)}`)
 export const getAdminProperties = () => request('GET', '/api/admin/properties')
 export const adminDeleteProperty = (propertyId) => request('DELETE', `/api/admin/properties/${encodeURIComponent(propertyId)}`)
+
+// Phase 1: Profile & Identity
+export const getExtraProfile = () => request('GET', '/api/profile/extra')
+export const updateExtraProfile = (data) => request('PUT', '/api/profile/extra', data)
+export const updatePrivacy = (data) => request('PUT', '/api/profile/privacy', data)
+export const getFullProfile = (userId) => request('GET', `/api/users/${userId}/full_profile`)
+
+// Phase 2: Social Feed
+export const createPost = (data) => request('POST', '/api/posts', data)
+export const getFeed = (params) => request('GET', `/api/feed?${new URLSearchParams(params || {})}`)
+export const getTrendingFeed = () => request('GET', '/api/feed/trending')
+export const getPost = (postId) => request('GET', `/api/posts/${postId}`)
+export const deletePost = (postId) => request('DELETE', `/api/posts/${postId}`)
+export const likePost = (postId) => request('POST', `/api/posts/${postId}/like`)
+export const savePost = (postId) => request('POST', `/api/posts/${postId}/save`)
+export const sharePost = (postId) => request('POST', `/api/posts/${postId}/share`)
+export const getComments = (postId) => request('GET', `/api/posts/${postId}/comments`)
+export const addComment = (postId, data) => request('POST', `/api/posts/${postId}/comments`, data)
+export const deleteComment = (postId, commentId) => request('DELETE', `/api/posts/${postId}/comments/${commentId}`)
+
+// Phase 3: Companion Matching & Group Trips
+export const getCompanionSuggestions = () => request('GET', '/api/companions/suggestions')
+export const expressInterest = (userId) => request('POST', `/api/companions/${userId}/interested`)
+export const passCompanion = (userId) => request('POST', `/api/companions/${userId}/pass`)
+export const getGroupTrips = () => request('GET', '/api/group_trips')
+export const createGroupTrip = (data) => request('POST', '/api/group_trips', data)
+export const getGroupTrip = (tripId) => request('GET', `/api/group_trips/${tripId}`)
+export const joinGroupTrip = (tripId) => request('POST', `/api/group_trips/${tripId}/join`)
+export const leaveGroupTrip = (tripId) => request('POST', `/api/group_trips/${tripId}/leave`)
+
+// Phase 4: Enhanced Ride System
+export const scanRidesByLocation = (lat, lng) => request('GET', `/api/rides/scan?lat=${lat}&lng=${lng}`)
+export const getPartnerLocations = () => request('GET', '/api/partner_locations')
+export const createPartnerLocation = (data) => request('POST', '/api/partner_locations', data)
+export const bookRide = (rideId, data) => request('POST', `/api/rides/${rideId}/book`, data)
+export const acceptBooking = (bookingId) => request('POST', `/api/rides/bookings/${bookingId}/accept`)
+export const completeBooking = (bookingId) => request('POST', `/api/rides/bookings/${bookingId}/complete`)
+export const cancelBooking = (bookingId) => request('POST', `/api/rides/bookings/${bookingId}/cancel`)
+export const getMyBookings = () => request('GET', '/api/rides/bookings')
+export const sendWellnessPing = (data) => request('POST', '/api/wellness_ping', data)
+export const respondWellnessPing = (pingId) => request('POST', `/api/wellness_ping/${pingId}/respond`)
+export const getRideAuditLog = (rideId) => request('GET', `/api/rides/${rideId}/audit_log`)
+
+// Phase 5: Group Trip Planning
+export const getTripIdeas = (tripId) => request('GET', `/api/group_trips/${tripId}/ideas`)
+export const addTripIdea = (tripId, data) => request('POST', `/api/group_trips/${tripId}/ideas`, data)
+export const voteTripIdea = (tripId, ideaId, data) => request('POST', `/api/group_trips/${tripId}/ideas/${ideaId}/vote`, data)
+export const getCostSplit = (tripId) => request('GET', `/api/group_trips/${tripId}/cost_split`)
+export const updateCostSplit = (tripId, data) => request('PUT', `/api/group_trips/${tripId}/cost_split`, data)
+export const getTripChecklist = (tripId) => request('GET', `/api/group_trips/${tripId}/checklist`)
+export const addChecklistItem = (tripId, data) => request('POST', `/api/group_trips/${tripId}/checklist`, data)
+export const toggleChecklistItem = (tripId, itemId) => request('PUT', `/api/group_trips/${tripId}/checklist/${itemId}/toggle`)
+
+// Phase 7: Safety & Emergency
+export const triggerSOS = (data) => request('POST', '/api/sos', data)
+export const resolveSOS = (alertId) => request('POST', `/api/sos/${alertId}/resolve`)
+export const getTrustedContacts = () => request('GET', '/api/trusted_contacts')
+export const addTrustedContact = (data) => request('POST', '/api/trusted_contacts', data)
+export const removeTrustedContact = (contactId) => request('DELETE', `/api/trusted_contacts/${contactId}`)
+export const getEmergencyResources = (country) => request('GET', `/api/emergency_resources?country=${encodeURIComponent(country)}`)
+
+// Phase 8: Messaging Enhancements
+export const toggleE2E = (conversationId) => request('PUT', `/api/conversations/${conversationId}/e2e`)
+export const acceptMessageRequest = (conversationId) => request('POST', `/api/conversations/${conversationId}/accept`)
+export const declineMessageRequest = (conversationId) => request('POST', `/api/conversations/${conversationId}/decline`)
+export const translateMessage = (text, targetLang) => request('GET', `/api/translate?text=${encodeURIComponent(text)}&target=${targetLang}`)
+
+// Phase 9: Analytics
+export const getAnalyticsDashboard = () => request('GET', '/api/analytics/dashboard')

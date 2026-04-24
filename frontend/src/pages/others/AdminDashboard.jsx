@@ -14,6 +14,7 @@ import {
   getAdminProperties, adminDeleteProperty,
   getAdminUsers, adminDeleteUser,
   getAdminBroadcasts, adminCancelBroadcast,
+  getAnalyticsDashboard,
 } from '../../api'
 import AdminStats from '../../components/others/admin/AdminStats'
 import AnalyticsCharts from '../../components/others/admin/AnalyticsCharts'
@@ -23,19 +24,20 @@ import VisitorsTable from '../../components/others/admin/VisitorsTable'
 import ThemeSelector from '../../components/ThemeSelector'
 
 const SIDEBAR_TABS = [
-  { id: 'dashboard',    icon: '📊', label: 'Dashboard'    },
-  { id: 'analytics',    icon: '📈', label: 'Analytics'    },
-  { id: 'downloads',    icon: '📥', label: 'Downloads'    },
-  { id: 'visitors',     icon: '👥', label: 'Visitors'     },
-  { id: 'rides',        icon: '🚗', label: 'Rides'        },
-  { id: 'drivers',      icon: '🚕', label: 'Driver Apps'  },
-  { id: 'agents',       icon: '🏡', label: 'Agent Apps'   },
-  { id: 'reviews',      icon: '⭐',  label: 'Reviews'      },
-  { id: 'properties',   icon: '🏘',  label: 'Properties'  },
-  { id: 'users',        icon: '👤',  label: 'Users'        },
-  { id: 'broadcasts',   icon: '📡',  label: 'Broadcasts'  },
-  { id: 'database',     icon: '🗄',  label: 'Database'    },
-  { id: 'cookies',      icon: '🍪',  label: 'Cookies'     },
+  { id: 'dashboard',         icon: '📊', label: 'Dashboard'         },
+  { id: 'analytics',         icon: '📈', label: 'Analytics'         },
+  { id: 'platform_analytics',icon: '📊', label: 'Platform Stats'    },
+  { id: 'downloads',         icon: '📥', label: 'Downloads'         },
+  { id: 'visitors',          icon: '👥', label: 'Visitors'          },
+  { id: 'rides',             icon: '🚗', label: 'Rides'             },
+  { id: 'drivers',           icon: '🚕', label: 'Driver Apps'       },
+  { id: 'agents',            icon: '🏡', label: 'Agent Apps'        },
+  { id: 'reviews',           icon: '⭐',  label: 'Reviews'           },
+  { id: 'properties',        icon: '🏘',  label: 'Properties'       },
+  { id: 'users',             icon: '👤',  label: 'Users'             },
+  { id: 'broadcasts',        icon: '📡',  label: 'Broadcasts'       },
+  { id: 'database',          icon: '🗄',  label: 'Database'         },
+  { id: 'cookies',           icon: '🍪',  label: 'Cookies'          },
 ]
 
 function WipeAllModal({ onBackup, onConfirm, onClose }) {
@@ -123,6 +125,8 @@ export default function AdminDashboard() {
   const [adminBroadcasts, setAdminBroadcasts] = useState([])
   const [loadingBroadcasts, setLoadingBroadcasts] = useState(false)
   const [cookieStatus, setCookieStatus] = useState(null)
+  const [platformStats, setPlatformStats] = useState(null)
+  const [loadingPlatformStats, setLoadingPlatformStats] = useState(false)
   const [loadingAnalytics, setLoadingAnalytics] = useState(false)
   const [loadingDl, setLoadingDl]     = useState(false)
   const [loadingVis, setLoadingVis]   = useState(false)
@@ -153,6 +157,12 @@ export default function AdminDashboard() {
     setLoadingAnalytics(true)
     try { setAnalytics(await getAdminAnalytics()) } catch {}
     finally { setLoadingAnalytics(false) }
+  }, [])
+
+  const fetchPlatformStats = useCallback(async () => {
+    setLoadingPlatformStats(true)
+    try { setPlatformStats(await getAnalyticsDashboard()) } catch {}
+    finally { setLoadingPlatformStats(false) }
   }, [])
 
   const fetchDownloads = useCallback(async () => {
@@ -223,16 +233,17 @@ export default function AdminDashboard() {
       fetchDriverApps()
       fetchAgentApps()
     }
-    if (tab === 'downloads')  fetchDownloads()
-    if (tab === 'visitors')   fetchVisitors()
-    if (tab === 'cookies')    fetchCookies()
-    if (tab === 'rides')      fetchRides()
-    if (tab === 'drivers')    fetchDriverApps()
-    if (tab === 'agents')     fetchAgentApps()
-    if (tab === 'reviews')    fetchAdminReviews()
-    if (tab === 'properties') fetchAdminProperties()
-    if (tab === 'users')      fetchAdminUsers()
-    if (tab === 'broadcasts') fetchAdminBroadcasts()
+    if (tab === 'downloads')         fetchDownloads()
+    if (tab === 'visitors')          fetchVisitors()
+    if (tab === 'cookies')           fetchCookies()
+    if (tab === 'rides')             fetchRides()
+    if (tab === 'drivers')           fetchDriverApps()
+    if (tab === 'agents')            fetchAgentApps()
+    if (tab === 'reviews')           fetchAdminReviews()
+    if (tab === 'properties')        fetchAdminProperties()
+    if (tab === 'users')             fetchAdminUsers()
+    if (tab === 'broadcasts')        fetchAdminBroadcasts()
+    if (tab === 'platform_analytics') fetchPlatformStats()
   }, [tab])
 
   const handleLogout = async () => {
@@ -389,6 +400,7 @@ export default function AdminDashboard() {
               if (tab === 'properties') fetchAdminProperties()
               if (tab === 'users')      fetchAdminUsers()
               if (tab === 'broadcasts') fetchAdminBroadcasts()
+              if (tab === 'platform_analytics') fetchPlatformStats()
             }}
           >↻ Refresh</button>
         </header>
@@ -474,6 +486,41 @@ export default function AdminDashboard() {
               {loadingAnalytics && !analytics
                 ? <div className="flex justify-center py-20"><span className="spinner w-10 h-10" /></div>
                 : <AnalyticsCharts analytics={analytics} downloadsTrend={downloadsTrend} />
+              }
+            </div>
+          )}
+
+          {/* Platform Analytics tab */}
+          {tab === 'platform_analytics' && (
+            <div>
+              {loadingPlatformStats && !platformStats
+                ? <div className="flex justify-center py-20"><span className="spinner w-10 h-10" /></div>
+                : platformStats ? (
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Platform Overview</h2>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6">
+                      {[
+                        { label: 'Total Users',        value: platformStats.total_users,        icon: '👥' },
+                        { label: 'Active (30d)',        value: platformStats.active_users_30d,   icon: '📈' },
+                        { label: 'Total Posts',        value: platformStats.total_posts,        icon: '📝' },
+                        { label: 'Group Trips',        value: platformStats.total_group_trips,  icon: '✈️' },
+                        { label: 'Total Rides',        value: platformStats.total_rides,        icon: '🚗' },
+                        { label: 'SOS Alerts',         value: platformStats.total_sos_alerts,   icon: '🆘' },
+                        { label: 'New Users Today',    value: platformStats.new_users_today,    icon: '🆕' },
+                        { label: 'New Posts Today',    value: platformStats.new_posts_today,    icon: '✍️' },
+                      ].map(({ label, value, icon }) => (
+                        <div key={label} className="rounded-xl border border-gray-700/60 bg-gray-800/40 p-4">
+                          <p className="text-xs text-gray-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                            <span>{icon}</span>{label}
+                          </p>
+                          <p className="text-2xl font-bold text-white">{value ?? '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-center py-20 text-gray-500 text-sm">No data available.</div>
+                )
               }
             </div>
           )}

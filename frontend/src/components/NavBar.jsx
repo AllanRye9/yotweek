@@ -137,6 +137,26 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
           </Link>
         )}
 
+        {/* Feed & Group Trips shortcuts */}
+        {user && (
+          <>
+            <Link
+              to="/feed"
+              className="hidden md:inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
+              style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+            >
+              Feed
+            </Link>
+            <Link
+              to="/group-trips"
+              className="hidden md:inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border transition-colors hover:opacity-80"
+              style={{ borderColor: 'var(--border-color)', color: 'var(--text-secondary)' }}
+            >
+              Group Trips
+            </Link>
+          </>
+        )}
+
         {/* Notifications bell */}
         {user && (
           <Link
@@ -217,6 +237,20 @@ export default function NavBar({ user, onLogout, onLogin, title, backPath }) {
                         style={{ color: 'var(--text-primary)' }}
                       >
                         🏠 Dashboard
+                      </Link>
+                      <Link
+                        to="/feed"
+                        className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        📰 Feed
+                      </Link>
+                      <Link
+                        to="/group-trips"
+                        className="block px-4 py-2 text-sm transition-colors hover:opacity-80"
+                        style={{ color: 'var(--text-primary)' }}
+                      >
+                        ✈️ Group Trips
                       </Link>
                       <Link
                         to="/profile"

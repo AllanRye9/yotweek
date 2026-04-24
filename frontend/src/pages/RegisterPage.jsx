@@ -27,6 +27,7 @@ export default function RegisterPage() {
   const [name, setName]           = useState('')
   const [email, setEmail]         = useState('')
   const [phone, setPhone]         = useState('')
+  const [dateOfBirth, setDob]     = useState('')
   const [password, setPass]       = useState('')
   const [confirmPass, setConfirm] = useState('')
   const [showPass, setShowPass]   = useState(false)
@@ -62,7 +63,7 @@ export default function RegisterPage() {
     if (confirmPass !== password) return setError('Passwords do not match.')
     setLoading(true)
     try {
-      const regData = await userRegister(name.trim(), email.trim(), password, role, phone.trim())
+      const regData = await userRegister(name.trim(), email.trim(), password, role, phone.trim(), dateOfBirth || undefined)
       if (regData.email_verified === false) {
         setSuccess('Account created! Please check your email to verify your account before signing in.')
         setLoading(false)
@@ -210,6 +211,16 @@ export default function RegisterPage() {
                 {confirmTouched && confirmPass !== password && (
                   <p className="text-red-400 text-xs mt-1">Passwords do not match.</p>
                 )}
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Date of Birth (optional, for age verification)</label>
+                <input
+                  type="date"
+                  value={dateOfBirth}
+                  onChange={e => setDob(e.target.value)}
+                  className="w-full rounded-lg bg-gray-800 border border-gray-600 text-gray-100 text-sm p-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
               </div>
 
               <div>
