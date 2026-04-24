@@ -11,7 +11,7 @@ import 'package:flutter/material.dart';
 ///   Grey     #6B7280  – secondary / hint text
 ///   Red      #DC3545  – destructive / error
 ///
-/// All text/background pairings meet WCAG 2.1 AA (≥4.5 : 1 for normal text).
+/// All text/background pairings meet WCAG 2.1 AA (≥4.5:1 contrast for normal text).
 abstract final class ClassicalTheme {
   // ── Colour constants ──────────────────────────────────────────────────────
 

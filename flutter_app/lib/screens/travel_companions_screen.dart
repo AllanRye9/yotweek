@@ -773,6 +773,7 @@ class _CompanionProfileScreen extends StatelessWidget {
         currentUser!['user_id'].toString() == companion['user_id'].toString();
 
     Widget leftPanel = _ProfileLeft(
+      companion: companion,
       name: name, bio: bio, avatarUrl: avatarUrl,
       verified: verified, score: score, interests: interests,
       cs: cs, tt: tt,
@@ -821,6 +822,7 @@ class _CompanionProfileScreen extends StatelessWidget {
 }
 
 class _ProfileLeft extends StatelessWidget {
+  final Map<String, dynamic> companion;
   final String name, bio, avatarUrl;
   final bool verified;
   final int? score;
@@ -829,6 +831,7 @@ class _ProfileLeft extends StatelessWidget {
   final TextTheme tt;
 
   const _ProfileLeft({
+    required this.companion,
     required this.name, required this.bio, required this.avatarUrl,
     required this.verified, required this.score, required this.interests,
     required this.cs, required this.tt,
@@ -887,7 +890,7 @@ class _ProfileLeft extends StatelessWidget {
           ],
           // Verification badges (spec §9)
           const SizedBox(height: 16),
-          _VerificationBadges(companion: const {}, verified: verified, cs: cs, tt: tt),
+          _VerificationBadges(companion: companion, verified: verified, cs: cs, tt: tt),
         ],
       ),
     );
