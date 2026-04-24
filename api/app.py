@@ -920,6 +920,16 @@ def init_db():
                     )
                 """)
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS post_user_hides (
+                        id SERIAL PRIMARY KEY,
+                        hide_id TEXT UNIQUE NOT NULL,
+                        post_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(post_id, user_id)
+                    )
+                """)
+                cur.execute("""
                     CREATE TABLE IF NOT EXISTS companion_interests (
                         id SERIAL PRIMARY KEY,
                         interest_id TEXT UNIQUE NOT NULL,
@@ -1150,6 +1160,13 @@ def init_db():
                 for col, coldef in [("date_of_birth", "TEXT DEFAULT ''")]:
                     try:
                         cur.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
+                        conn.commit()
+                    except Exception:
+                        conn.rollback()
+                        pass  # column already exists
+                for col, coldef in [("pinned", "INTEGER DEFAULT 0")]:
+                    try:
+                        cur.execute(f"ALTER TABLE posts ADD COLUMN {col} {coldef}")
                         conn.commit()
                     except Exception:
                         conn.rollback()
@@ -1463,6 +1480,14 @@ def init_db():
                         content TEXT NOT NULL,
                         created_at TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS post_user_hides (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        hide_id TEXT UNIQUE NOT NULL,
+                        post_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        UNIQUE(post_id, user_id)
+                    );
                     CREATE TABLE IF NOT EXISTS companion_interests (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         interest_id TEXT UNIQUE NOT NULL,
@@ -1654,6 +1679,11 @@ def init_db():
                         conn.execute(f"ALTER TABLE app_users ADD COLUMN {col} {coldef}")
                     except Exception:
                         pass
+                for col, coldef in [("pinned", "INTEGER DEFAULT 0")]:
+                    try:
+                        conn.execute(f"ALTER TABLE posts ADD COLUMN {col} {coldef}")
+                    except Exception:
+                        pass  # column already exists
             conn.commit()
         finally:
             conn.close()
@@ -8990,7 +9020,7 @@ async def api_create_post(request: Request, body: _CreatePostRequest):
 
 
 @fastapi_app.get("/api/feed")
-async def api_get_feed(request: Request, destination: str = "", hashtag: str = "", page: int = 1, per_page: int = 20):
+async def api_get_feed(request: Request, destination: str = "", hashtag: str = "", post_type: str = "", page: int = 1, per_page: int = 20):
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
@@ -9000,20 +9030,36 @@ async def api_get_feed(request: Request, destination: str = "", hashtag: str = "
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
+                base = "SELECT p.* FROM posts p WHERE p.status='active' AND p.post_id NOT IN (SELECT post_id FROM post_user_hides WHERE user_id=%s)"
+                params = [user_id]
                 if destination:
-                    cur.execute("SELECT * FROM posts WHERE status='active' AND location_name ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s", (f"%{destination}%", per_page, offset))
-                elif hashtag:
-                    cur.execute("SELECT * FROM posts WHERE status='active' AND hashtags ILIKE %s ORDER BY created_at DESC LIMIT %s OFFSET %s", (f"%{hashtag}%", per_page, offset))
-                else:
-                    cur.execute("SELECT * FROM posts WHERE status='active' ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
+                    base += " AND p.location_name ILIKE %s"
+                    params.append(f"%{destination}%")
+                if hashtag:
+                    base += " AND p.hashtags ILIKE %s"
+                    params.append(f"%{hashtag}%")
+                if post_type:
+                    base += " AND p.post_type=%s"
+                    params.append(post_type)
+                base += " ORDER BY p.pinned DESC, p.created_at DESC LIMIT %s OFFSET %s"
+                params.extend([per_page, offset])
+                cur.execute(base, params)
                 rows = cur.fetchall()
             else:
+                base = "SELECT p.* FROM posts p WHERE p.status='active' AND p.post_id NOT IN (SELECT post_id FROM post_user_hides WHERE user_id=?)"
+                params = [user_id]
                 if destination:
-                    rows = conn.execute("SELECT * FROM posts WHERE status='active' AND location_name LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?", (f"%{destination}%", per_page, offset)).fetchall()
-                elif hashtag:
-                    rows = conn.execute("SELECT * FROM posts WHERE status='active' AND hashtags LIKE ? ORDER BY created_at DESC LIMIT ? OFFSET ?", (f"%{hashtag}%", per_page, offset)).fetchall()
-                else:
-                    rows = conn.execute("SELECT * FROM posts WHERE status='active' ORDER BY created_at DESC LIMIT ? OFFSET ?", (per_page, offset)).fetchall()
+                    base += " AND p.location_name LIKE ?"
+                    params.append(f"%{destination}%")
+                if hashtag:
+                    base += " AND p.hashtags LIKE ?"
+                    params.append(f"%{hashtag}%")
+                if post_type:
+                    base += " AND p.post_type=?"
+                    params.append(post_type)
+                base += " ORDER BY p.pinned DESC, p.created_at DESC LIMIT ? OFFSET ?"
+                params.extend([per_page, offset])
+                rows = conn.execute(base, params).fetchall()
         finally:
             conn.close()
     return JSONResponse({"posts": [dict(r) for r in rows], "page": page, "per_page": per_page})
@@ -9062,26 +9108,39 @@ async def api_get_post(request: Request, post_id: str):
 
 @fastapi_app.delete("/api/posts/{post_id}")
 async def api_delete_post(request: Request, post_id: str):
+    """Per-user post hide: hides the post from the requesting user's feed only."""
     user_id = request.session.get("app_user_id")
     if not user_id:
         return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    hide_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
     with _db_lock:
         conn = _get_db()
         try:
             if USE_POSTGRES:
                 cur = conn.cursor()
-                cur.execute("SELECT user_id FROM posts WHERE post_id=%s", (post_id,))
+                cur.execute("SELECT post_id FROM posts WHERE post_id=%s AND status='active'", (post_id,))
                 row = cur.fetchone()
+                if not row:
+                    return JSONResponse({"error": "Post not found."}, status_code=404)
+                try:
+                    cur.execute(
+                        "INSERT INTO post_user_hides (hide_id,post_id,user_id,created_at) VALUES (%s,%s,%s,%s)",
+                        (hide_id, post_id, user_id, now)
+                    )
+                except Exception:
+                    pass  # already hidden
             else:
-                row = conn.execute("SELECT user_id FROM posts WHERE post_id=?", (post_id,)).fetchone()
-            if not row:
-                return JSONResponse({"error": "Post not found."}, status_code=404)
-            if row["user_id"] != user_id:
-                return JSONResponse({"error": "Forbidden."}, status_code=403)
-            if USE_POSTGRES:
-                cur.execute("UPDATE posts SET status='deleted' WHERE post_id=%s", (post_id,))
-            else:
-                conn.execute("UPDATE posts SET status='deleted' WHERE post_id=?", (post_id,))
+                row = conn.execute("SELECT post_id FROM posts WHERE post_id=? AND status='active'", (post_id,)).fetchone()
+                if not row:
+                    return JSONResponse({"error": "Post not found."}, status_code=404)
+                try:
+                    conn.execute(
+                        "INSERT INTO post_user_hides (hide_id,post_id,user_id,created_at) VALUES (?,?,?,?)",
+                        (hide_id, post_id, user_id, now)
+                    )
+                except Exception:
+                    pass  # already hidden
             conn.commit()
         finally:
             conn.close()
@@ -9260,6 +9319,134 @@ async def api_delete_comment(request: Request, post_id: str, comment_id: str):
             else:
                 conn.execute("DELETE FROM post_comments WHERE comment_id=?", (comment_id,))
                 conn.execute("UPDATE posts SET comments=MAX(comments-1,0) WHERE post_id=?", (post_id,))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+# ── Admin Post Moderation ─────────────────────────────────────────────────────
+
+class _AdminEditPostRequest(BaseModel):
+    content: str = ""
+    title: str = ""
+
+@fastapi_app.get("/admin/api/posts")
+async def admin_list_posts(request: Request, page: int = 1, per_page: int = 30, status: str = "active"):
+    """Admin: list all posts with moderation controls."""
+    if not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+    offset = (page - 1) * per_page
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                if status == "all":
+                    cur.execute("SELECT * FROM posts ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
+                else:
+                    cur.execute("SELECT * FROM posts WHERE status=%s ORDER BY created_at DESC LIMIT %s OFFSET %s", (status, per_page, offset))
+                rows = cur.fetchall()
+            else:
+                if status == "all":
+                    rows = conn.execute("SELECT * FROM posts ORDER BY created_at DESC LIMIT ? OFFSET ?", (per_page, offset)).fetchall()
+                else:
+                    rows = conn.execute("SELECT * FROM posts WHERE status=? ORDER BY created_at DESC LIMIT ? OFFSET ?", (status, per_page, offset)).fetchall()
+        finally:
+            conn.close()
+    return JSONResponse({"posts": [dict(r) for r in rows], "page": page, "per_page": per_page})
+
+
+@fastapi_app.patch("/admin/api/posts/{post_id}")
+async def admin_edit_post(request: Request, post_id: str, body: _AdminEditPostRequest):
+    """Admin: edit post content."""
+    if not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+    if not body.content.strip():
+        return JSONResponse({"error": "Content required."}, status_code=400)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE posts SET content=%s WHERE post_id=%s", (body.content.strip(), post_id))
+            else:
+                conn.execute("UPDATE posts SET content=? WHERE post_id=?", (body.content.strip(), post_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True})
+
+
+@fastapi_app.post("/admin/api/posts/{post_id}/pin")
+async def admin_pin_post(request: Request, post_id: str):
+    """Admin: toggle pin on a post."""
+    if not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT pinned FROM posts WHERE post_id=%s", (post_id,))
+                row = cur.fetchone()
+                if not row:
+                    return JSONResponse({"error": "Post not found."}, status_code=404)
+                new_pinned = 0 if row["pinned"] else 1
+                cur.execute("UPDATE posts SET pinned=%s WHERE post_id=%s", (new_pinned, post_id))
+            else:
+                row = conn.execute("SELECT pinned FROM posts WHERE post_id=?", (post_id,)).fetchone()
+                if not row:
+                    return JSONResponse({"error": "Post not found."}, status_code=404)
+                new_pinned = 0 if row["pinned"] else 1
+                conn.execute("UPDATE posts SET pinned=? WHERE post_id=?", (new_pinned, post_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "pinned": bool(new_pinned)})
+
+
+@fastapi_app.post("/admin/api/posts/{post_id}/hide")
+async def admin_hide_post(request: Request, post_id: str):
+    """Admin: toggle global hide/show on a post."""
+    if not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("SELECT status FROM posts WHERE post_id=%s", (post_id,))
+                row = cur.fetchone()
+                if not row:
+                    return JSONResponse({"error": "Post not found."}, status_code=404)
+                new_status = "active" if row["status"] == "hidden" else "hidden"
+                cur.execute("UPDATE posts SET status=%s WHERE post_id=%s", (new_status, post_id))
+            else:
+                row = conn.execute("SELECT status FROM posts WHERE post_id=?", (post_id,)).fetchone()
+                if not row:
+                    return JSONResponse({"error": "Post not found."}, status_code=404)
+                new_status = "active" if row["status"] == "hidden" else "hidden"
+                conn.execute("UPDATE posts SET status=? WHERE post_id=?", (new_status, post_id))
+            conn.commit()
+        finally:
+            conn.close()
+    return JSONResponse({"ok": True, "status": new_status})
+
+
+@fastapi_app.delete("/admin/api/posts/{post_id}")
+async def admin_delete_post(request: Request, post_id: str):
+    """Admin: permanently delete a post for all users."""
+    if not request.session.get("admin_logged_in"):
+        return JSONResponse({"error": "Admin login required."}, status_code=401)
+    with _db_lock:
+        conn = _get_db()
+        try:
+            if USE_POSTGRES:
+                cur = conn.cursor()
+                cur.execute("UPDATE posts SET status='deleted' WHERE post_id=%s", (post_id,))
+            else:
+                conn.execute("UPDATE posts SET status='deleted' WHERE post_id=?", (post_id,))
             conn.commit()
         finally:
             conn.close()
