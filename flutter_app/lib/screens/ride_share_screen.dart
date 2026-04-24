@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../config/classical_theme.dart';
 import '../services/api_service.dart';
 import 'dm_chat_screen.dart';
 import 'profile_screen.dart';
@@ -25,7 +26,16 @@ class RideShareScreen extends StatefulWidget {
   final VoidCallback? onGoHome;
   final Map<String, dynamic>? currentUser;
 
-  const RideShareScreen({super.key, this.onGoHome, this.currentUser});
+  /// When [true] the screen omits its own [AppBar] because it is hosted
+  /// inside a parent scaffold that already provides one (e.g. [RidesHubScreen]).
+  final bool hideAppBar;
+
+  const RideShareScreen({
+    super.key,
+    this.onGoHome,
+    this.currentUser,
+    this.hideAppBar = false,
+  });
 
   @override
   State<RideShareScreen> createState() => _RideShareScreenState();
@@ -119,24 +129,25 @@ class _RideShareScreenState extends State<RideShareScreen>
   // ── UI helpers ───────────────────────────────────────────────────────────
 
   Widget _statusChip(String status) {
+    final cs = Theme.of(context).colorScheme;
     Color bg;
     Color fg;
     String label;
     switch (status) {
       case 'taken':
-        bg = const Color(0xFF78350F);
-        fg = const Color(0xFFFBBF24);
-        label = '🟡 Taken';
+        bg = ClassicalTheme.gold.withOpacity(0.15);
+        fg = ClassicalTheme.gold;
+        label = '● Taken';
         break;
       case 'cancelled':
-        bg = const Color(0xFF450A0A);
-        fg = const Color(0xFFF87171);
-        label = '🔴 Cancelled';
+        bg = cs.error.withOpacity(0.12);
+        fg = cs.error;
+        label = '● Cancelled';
         break;
       default: // open
-        bg = const Color(0xFF052E16);
-        fg = const Color(0xFF4ADE80);
-        label = '🟢 Open';
+        bg = const Color(0xFF166534).withOpacity(0.15);
+        fg = const Color(0xFF166534);
+        label = '● Open';
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -217,7 +228,9 @@ class _RideShareScreenState extends State<RideShareScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
+      appBar: widget.hideAppBar
+          ? null
+          : AppBar(
         title: const Text('✈️ Airport Pickup Service'),
         leading: IconButton(
           icon: const Icon(Icons.home_outlined),
@@ -299,19 +312,19 @@ class _RideCard extends StatelessWidget {
     this.currentUser,
   });
 
-  Color _cardBorder(String status) {
+  Color _cardBorder(String status, ColorScheme cs) {
     switch (status) {
-      case 'taken':     return const Color(0xFFF59E0B).withOpacity(0.4);
-      case 'cancelled': return const Color(0xFFF87171).withOpacity(0.25);
-      default:          return Colors.grey.withOpacity(0.25);
+      case 'taken':     return ClassicalTheme.gold.withOpacity(0.5);
+      case 'cancelled': return cs.error.withOpacity(0.35);
+      default:          return cs.outlineVariant;
     }
   }
 
-  Color _cardBg(String status) {
+  Color _cardBg(String status, ColorScheme cs) {
     switch (status) {
-      case 'taken':     return const Color(0xFF451A03).withOpacity(0.18);
-      case 'cancelled': return const Color(0xFF450A0A).withOpacity(0.12);
-      default:          return Colors.white.withOpacity(0.04);
+      case 'taken':     return ClassicalTheme.gold.withOpacity(0.08);
+      case 'cancelled': return cs.error.withOpacity(0.06);
+      default:          return cs.surface;
     }
   }
 
@@ -398,6 +411,7 @@ class _RideCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs      = Theme.of(context).colorScheme;
     final status = (ride['status'] as String?) ?? 'open';
     final rideId = ride['ride_id'] as String;
     final isCancelled = status == 'cancelled';
@@ -412,9 +426,9 @@ class _RideCard extends StatelessWidget {
       duration: const Duration(milliseconds: 300),
       child: Container(
         decoration: BoxDecoration(
-          color: _cardBg(status),
+          color: _cardBg(status, cs),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _cardBorder(status), width: 1.2),
+          border: Border.all(color: _cardBorder(status, cs), width: 1.2),
         ),
         padding: const EdgeInsets.all(14),
         child: Column(
@@ -477,8 +491,6 @@ class _RideCard extends StatelessWidget {
                   if (!isDriver) ...[
                     ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF3B82F6),
-                        foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -491,8 +503,8 @@ class _RideCard extends StatelessWidget {
                   ] else ...[
                     OutlinedButton.icon(
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFFBBF24),
-                        side: const BorderSide(color: Color(0xFFFBBF24), width: 0.8),
+                        foregroundColor: ClassicalTheme.gold,
+                        side: BorderSide(color: ClassicalTheme.gold, width: 0.8),
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -504,7 +516,7 @@ class _RideCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     TextButton(
                       style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFFF87171),
+                        foregroundColor: cs.error,
                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,

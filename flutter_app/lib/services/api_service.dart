@@ -517,6 +517,48 @@ class ApiService {
     return List<Map<String, dynamic>>.from(data['drivers'] as List? ?? []);
   }
 
+  // ── Travel Companions ─────────────────────────────────────────────────────
+
+  /// List travel companion profiles, optionally filtered and sorted.
+  ///
+  /// Falls back to an empty list when the server endpoint is not yet
+  /// available (404 / 501) so the UI degrades gracefully.
+  Future<List<Map<String, dynamic>>> listCompanions({
+    String sortBy = 'compatible',
+    String? genderPref,
+    int? ageMin,
+    int? ageMax,
+    String? language,
+    bool verifiedOnly = false,
+    List<String>? interests,
+  }) async {
+    final params = <String, String>{
+      'sort_by': sortBy,
+      if (genderPref != null) 'gender_pref': genderPref,
+      if (ageMin != null) 'age_min': ageMin.toString(),
+      if (ageMax != null) 'age_max': ageMax.toString(),
+      if (language != null) 'language': language,
+      if (verifiedOnly) 'verified_only': 'true',
+      if (interests != null && interests.isNotEmpty)
+        'interests': interests.join(','),
+    };
+    try {
+      final res = await http.get(
+        _uri('/api/companions', params),
+        headers: _cookieHeaders,
+      );
+      if (res.statusCode == 404 || res.statusCode == 501) return [];
+      final data = (await _parseResponse(res)) as Map<String, dynamic>;
+      final list = data['companions'] ?? data['results'] ?? data;
+      if (list is List) {
+        return list.whereType<Map<String, dynamic>>().toList();
+      }
+      return [];
+    } on ApiException {
+      return [];
+    }
+  }
+
   // ── Real Estate Properties ────────────────────────────────────────────────
 
   /// List properties, optionally filtered by [status] ('active', 'sold', 'rented').

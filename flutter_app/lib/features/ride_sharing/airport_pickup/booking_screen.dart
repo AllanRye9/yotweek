@@ -8,7 +8,11 @@ import 'fare_calculator.dart';
 /// Clients select an airport, enter their destination, and the system
 /// auto-calculates the fare before presenting the nearest verified drivers.
 class BookingScreen extends StatefulWidget {
-  const BookingScreen({super.key});
+  /// When [true] the screen omits its own [AppBar] — use this when the
+  /// screen is embedded inside a parent scaffold (e.g. [RidesHubScreen]).
+  final bool hideAppBar;
+
+  const BookingScreen({super.key, this.hideAppBar = false});
 
   @override
   State<BookingScreen> createState() => _BookingScreenState();
@@ -136,7 +140,9 @@ class _BookingScreenState extends State<BookingScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('✈️ Airport Pickup')),
+      appBar: widget.hideAppBar
+          ? null
+          : AppBar(title: const Text('✈️ Airport Pickup')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(

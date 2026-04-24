@@ -9,7 +9,7 @@ import 'files_screen.dart';
 import 'cv_generator_screen.dart';
 import 'doc_converter_screen.dart';
 import 'reviews_screen.dart';
-import 'ride_share_screen.dart';
+import 'rides_hub_screen.dart';
 import 'properties_screen.dart';
 import 'inbox_screen.dart';
 
@@ -156,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
       case 3:
         return const DocConverterScreen();
       case 4:
-        return RideShareScreen(
+        return RidesHubScreen(
           currentUser: _currentUser,
           onGoHome: () => setState(() => _tabIndex = 0),
         );
