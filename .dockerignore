@@ -1,0 +1,14 @@
+# Node modules are installed fresh inside Docker
+frontend/node_modules/
+
+# frontend_dist is built fresh inside Docker; don't overwrite with committed version
+frontend_dist/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# Git directory (not needed in container)
+.git/
+.gitignore

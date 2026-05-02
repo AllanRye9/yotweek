@@ -1874,6 +1874,14 @@ async def ads_txt():
     logger.warning("ads.txt file not found at %s", ads_txt_path)
     return JSONResponse({"error": "ads.txt not found"}, status_code=404)
 
+@fastapi_app.get("/robots.txt")
+async def robots_txt():
+    """Serve robots.txt to guide search engine crawlers."""
+    robots_path = os.path.join(ROOT_DIR, "robots.txt")
+    if os.path.exists(robots_path):
+        return FileResponse(robots_path, media_type="text/plain")
+    return Response("User-agent: *\nAllow: /\n", media_type="text/plain")
+
 @fastapi_app.get("/yotweek.png")
 async def yotweek_icon():
     """Serve the yotweek brand icon."""
@@ -7557,7 +7565,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         # Only serve SPA for non-API / non-static paths
         api_prefixes = (
             "/admin/db/", "/admin/cookies", "/admin/auth_status", "/admin/has_admin",
-            "/admin/api/", "/health", "/ads.txt", "/static/", "/assets/",
+            "/admin/api/", "/health", "/ads.txt", "/robots.txt", "/static/", "/assets/",
             "/api/", "/yotweek.png",
         )
         if not any(path.startswith(p) for p in api_prefixes):
