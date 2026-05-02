@@ -1857,6 +1857,14 @@ async def index(request: Request):
     """Serve the React SPA (main page)"""
     return _react_index()
 
+@fastapi_app.get("/googlea792e3e93ca1f64f.html")
+async def google_site_verification():
+    """Serve Google Search Console HTML verification file."""
+    verification_path = os.path.join(ROOT_DIR, "googlea792e3e93ca1f64f.html")
+    if os.path.exists(verification_path):
+        return FileResponse(verification_path, media_type="text/html")
+    return JSONResponse({"error": "Verification file not found"}, status_code=404)
+
 @fastapi_app.get("/ads.txt")
 async def ads_txt():
     """Serve ads.txt for Google AdSense verification"""
